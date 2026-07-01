@@ -163,10 +163,13 @@ async function main() {
   })
 
   progress.finish()
+  console.log("")
 
-  if (!options.silent)
+  if (!options.silent) {
     console.log(`Wrote ${result.files.length} ${pluralize("file", result.files.length)} to ${resolve(options.outDir)}`)
-  console.log(`Total tokens : ${compactNumber(dataset.summary.lifetimeTokens)}; local enriched : ${compactNumber(dataset.summary.localKnownTokens)}, estimated cost : ${money(dataset.summary.estimatedCostUsd)}`)
+  }
+
+  console.log(`Total tokens : ${compactNumber(dataset.summary.lifetimeTokens)}, local enriched : ${compactNumber(dataset.summary.localKnownTokens)}, estimated cost : ${money(dataset.summary.estimatedCostUsd)}`)
 
   if (!options.silent) {
     if (dataset.profile?.error) {
@@ -353,7 +356,7 @@ function helpText(): string {
   return `Codex usage tool by EDM115
 
 Usage :
-  bun src/cli.ts [generate|collect|help] [options]
+  bun usage [generate|collect|help] [options]
 
 Commands :
   generate   Collect data and write HTML, SVG, PNG, JSON, and CSV outputs
@@ -385,8 +388,8 @@ Output :
   --silent                   Hide action lines, file count, and warnings, keep the progress bar and token summary
 
 Examples :
-  bun src/cli.ts generate --codex-home C:\\Users\\EDM115\\.codex --out outputs\\codex-usage
-  bun src/cli.ts generate --codex-home C:\\Users\\EDM115\\.codex --codex-home D:\\Laptop\\.codex --from 2026-01-01
+  bun usage generate --codex-home C:\\Users\\EDM115\\.codex --out outputs\\codex-usage
+  bun usage generate --codex-home C:\\Users\\EDM115\\.codex --codex-home D:\\Laptop\\.codex --from 2026-01-01
 `
 }
 
