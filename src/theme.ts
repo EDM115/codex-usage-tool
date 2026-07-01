@@ -91,7 +91,7 @@ function themeFromConfig(text: string, configPath: string): UsageTheme | null {
 async function tryFetchNamedTheme(name: string): Promise<UsageTheme | null> {
   for (const url of REMOTE_THEME_URLS) {
     try {
-      const response = await fetch(url, { headers: { "User-Agent": "codex-usage-tool/0.3", Accept: "text/plain" } });
+      const response = await fetch(url, { headers: { "User-Agent": "codex-usage-tool/0.4", Accept: "text/plain" } });
       if (!response.ok) continue;
       const text = await response.text();
       const parsed = parseThemeSeedFromText(name, text);

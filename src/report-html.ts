@@ -47,8 +47,9 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .section-copy { color: var(--muted); font-size: 13px; }
     .section-actions { display: flex; gap: 8px; align-items: flex-start; flex: 0 0 auto; }
     .download-menu { position: relative; }
-    .download-menu summary { list-style: none; user-select: none; }
+    .download-menu summary { list-style: none; user-select: none; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; }
     .download-menu summary::-webkit-details-marker { display: none; }
+    .download-icon { width: 18px; height: 18px; display: block; }
     .download-panel {
       position: absolute;
       right: 0;
@@ -64,6 +65,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
       box-shadow: 0 10px 30px rgba(0,0,0,.35);
     }
     .download-panel button { width: 100%; text-align: left; }
+    .subrows { grid-column: 1 / -1; display: grid; gap: 6px; margin: -3px 0 3px 12px; padding-left: 10px; border-left: 1px solid var(--line); }
+    .subrow { display: grid; grid-template-columns: minmax(100px, 1fr) auto; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; cursor: help; }
+    .subrow .meter { height: 5px; }
+    .mini-section { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .mini-section h4 { margin: 0; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 0; text-transform: uppercase; }
+    .dashboard-export { width: 1100px; min-height: 520px; padding: 18px; background: var(--panel); color: var(--text); font: 14px/1.45 var(--font-ui); }
     .heatmap { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 14px); gap: 4px; width: max-content; min-height: 122px; }
     .cell { width: 14px; height: 14px; border-radius: 3px; background: var(--cell0); }
     .cell[data-level="1"] { background: var(--cell1); }
@@ -183,7 +190,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
           <h2>Cloud Dashboard Breakdown</h2>
           <p class="section-copy">Model, surface, and task metadata from the WHAM dashboard APIs. Bars use tokens or turns when credits are zero.</p>
         </div>
-        <h3>${escapeHtml(dataset.analytics?.error ? "best effort" : dataset.analytics?.fetched ? "from wham APIs" : "saved or unavailable")}</h3>
+        <div class="section-actions">
+          <h3>${escapeHtml(dataset.analytics?.error ? "best effort" : dataset.analytics?.fetched ? "from wham APIs" : "saved or unavailable")}</h3>
+          ${downloadMenu("dashboard")}
+        </div>
       </div>
       <div id="analyticsBreakdown" class="breakdown-grid"></div>
     </section>
@@ -308,7 +318,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         analyticsBreakdown.innerHTML = '<div class="breakdown-panel"><h3>Dashboard data unavailable</h3><div class="rows"><p>' + escapeText(analytics && analytics.error ? analytics.error : 'No wham analytics response was available for this run.') + '</p></div></div>';
         return;
       }
-      analyticsBreakdown.innerHTML = modelPanel(analytics.byModel || []) + surfacePanel(analytics.bySurface || []) + taskPanel(analytics.tasks);
+      analyticsBreakdown.innerHTML = modelPanel(analytics.byModel || [], analytics.byModelVariants || []) + surfacePanel(analytics.bySurface || []) + taskPanel(analytics.tasks);
       analyticsBreakdown.querySelectorAll('[data-tip]').forEach(bindTip);
     }
     function modelTokenRows() {
@@ -331,17 +341,104 @@ export function renderReportHtml(dataset: UsageDataset): string {
       if (!total || !dataset.summary.estimatedCostUsd) return 0;
       return tokens / total * dataset.summary.estimatedCostUsd;
     }
-    function modelPanel(rows) {
+    function estimatedVariantRows(model, variants, localTokens) {
+      const totalCredits = variants.reduce(function (sum, variant) { return sum + variant.credits; }, 0);
+      const modelCost = estimatedCostForTokens(localTokens);
+      return variants.map(function (variant) {
+        const share = totalCredits > 0 ? variant.credits / totalCredits : 0;
+        return Object.assign({}, variant, {
+          estimatedTokens: localTokens && share ? localTokens * share : 0,
+          estimatedCostUsd: modelCost && share ? modelCost * share : 0,
+          estimateSource: localTokens && share ? 'Estimated from local model tokens allocated by WHAM variant credit share.' : 'WHAM exposes credits for this model version, but no token count was available to allocate.'
+        });
+      });
+    }
+    function modeRowsFromVariants(variants) {
       const local = modelTokenRows();
+      const variantsByModel = modelVariantsByName(variants || []);
+      const speeds = new Map();
+      for (const entry of variantsByModel.entries()) {
+        const model = entry[0];
+        const list = entry[1];
+        const localTokens = (local.get(model) || {}).totalTokens || 0;
+        for (const variant of estimatedVariantRows(model, list, localTokens)) {
+          const item = speeds.get(variant.speed) || { speed: variant.speed, credits: 0, estimatedTokens: 0, estimatedCostUsd: 0 };
+          item.credits += variant.credits;
+          item.estimatedTokens += variant.estimatedTokens;
+          item.estimatedCostUsd += variant.estimatedCostUsd;
+          speeds.set(variant.speed, item);
+        }
+      }
+      return [...speeds.values()].filter(function (row) { return row.credits > 0 || row.estimatedTokens > 0; }).sort(function (a, b) { return (b.estimatedTokens || b.credits) - (a.estimatedTokens || a.credits); });
+    }
+    function modelPanel(rows, variants) {
+      const local = modelTokenRows();
+      const variantsByModel = modelVariantsByName(variants || []);
       const merged = rows.map(function (row) { return Object.assign({}, row, { localTokens: (local.get(row.model) || {}).totalTokens || 0 }); });
       const max = Math.max(1, ...merged.map(function (row) { return row.localTokens || row.turns || row.credits || 0; }));
-      return '<div class="breakdown-panel"><h3>Models</h3><div class="rows">' + merged.map(function (row, index) {
+      const modelRows = merged.map(function (row, index) {
         const value = row.localTokens || row.turns || row.credits || 0;
         const color = theme.colors.series[index % theme.colors.series.length];
         const text = (row.localTokens ? compact(row.localTokens) + ' tokens - ' : '') + compact(row.turns) + ' turns';
-        const tip = row.model + '\\nDashboard turns: ' + compact(row.turns) + '\\nThreads: ' + compact(row.threads) + '\\nCredits: ' + compact(row.credits) + '\\nLocal tokens: ' + compact(row.localTokens) + '\\nEstimated local cost share: ' + money(estimatedCostForTokens(row.localTokens));
-        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label" title="'+escapeText(row.model)+'">'+escapeText(row.model)+'</div><div class="row-value">'+escapeText(text)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
-      }).join('') + '</div></div>';
+        const tip = modelTip(row, row.localTokens);
+        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label" title="'+escapeText(row.model)+'">'+escapeText(row.model)+'</div><div class="row-value">'+escapeText(text)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div>'+variantRows(row, variantsByModel.get(row.model) || [], row, row.localTokens, color)+'</div>';
+      }).join('');
+      return '<div class="breakdown-panel"><h3>Models</h3><div class="rows">' + modelRows + reasoningPanel() + fastModePanel(variants || []) + '</div></div>';
+    }
+    function modelTip(row, localTokens) {
+      return row.model + '\\nDashboard turns: ' + compact(row.turns) + '\\nThreads: ' + compact(row.threads) + '\\nCredits: ' + compact(row.credits) + '\\nLocal tokens: ' + compact(localTokens) + '\\nEstimated local cost share: ' + money(estimatedCostForTokens(localTokens));
+    }
+    function modelVariantsByName(variants) {
+      const map = new Map();
+      for (const variant of variants) {
+        if (!map.has(variant.model)) map.set(variant.model, []);
+        map.get(variant.model).push(variant);
+      }
+      for (const list of map.values()) list.sort(function (a, b) { return b.credits - a.credits; });
+      return map;
+    }
+    function variantRows(row, variants, modelRow, localTokens, color) {
+      if (!variants.length) return '';
+      const estimates = estimatedVariantRows(row.model, variants, localTokens);
+      const max = Math.max(1, ...estimates.map(function (variant) { return variant.estimatedTokens || variant.credits; }));
+      return '<div class="subrows">' + estimates.map(function (variant) {
+        const label = variant.speed + (variant.speed === 'fast' ? ' mode' : '');
+        const multiplier = speedMultiplier(variant.speed);
+        const value = variant.estimatedTokens || variant.credits;
+        const valueText = variant.estimatedTokens ? compact(variant.estimatedTokens) + ' tokens - ' + money(variant.estimatedCostUsd) : compact(variant.credits) + ' credits';
+        const tip = variant.model + ' / ' + variant.speed + '\\nEstimated tokens: ' + compact(variant.estimatedTokens) + '\\nEstimated cost: ' + money(variant.estimatedCostUsd) + '\\nVariant credits: ' + compact(variant.credits) + '\\nModel dashboard turns: ' + compact(modelRow.turns) + '\\nModel local tokens: ' + compact(localTokens) + '\\nCost multiplier: ' + multiplier + 'x' + (variant.speed === 'fast' ? '\\nFast mode is cost-weighted at 1.5x.' : '') + '\\n' + variant.estimateSource;
+        return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(label)+'</div><div>'+escapeText(valueText)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
+      }).join('') + '</div>';
+    }
+    function speedMultiplier(speed) { return speed === 'fast' ? 1.5 : 1; }
+    function reasoningRows() {
+      const map = new Map();
+      for (const day of dataset.daily) {
+        for (const effort of Object.keys(day.reasoningEfforts || {})) map.set(effort, (map.get(effort) || 0) + (day.reasoningEfforts[effort] || 0));
+      }
+      return [...map.entries()].map(function (entry) { return { effort: entry[0], tokens: entry[1] }; }).filter(function (row) { return row.tokens > 0; }).sort(function (a, b) { return b.tokens - a.tokens; });
+    }
+    function reasoningPanel() {
+      const rows = reasoningRows();
+      if (!rows.length) return '';
+      const max = Math.max(1, ...rows.map(function (row) { return row.tokens; }));
+      return '<div class="mini-section"><h4>Thinking effort</h4>' + rows.map(function (row, index) {
+        const color = theme.colors.series[(index + 2) % theme.colors.series.length];
+        const tip = row.effort + '\\nLocal reasoning-effort tokens: ' + compact(row.tokens) + '\\nEstimated cost: ' + money(estimatedCostForTokens(row.tokens)) + '\\nSource: rollout turn context; not exposed by WHAM dashboard totals.';
+        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.effort)+'</div><div class="row-value">'+compact(row.tokens)+' tokens - '+money(estimatedCostForTokens(row.tokens))+'</div><div class="meter"><span style="width:'+Math.max(2, row.tokens / max * 100)+'%; background:'+color+'"></span></div></div>';
+      }).join('') + '</div>';
+    }
+    function fastModePanel(variants) {
+      const rows = modeRowsFromVariants(variants || []);
+      if (!rows.length) return '';
+      const max = Math.max(1, ...rows.map(function (row) { return row.estimatedTokens || row.credits; }));
+      return '<div class="mini-section"><h4>Mode mix</h4>' + rows.map(function (row, index) {
+        const color = theme.colors.series[(index + 4) % theme.colors.series.length];
+        const value = row.estimatedTokens || row.credits;
+        const valueText = row.estimatedTokens ? compact(row.estimatedTokens) + ' tokens - ' + money(row.estimatedCostUsd) : compact(row.credits) + ' credits';
+        const tip = row.speed + '\\nEstimated tokens: ' + compact(row.estimatedTokens) + '\\nEstimated cost: ' + money(row.estimatedCostUsd) + '\\nCredits: ' + compact(row.credits) + '\\nCost multiplier: ' + speedMultiplier(row.speed) + 'x' + (row.speed === 'fast' ? '\\nFast mode is the 1.5x mode.' : '') + '\\nEstimated by allocating each model local token total across WHAM speed credits.';
+        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.speed)+'</div><div class="row-value">'+escapeText(valueText)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
+      }).join('') + '</div>';
     }
     function surfacePanel(rows) {
       const max = Math.max(1, ...rows.map(function (row) { return row.textTotalTokens || row.turns || row.credits || row.percent || 0; }));
@@ -412,9 +509,197 @@ export function renderReportHtml(dataset: UsageDataset): string {
       body += '<text class="label" x="'+left+'" y="'+(height - 12)+'">Less to more daily token intensity. Hover cells in the HTML report for details.</text></svg>';
       return '<?xml version="1.0" encoding="UTF-8"?>\\n' + body;
     }
+    function serializedDashboardSvg() {
+      const clone = analyticsBreakdown.cloneNode(true);
+      clone.querySelectorAll('[data-tip]').forEach(function (el) { el.removeAttribute('data-tip'); });
+      const width = 1100;
+      const height = Math.max(560, analyticsBreakdown.scrollHeight + 72);
+      const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export"><h2 style="margin:0 0 12px;font-size:18px;color:'+theme.colors.text+'">Cloud Dashboard Breakdown</h2>' + clone.outerHTML + '</div>';
+      const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:14px}.breakdown-panel{border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows{display:grid;gap:10px;margin-top:12px}.row{display:grid;grid-template-columns:minmax(120px,1fr) auto;gap:12px;align-items:center}.row-label,.task-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row-value{font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrows{grid-column:1/-1;display:grid;gap:6px;margin:-3px 0 3px 12px;padding-left:10px;border-left:1px solid '+theme.colors.line+'}.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.mini-section{display:grid;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid '+theme.colors.line+'}.mini-section h4{margin:0;color:'+theme.colors.muted+';font-size:12px;text-transform:uppercase}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
+      return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
+    }
+    function renderDashboardCanvas() {
+      const analytics = dataset.analytics || {};
+      const models = analytics.byModel || [];
+      const variants = analytics.byModelVariants || [];
+      const surfaces = analytics.bySurface || [];
+      const tasks = analytics.tasks;
+      const local = modelTokenRows();
+      const variantsByModel = modelVariantsByName(variants);
+      const reasoning = reasoningRows();
+      const speedRows = modeRowsFromVariants(variants);
+      const modelLineCount = models.length + variants.reduce(function (sum, variant) { return sum + (variant.credits > 0 ? 1 : 0); }, 0) + (reasoning.length ? reasoning.length + 2 : 0) + (speedRows.length ? speedRows.length + 2 : 0);
+      const taskLineCount = tasks ? 7 + Math.min(8, (tasks.recent || []).length) : 3;
+      const panelLines = Math.max(modelLineCount, surfaces.length, taskLineCount, 6);
+      const width = 1400;
+      const margin = 28;
+      const gap = 18;
+      const panelWidth = Math.floor((width - margin * 2 - gap * 2) / 3);
+      const panelHeight = Math.max(540, 112 + panelLines * 42);
+      const height = panelHeight + 96;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      function font(weight, size) { return weight + ' ' + size + 'px ' + theme.fonts.ui; }
+      function text(value) { return value == null ? '' : String(value); }
+      function fit(value, maxWidth) {
+        let out = text(value);
+        if (ctx.measureText(out).width <= maxWidth) return out;
+        while (out.length > 1 && ctx.measureText(out + '...').width > maxWidth) out = out.slice(0, -1);
+        return out + '...';
+      }
+      function roundRect(x, y, w, h, r, fill, stroke) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+        ctx.fillStyle = fill;
+        ctx.fill();
+        if (stroke) {
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+      function title(x, y, value) {
+        ctx.font = font('700', 16);
+        ctx.fillStyle = theme.colors.muted;
+        ctx.fillText(value, x, y);
+      }
+      function section(x, y, value) {
+        ctx.font = font('700', 12);
+        ctx.fillStyle = theme.colors.muted;
+        ctx.fillText(value.toUpperCase(), x, y);
+      }
+      function barRow(x, y, w, label, valueText, value, max, color, options) {
+        const indent = options && options.indent ? options.indent : 0;
+        const muted = options && options.muted;
+        const rowH = options && options.small ? 32 : 42;
+        ctx.font = font(muted ? '500' : '650', options && options.small ? 12 : 13);
+        ctx.fillStyle = muted ? theme.colors.muted : theme.colors.text;
+        ctx.fillText(fit(label, w - 150 - indent), x + indent, y);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = theme.colors.text;
+        ctx.fillText(fit(valueText, 140), x + w, y);
+        ctx.textAlign = 'left';
+        const barY = y + (options && options.small ? 9 : 12);
+        roundRect(x + indent, barY, w - indent, options && options.small ? 5 : 7, 4, theme.colors.panel2, '');
+        const fillWidth = Math.max(2, Math.min(w - indent, (w - indent) * value / Math.max(1, max)));
+        roundRect(x + indent, barY, fillWidth, options && options.small ? 5 : 7, 4, color, '');
+        return rowH;
+      }
+      function taskText(x, y, w, label, value) {
+        ctx.font = font('650', 13);
+        ctx.fillStyle = theme.colors.text;
+        ctx.fillText(fit(label, w), x, y);
+        ctx.font = font('500', 12);
+        ctx.fillStyle = theme.colors.muted;
+        ctx.fillText(fit(value, w), x, y + 18);
+        return 44;
+      }
+      ctx.fillStyle = theme.colors.panel;
+      ctx.fillRect(0, 0, width, height);
+      ctx.font = font('750', 22);
+      ctx.fillStyle = theme.colors.text;
+      ctx.fillText('Cloud Dashboard Breakdown', margin, 42);
+      ctx.font = font('500', 13);
+      ctx.fillStyle = theme.colors.muted;
+      ctx.fillText('PNG export rendered directly from report data', margin, 64);
+      const panelY = 78;
+      const xs = [margin, margin + panelWidth + gap, margin + (panelWidth + gap) * 2];
+      xs.forEach(function (x) { roundRect(x, panelY, panelWidth, panelHeight, 8, theme.colors.bg, theme.colors.line); });
+      let y = panelY + 34;
+      title(xs[0] + 16, y, 'Models');
+      y += 34;
+      const modelRows = models.map(function (row) { return Object.assign({}, row, { localTokens: (local.get(row.model) || {}).totalTokens || 0 }); });
+      const maxModel = Math.max(1, ...modelRows.map(function (row) { return row.localTokens || row.turns || row.credits || 0; }));
+      modelRows.forEach(function (row, index) {
+        const color = theme.colors.series[index % theme.colors.series.length];
+        const value = row.localTokens || row.turns || row.credits || 0;
+        const valueText = (row.localTokens ? compact(row.localTokens) + ' tokens - ' : '') + compact(row.turns) + ' turns';
+        y += barRow(xs[0] + 16, y, panelWidth - 32, row.model, valueText, value, maxModel, color);
+        const modelVariants = estimatedVariantRows(row.model, variantsByModel.get(row.model) || [], row.localTokens);
+        const maxVariant = Math.max(1, ...modelVariants.map(function (variant) { return variant.estimatedTokens || variant.credits; }));
+        modelVariants.forEach(function (variant) {
+          const variantValue = variant.estimatedTokens || variant.credits;
+          const variantText = variant.estimatedTokens ? compact(variant.estimatedTokens) + ' tokens - ' + money(variant.estimatedCostUsd) : compact(variant.credits) + ' credits';
+          y += barRow(xs[0] + 16, y - 8, panelWidth - 32, variant.speed + (variant.speed === 'fast' ? ' mode' : ''), variantText, variantValue, maxVariant, color, { indent: 18, small: true, muted: true });
+        });
+      });
+      if (reasoning.length) {
+        y += 8;
+        section(xs[0] + 16, y, 'Thinking effort');
+        y += 24;
+        const maxReasoning = Math.max(1, ...reasoning.map(function (row) { return row.tokens; }));
+        reasoning.forEach(function (row, index) {
+          y += barRow(xs[0] + 16, y, panelWidth - 32, row.effort, compact(row.tokens) + ' tokens - ' + money(estimatedCostForTokens(row.tokens)), row.tokens, maxReasoning, theme.colors.series[(index + 2) % theme.colors.series.length], { small: true });
+        });
+      }
+      if (speedRows.length) {
+        y += 8;
+        section(xs[0] + 16, y, 'Mode mix');
+        y += 24;
+        const maxSpeed = Math.max(1, ...speedRows.map(function (row) { return row.estimatedTokens || row.credits; }));
+        speedRows.forEach(function (row, index) {
+          const speedValue = row.estimatedTokens || row.credits;
+          const speedText = row.estimatedTokens ? compact(row.estimatedTokens) + ' tokens - ' + money(row.estimatedCostUsd) : compact(row.credits) + ' credits - ' + speedMultiplier(row.speed) + 'x';
+          y += barRow(xs[0] + 16, y, panelWidth - 32, row.speed, speedText, speedValue, maxSpeed, theme.colors.series[(index + 4) % theme.colors.series.length], { small: true });
+        });
+      }
+      y = panelY + 34;
+      title(xs[1] + 16, y, 'Surfaces');
+      y += 34;
+      const maxSurface = Math.max(1, ...surfaces.map(function (row) { return row.textTotalTokens || row.turns || row.credits || row.percent || 0; }));
+      surfaces.forEach(function (row, index) {
+        const value = row.textTotalTokens || row.turns || row.credits || row.percent || 0;
+        const valueText = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : trimFixed(row.percent) + '%') + ' - ' + compact(row.turns) + ' turns';
+        y += barRow(xs[1] + 16, y, panelWidth - 32, row.surface, valueText, value, maxSurface, theme.colors.series[index % theme.colors.series.length]);
+      });
+      y = panelY + 34;
+      title(xs[2] + 16, y, 'Cloud tasks');
+      y += 34;
+      if (!tasks) {
+        ctx.font = font('500', 13);
+        ctx.fillStyle = theme.colors.muted;
+        ctx.fillText('No task list response was available.', xs[2] + 16, y);
+      } else {
+        const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
+        const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
+        const archived = tasks.archivedCount == null ? 'not fetched' : compact(tasks.archivedCount) + (tasks.archivedHasMore ? '+' : '');
+        y += taskText(xs[2] + 16, y, panelWidth - 32, 'Current tasks', compact(tasks.currentCount) + ' current - ' + archived + ' archived sample');
+        y += taskText(xs[2] + 16, y, panelWidth - 32, 'Pull requests', compact(pr.total) + ' total, ' + compact(pr.merged) + ' merged, ' + compact(pr.open) + ' open');
+        y += taskText(xs[2] + 16, y, panelWidth - 32, 'Diff sample', '+' + compact(diff.linesAdded) + ' / -' + compact(diff.linesRemoved) + ' across ' + compact(diff.filesModified) + ' files');
+        const environments = (tasks.currentByEnvironment || []).map(function (row) { return row.environment + ' (' + row.count + ')'; }).join(', ') || 'none';
+        y += taskText(xs[2] + 16, y, panelWidth - 32, 'Environments', environments);
+        const recent = (tasks.recent || []).slice(0, 8);
+        if (recent.length) {
+          y += 8;
+          section(xs[2] + 16, y, 'Recent tasks');
+          y += 24;
+          recent.forEach(function (task) {
+            y += taskText(xs[2] + 16, y, panelWidth - 32, task.title, task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : ''));
+          });
+        }
+      }
+      return canvas;
+    }
+    function saveDashboardAsPng(name) {
+      const canvas = renderDashboardCanvas();
+      canvas.toBlob(function (blob) {
+        if (blob) saveBlob(blob, name);
+      }, 'image/png');
+    }
     async function download(target, kind) {
-      const svg = target === 'heatmap' ? serializedHeatmapSvg() : serializedChartSvg();
-      const name = target === 'heatmap' ? 'codex-usage-heatmap' : 'codex-usage-chart';
+      const name = target === 'heatmap' ? 'codex-usage-heatmap' : target === 'dashboard' ? 'codex-usage-dashboard' : 'codex-usage-chart';
+      if (target === 'dashboard' && kind === 'png') {
+        saveDashboardAsPng(name + '.png');
+        return;
+      }
+      const svg = target === 'heatmap' ? serializedHeatmapSvg() : target === 'dashboard' ? serializedDashboardSvg() : serializedChartSvg();
       if (kind === 'svg') {
         saveBlob(new Blob([svg], {type:'image/svg+xml;charset=utf-8'}), name + '.svg');
       } else {
@@ -499,6 +784,6 @@ function stat(label: string, value: string): string {
   return `<div class="stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
 }
 
-function downloadMenu(target: "heatmap" | "chart"): string {
-  return `<details class="download-menu"><summary>Download</summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`;
+function downloadMenu(target: "heatmap" | "chart" | "dashboard"): string {
+  return `<details class="download-menu"><summary aria-label="Download" title="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`;
 }

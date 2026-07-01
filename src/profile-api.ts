@@ -27,7 +27,7 @@ export async function loadProfile(options: {
   try {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${options.auth.accessToken}`,
-      "User-Agent": "codex-usage-tool/0.3",
+      "User-Agent": "codex-usage-tool/0.4",
       Accept: "application/json",
     };
     if (options.auth.accountId) headers["ChatGPT-Account-Id"] = options.auth.accountId;

@@ -22,7 +22,7 @@ export async function loadWhamAnalytics(options: {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${options.auth.accessToken}`,
     Accept: "application/json",
-    "User-Agent": "codex-usage-tool/0.3",
+    "User-Agent": "codex-usage-tool/0.4",
     Referer: "https://chatgpt.com/codex/cloud/settings/analytics",
   };
   if (options.auth.accountId) headers["ChatGPT-Account-Id"] = options.auth.accountId;
@@ -96,6 +96,7 @@ function normalizeWhamAnalytics(raw: any, endpoints: Record<string, string>, fet
     return acc;
   }, { credits: 0, turns: 0, threads: 0, users: 0, textTotalTokens: 0 }) ?? { credits: 0, turns: 0, threads: 0, users: 0, textTotalTokens: 0 };
   const byModel = aggregateModels(workspaceUsageCounts?.data ?? [], dailyTokenUsageBreakdown?.data ?? []);
+  const byModelVariants = aggregateModelVariants(dailyTokenUsageBreakdown?.data ?? []);
   const bySurface = aggregateSurfaces(dailyTokenUsageBreakdown?.data ?? [], workspaceUsageCounts?.data ?? []);
   const bySource = aggregateSources(workspaceUsageCounts?.data ?? []);
   return {
@@ -107,6 +108,7 @@ function normalizeWhamAnalytics(raw: any, endpoints: Record<string, string>, fet
     tasks,
     totals,
     byModel,
+    byModelVariants,
     bySurface,
     bySource,
   };
@@ -258,6 +260,20 @@ function aggregateModels(workspace: WhamWorkspaceUsageBucket[], daily: WhamDaily
   return [...map.values()].sort((a, b) => (b.turns || b.credits) - (a.turns || a.credits)).slice(0, 12);
 }
 
+function aggregateModelVariants(daily: WhamDailyBreakdownBucket[]): WhamAnalytics["byModelVariants"] {
+  const map = new Map<string, { model: string; speed: string; credits: number }>();
+  for (const bucket of daily) {
+    for (const row of bucket.models) {
+      const speed = row.speed ?? "standard";
+      const key = row.model + "\u0000" + speed;
+      const item = map.get(key) ?? { model: row.model, speed, credits: 0 };
+      item.credits += row.credits;
+      map.set(key, item);
+    }
+  }
+  return [...map.values()].filter((row) => row.credits > 0).sort((a, b) => b.credits - a.credits);
+}
+
 function aggregateSurfaces(daily: WhamDailyBreakdownBucket[], workspace: WhamWorkspaceUsageBucket[]): WhamAnalytics["bySurface"] {
   const percents = new Map<string, number>();
   for (const bucket of daily) {
@@ -330,7 +346,7 @@ function labelClient(value: string): string {
     qa: "QA",
   };
   if (known[normalized]) return known[normalized];
-  return normalized.replaceAll("_", " ").replace(/w/g, (letter) => letter.toUpperCase());
+  return normalized.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function normalizeNumberRecord(value: any): Record<string, number> {
@@ -352,6 +368,7 @@ function unavailable(endpoints: Record<string, string>, fetched: boolean, error:
     error,
     totals: { credits: 0, turns: 0, threads: 0, users: 0, textTotalTokens: 0 },
     byModel: [],
+    byModelVariants: [],
     bySurface: [],
     bySource: [],
   };

@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-tool",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Generate self-contained Codex usage reports from local .codex files and dashboard APIs",

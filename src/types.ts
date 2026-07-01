@@ -143,6 +143,7 @@ export type WhamAnalytics = {
     textTotalTokens: number;
   };
   byModel: Array<{ model: string; credits: number; turns: number; threads: number; users: number }>;
+  byModelVariants: Array<{ model: string; speed: string; credits: number }>;
   bySurface: Array<{ surface: string; credits: number; percent: number; turns: number; threads: number; users: number; textTotalTokens: number; inputTokens: number; cachedInputTokens: number; outputTokens: number }>;
   bySource: Array<{ source: string; credits: number; turns: number; threads: number; users: number; textTotalTokens: number }>;
 };
