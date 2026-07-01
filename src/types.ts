@@ -126,6 +126,14 @@ export type WhamAnalytics = {
   };
   tasks?: {
     currentCount: number;
+    archivedCount?: number;
+    archivedHasMore?: boolean;
+    currentByEnvironment: Array<{ environment: string; count: number }>;
+    currentByStatus: Array<{ status: string; count: number }>;
+    currentByIntent: Array<{ intent: string; count: number }>;
+    pullRequests: { total: number; open: number; merged: number; closed: number };
+    diffStats: { filesModified: number; linesAdded: number; linesRemoved: number };
+    recent: Array<{ title: string; environment: string; status: string; branch?: string; updatedAt?: number; archived: boolean; pullRequests: number }>;
   };
   totals: {
     credits: number;
@@ -135,7 +143,7 @@ export type WhamAnalytics = {
     textTotalTokens: number;
   };
   byModel: Array<{ model: string; credits: number; turns: number; threads: number; users: number }>;
-  bySurface: Array<{ surface: string; credits: number; percent: number; turns: number; threads: number; users: number }>;
+  bySurface: Array<{ surface: string; credits: number; percent: number; turns: number; threads: number; users: number; textTotalTokens: number; inputTokens: number; cachedInputTokens: number; outputTokens: number }>;
   bySource: Array<{ source: string; credits: number; turns: number; threads: number; users: number; textTotalTokens: number }>;
 };
 

@@ -1,16 +1,20 @@
 {
   "name": "codex-usage-tool",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Generate Codex token usage heatmaps, charts, HTML reports, and cost estimates",
+  "description": "Generate self-contained Codex usage reports from local .codex files and dashboard APIs",
   "scripts": {
     "usage": "bun src/cli.ts",
     "test": "bun test",
-    "check": "bun --syntax-only src/cli.ts"
+    "check": "bun --syntax-only src/cli.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "@types/bun": "^1.3.0"
+  }
 }

@@ -22,11 +22,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
     main { max-width: 1220px; margin: 0 auto; padding: 28px 24px 42px; }
     header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
     h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
-    h2 { margin: 0 0 12px; font-size: 16px; letter-spacing: 0; }
+    h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
     h3 { margin: 0; font-size: 13px; letter-spacing: 0; color: var(--muted); font-weight: 600; }
     p { margin: 0; color: var(--muted); }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    button, select, input {
+    button, select, input, summary {
       background: var(--panel2);
       border: 1px solid var(--line);
       color: var(--text);
@@ -34,15 +34,36 @@ export function renderReportHtml(dataset: UsageDataset): string {
       padding: 8px 10px;
       font: inherit;
     }
-    button { cursor: pointer; }
-    button:hover { border-color: var(--accent2); }
-    button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    button, summary { cursor: pointer; }
+    button:hover, summary:hover { border-color: var(--accent2); }
+    button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .stats { display: grid; grid-template-columns: repeat(6, minmax(135px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 22px; }
     .stat { background: var(--panel); padding: 16px; min-width: 0; }
     .stat strong { display: block; font-size: 22px; margin-bottom: 4px; white-space: nowrap; }
     .stat span { color: var(--muted); text-transform: lowercase; }
     .section { border: 1px solid var(--line); background: var(--panel); padding: 18px; margin-bottom: 18px; border-radius: 8px; overflow: auto; }
-    .section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; margin-bottom: 12px; }
+    .section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 12px; }
+    .section-title { display: grid; gap: 4px; min-width: 0; }
+    .section-copy { color: var(--muted); font-size: 13px; }
+    .section-actions { display: flex; gap: 8px; align-items: flex-start; flex: 0 0 auto; }
+    .download-menu { position: relative; }
+    .download-menu summary { list-style: none; user-select: none; }
+    .download-menu summary::-webkit-details-marker { display: none; }
+    .download-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      z-index: 6;
+      display: grid;
+      gap: 6px;
+      min-width: 96px;
+      padding: 8px;
+      background: var(--panel2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    .download-panel button { width: 100%; text-align: left; }
     .heatmap { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 14px); gap: 4px; width: max-content; min-height: 122px; }
     .cell { width: 14px; height: 14px; border-radius: 3px; background: var(--cell0); }
     .cell[data-level="1"] { background: var(--cell1); }
@@ -60,14 +81,20 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .area { fill: var(--accent); opacity: 0.22; }
     .hit { fill: transparent; pointer-events: all; }
     .chart-dot { fill: var(--accent); }
-    .breakdown-grid { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 14px; min-width: 900px; }
+    .breakdown-grid { display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr)); gap: 14px; min-width: 900px; }
     .breakdown-panel { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--bg); }
     .rows { display: grid; gap: 10px; margin-top: 12px; }
     .row { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 12px; align-items: center; }
+    .row[data-tip] { cursor: help; }
     .row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .row-value { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
     .meter { grid-column: 1 / -1; height: 7px; border-radius: 999px; background: var(--panel2); overflow: hidden; }
     .meter span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+    .task-list { display: grid; gap: 9px; margin-top: 12px; }
+    .task-item { border-top: 1px solid var(--line); padding-top: 9px; display: grid; gap: 2px; }
+    .task-item:first-child { border-top: 0; padding-top: 0; }
+    .task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task-meta { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tooltip {
       position: fixed;
       z-index: 10;
@@ -77,7 +104,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       color: var(--text);
       padding: 9px 10px;
       border-radius: 6px;
-      max-width: 320px;
+      max-width: 360px;
       box-shadow: 0 10px 30px rgba(0,0,0,.35);
       display: none;
       white-space: pre-line;
@@ -88,6 +115,9 @@ export function renderReportHtml(dataset: UsageDataset): string {
       header { display: block; }
       .toolbar { justify-content: flex-start; margin-top: 14px; }
       .stats { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+      .section-head { display: grid; }
+      .section-actions { justify-content: flex-start; }
+      .download-panel { right: auto; left: 0; }
       .breakdown-grid { grid-template-columns: 1fr; min-width: 0; }
     }
   </style>
@@ -112,8 +142,6 @@ export function renderReportHtml(dataset: UsageDataset): string {
         </select>
         <input id="from" type="date" value="${escapeHtml(dataset.dateRange.from ?? dataset.daily[0]?.date ?? "")}" aria-label="Start date">
         <input id="to" type="date" value="${escapeHtml(dataset.dateRange.to ?? dataset.daily.at(-1)?.date ?? "")}" aria-label="End date">
-        <button id="downloadSvg">SVG</button>
-        <button id="downloadPng">PNG</button>
       </div>
     </header>
 
@@ -128,24 +156,33 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
     <section class="section">
       <div class="section-head">
-        <h2>Token Activity</h2>
-        <h3>${escapeHtml(dataset.theme.name)} theme</h3>
+        <div class="section-title">
+          <h2>Daily Intensity</h2>
+          <p class="section-copy">Hover a day to inspect total tokens, local attribution, backend-only estimate, and cost.</p>
+        </div>
+        <div class="section-actions">${downloadMenu("heatmap")}</div>
       </div>
-      <div id="heatmap" class="heatmap" aria-label="token heatmap"></div>
+      <div id="heatmap" class="heatmap" aria-label="Daily token intensity heatmap"></div>
       <div class="legend">Less <span class="cell" data-level="0"></span><span class="cell" data-level="1"></span><span class="cell" data-level="2"></span><span class="cell" data-level="3"></span><span class="cell" data-level="4"></span><span class="cell" data-level="5"></span> More</div>
     </section>
 
     <section class="section">
       <div class="section-head">
-        <h2>Chart</h2>
-        <h3>Hover for token, local, backend-only, and cost detail</h3>
+        <div class="section-title">
+          <h2>Usage Trend</h2>
+          <p class="section-copy">Switch between daily, weekly, and cumulative views. Hover bars or points for token and cost detail.</p>
+        </div>
+        <div class="section-actions">${downloadMenu("chart")}</div>
       </div>
       <svg id="chart" class="chart" role="img" aria-label="Codex token usage chart"></svg>
     </section>
 
     <section class="section">
       <div class="section-head">
-        <h2>Dashboard Analytics</h2>
+        <div class="section-title">
+          <h2>Cloud Dashboard Breakdown</h2>
+          <p class="section-copy">Model, surface, and task metadata from the WHAM dashboard APIs. Bars use tokens or turns when credits are zero.</p>
+        </div>
         <h3>${escapeHtml(dataset.analytics?.error ? "best effort" : dataset.analytics?.fetched ? "from wham APIs" : "saved or unavailable")}</h3>
       </div>
       <div id="analyticsBreakdown" class="breakdown-grid"></div>
@@ -263,37 +300,88 @@ export function renderReportHtml(dataset: UsageDataset): string {
           pts.forEach(function (p) { chart.insertAdjacentHTML('beforeend', '<circle class="chart-dot" cx="'+p.x+'" cy="'+p.y+'" r="3"></circle><circle class="hit" cx="'+p.x+'" cy="'+p.y+'" r="10" data-tip="'+escapeText(tipFor(p.day))+'"></circle>'); });
         }
       }
-      chart.querySelectorAll('.hit').forEach(function (el) {
-        el.addEventListener('mousemove', showTip);
-        el.addEventListener('mouseleave', hideTip);
-      });
+      chart.querySelectorAll('.hit').forEach(bindTip);
     }
     function renderAnalytics() {
       const analytics = dataset.analytics;
-      if (!analytics || (analytics.byModel.length === 0 && analytics.bySurface.length === 0 && analytics.bySource.length === 0)) {
+      if (!analytics || (analytics.byModel.length === 0 && analytics.bySurface.length === 0 && !analytics.tasks)) {
         analyticsBreakdown.innerHTML = '<div class="breakdown-panel"><h3>Dashboard data unavailable</h3><div class="rows"><p>' + escapeText(analytics && analytics.error ? analytics.error : 'No wham analytics response was available for this run.') + '</p></div></div>';
         return;
       }
-      analyticsBreakdown.innerHTML = breakdownPanel('By model', analytics.byModel, 'model', 'credits', function (row) { return compact(row.credits) + ' credits' + (row.turns ? ' - ' + compact(row.turns) + ' turns' : ''); }) + breakdownPanel('By surface', analytics.bySurface, 'surface', 'credits', function (row) { return (row.credits ? compact(row.credits) + ' credits' : trimFixed(row.percent) + '%') + (row.turns ? ' - ' + compact(row.turns) + ' turns' : ''); }) + breakdownPanel('By source', analytics.bySource, 'source', 'credits', function (row) { return compact(row.credits) + ' credits - ' + compact(row.turns) + ' turns'; });
+      analyticsBreakdown.innerHTML = modelPanel(analytics.byModel || []) + surfacePanel(analytics.bySurface || []) + taskPanel(analytics.tasks);
+      analyticsBreakdown.querySelectorAll('[data-tip]').forEach(bindTip);
     }
-    function breakdownPanel(title, rows, labelField, valueField, valueText) {
-      const max = Math.max(1, ...rows.map(function (row) { return row[valueField] || row.percent || 0; }));
-      return '<div class="breakdown-panel"><h3>' + escapeText(title) + '</h3><div class="rows">' + rows.map(function (row, index) {
-        const value = row[valueField] || row.percent || 0;
+    function modelTokenRows() {
+      const map = new Map();
+      for (const day of dataset.daily) {
+        for (const model of Object.keys(day.models || {})) {
+          const item = map.get(model) || { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
+          const usage = day.models[model];
+          item.totalTokens += usage.totalTokens || 0;
+          item.inputTokens += usage.inputTokens || 0;
+          item.cachedInputTokens += usage.cachedInputTokens || 0;
+          item.outputTokens += usage.outputTokens || 0;
+          map.set(model, item);
+        }
+      }
+      return map;
+    }
+    function estimatedCostForTokens(tokens) {
+      const total = dataset.analytics && dataset.analytics.totals ? dataset.analytics.totals.textTotalTokens : 0;
+      if (!total || !dataset.summary.estimatedCostUsd) return 0;
+      return tokens / total * dataset.summary.estimatedCostUsd;
+    }
+    function modelPanel(rows) {
+      const local = modelTokenRows();
+      const merged = rows.map(function (row) { return Object.assign({}, row, { localTokens: (local.get(row.model) || {}).totalTokens || 0 }); });
+      const max = Math.max(1, ...merged.map(function (row) { return row.localTokens || row.turns || row.credits || 0; }));
+      return '<div class="breakdown-panel"><h3>Models</h3><div class="rows">' + merged.map(function (row, index) {
+        const value = row.localTokens || row.turns || row.credits || 0;
         const color = theme.colors.series[index % theme.colors.series.length];
-        return '<div class="row"><div class="row-label" title="'+escapeText(row[labelField])+'">'+escapeText(row[labelField])+'</div><div class="row-value">'+escapeText(valueText(row))+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
+        const text = (row.localTokens ? compact(row.localTokens) + ' tokens - ' : '') + compact(row.turns) + ' turns';
+        const tip = row.model + '\\nDashboard turns: ' + compact(row.turns) + '\\nThreads: ' + compact(row.threads) + '\\nCredits: ' + compact(row.credits) + '\\nLocal tokens: ' + compact(row.localTokens) + '\\nEstimated local cost share: ' + money(estimatedCostForTokens(row.localTokens));
+        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label" title="'+escapeText(row.model)+'">'+escapeText(row.model)+'</div><div class="row-value">'+escapeText(text)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
       }).join('') + '</div></div>';
+    }
+    function surfacePanel(rows) {
+      const max = Math.max(1, ...rows.map(function (row) { return row.textTotalTokens || row.turns || row.credits || row.percent || 0; }));
+      return '<div class="breakdown-panel"><h3>Surfaces</h3><div class="rows">' + rows.map(function (row, index) {
+        const value = row.textTotalTokens || row.turns || row.credits || row.percent || 0;
+        const color = theme.colors.series[index % theme.colors.series.length];
+        const text = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : trimFixed(row.percent) + '%') + ' - ' + compact(row.turns) + ' turns';
+        const tip = row.surface + '\\nTokens: ' + compact(row.textTotalTokens) + '\\nInput: ' + compact(row.inputTokens) + '\\nCached input: ' + compact(row.cachedInputTokens) + '\\nOutput: ' + compact(row.outputTokens) + '\\nTurns: ' + compact(row.turns) + '\\nThreads: ' + compact(row.threads) + '\\nCredits: ' + compact(row.credits) + '\\nEstimated cost share: ' + money(estimatedCostForTokens(row.textTotalTokens));
+        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label" title="'+escapeText(row.surface)+'">'+escapeText(row.surface)+'</div><div class="row-value">'+escapeText(text)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
+      }).join('') + '</div></div>';
+    }
+    function taskPanel(tasks) {
+      if (!tasks) return '<div class="breakdown-panel"><h3>Cloud tasks</h3><div class="rows"><p>No task list response was available.</p></div></div>';
+      const archived = tasks.archivedCount == null ? '' : ' - ' + compact(tasks.archivedCount) + ' archived sample' + (tasks.archivedHasMore ? '+' : '');
+      const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
+      const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
+      const envs = (tasks.currentByEnvironment || []).map(function (row) { return row.environment + ' (' + row.count + ')'; }).join(', ') || 'none';
+      const recent = (tasks.recent || []).map(function (task) {
+        const meta = task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : '') + (task.pullRequests ? ' - ' + task.pullRequests + ' PR' : '');
+        return '<div class="task-item" data-tip="'+escapeText(task.title + '\\n' + meta)+'"><div class="task-title">'+escapeText(task.title)+'</div><div class="task-meta">'+escapeText(meta)+'</div></div>';
+      }).join('');
+      return '<div class="breakdown-panel"><h3>Cloud tasks</h3><div class="rows"><div class="row" data-tip="Current task endpoint defaults to current tasks; limit is capped at 20. Archived tasks use task_filter=archived and may paginate."><div class="row-label">Current tasks</div><div class="row-value">'+compact(tasks.currentCount)+archived+'</div><div class="meter"><span style="width:100%; background:'+theme.colors.accent+'"></span></div></div><div class="task-meta">Environments: '+escapeText(envs)+'</div><div class="task-meta">PRs: '+compact(pr.total)+' total, '+compact(pr.merged)+' merged, '+compact(pr.open)+' open. Diff: +'+compact(diff.linesAdded)+' / -'+compact(diff.linesRemoved)+' across '+compact(diff.filesModified)+' files.</div></div><div class="task-list">'+recent+'</div></div>';
+    }
+    function bindTip(el) {
+      el.addEventListener('mousemove', showTip);
+      el.addEventListener('mouseleave', hideTip);
     }
     function showTip(event) {
       tooltip.textContent = event.currentTarget.dataset.tip;
       tooltip.style.display = 'block';
-      tooltip.style.left = Math.max(12, Math.min(window.innerWidth - 340, event.clientX + 14)) + 'px';
-      tooltip.style.top = Math.max(12, Math.min(window.innerHeight - 180, event.clientY + 14)) + 'px';
+      tooltip.style.left = Math.max(12, Math.min(window.innerWidth - 380, event.clientX + 14)) + 'px';
+      tooltip.style.top = Math.max(12, Math.min(window.innerHeight - 220, event.clientY + 14)) + 'px';
     }
     function hideTip() { tooltip.style.display = 'none'; }
     function render() { renderHeatmap(); renderChart(); renderAnalytics(); }
     function chartCss() {
       return '.grid{stroke:'+theme.colors.line+'}.axis{fill:'+theme.colors.muted+';font-size:11px}.bar{fill:'+theme.colors.accent+'}.line{stroke:'+theme.colors.accent+';fill:none;stroke-width:3}.area{fill:'+theme.colors.accent+';opacity:.22}.chart-dot{fill:'+theme.colors.accent+'}text{font-family:'+theme.fonts.ui+'}svg{background:'+theme.colors.bg+';color:'+theme.colors.text+'}';
+    }
+    function heatmapCss() {
+      return 'text{font-family:'+theme.fonts.ui+';fill:'+theme.colors.muted+'}.label{font-size:11px}.cell{stroke:'+theme.colors.bg+';stroke-width:2}svg{background:'+theme.colors.bg+'}';
     }
     function serializedChartSvg() {
       const clone = chart.cloneNode(true);
@@ -306,28 +394,51 @@ export function renderReportHtml(dataset: UsageDataset): string {
       clone.insertBefore(style, clone.firstChild);
       return '<?xml version="1.0" encoding="UTF-8"?>\\n' + new XMLSerializer().serializeToString(clone);
     }
-    async function download(kind) {
-      const svg = serializedChartSvg();
+    function serializedHeatmapSvg() {
+      const days = values();
+      const cell = 14, gap = 4, left = 14, top = 18, footer = 38;
+      const cols = Math.max(1, Math.ceil(days.length / 7));
+      const width = left + cols * (cell + gap) + 12;
+      const height = top + 7 * (cell + gap) + footer;
+      const max = Math.max(1, ...days.map(function (day) { return day.displayValue; }));
+      let body = '<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'"><style>'+heatmapCss()+'</style>';
+      days.forEach(function (day, index) {
+        const col = Math.floor(index / 7);
+        const row = index % 7;
+        const level = day.displayValue <= 0 ? 0 : Math.min(5, Math.max(1, Math.ceil(day.displayValue / max * 5)));
+        const color = theme.colors.cells[level];
+        body += '<rect class="cell" x="'+(left + col * (cell + gap))+'" y="'+(top + row * (cell + gap))+'" width="'+cell+'" height="'+cell+'" rx="3" fill="'+color+'"><title>'+escapeText(tipFor(day))+'</title></rect>';
+      });
+      body += '<text class="label" x="'+left+'" y="'+(height - 12)+'">Less to more daily token intensity. Hover cells in the HTML report for details.</text></svg>';
+      return '<?xml version="1.0" encoding="UTF-8"?>\\n' + body;
+    }
+    async function download(target, kind) {
+      const svg = target === 'heatmap' ? serializedHeatmapSvg() : serializedChartSvg();
+      const name = target === 'heatmap' ? 'codex-usage-heatmap' : 'codex-usage-chart';
       if (kind === 'svg') {
-        saveBlob(new Blob([svg], {type:'image/svg+xml;charset=utf-8'}), 'codex-usage-chart.svg');
+        saveBlob(new Blob([svg], {type:'image/svg+xml;charset=utf-8'}), name + '.svg');
       } else {
-        const img = new Image();
-        const url = URL.createObjectURL(new Blob([svg], {type:'image/svg+xml;charset=utf-8'}));
-        img.onload = function () {
-          const canvas = document.createElement('canvas');
-          canvas.width = 920; canvas.height = 330;
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = theme.colors.bg;
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0);
-          canvas.toBlob(function (blob) {
-            URL.revokeObjectURL(url);
-            if (blob) saveBlob(blob, 'codex-usage-chart.png');
-          }, 'image/png');
-        };
-        img.onerror = function () { URL.revokeObjectURL(url); console.error('PNG export failed while loading serialized SVG'); };
-        img.src = url;
+        await saveSvgAsPng(svg, name + '.png');
       }
+    }
+    async function saveSvgAsPng(svg, name) {
+      const img = new Image();
+      const url = URL.createObjectURL(new Blob([svg], {type:'image/svg+xml;charset=utf-8'}));
+      img.onload = function () {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || 920;
+        canvas.height = img.naturalHeight || 330;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = theme.colors.bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob(function (blob) {
+          URL.revokeObjectURL(url);
+          if (blob) saveBlob(blob, name);
+        }, 'image/png');
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); console.error('PNG export failed while loading serialized SVG'); };
+      img.src = url;
     }
     function saveBlob(blob, name) {
       const a = document.createElement('a');
@@ -342,8 +453,18 @@ export function renderReportHtml(dataset: UsageDataset): string {
     chartStyleEl.addEventListener('change', render);
     fromEl.addEventListener('input', render);
     toEl.addEventListener('input', render);
-    document.getElementById('downloadSvg').addEventListener('click', function () { download('svg'); });
-    document.getElementById('downloadPng').addEventListener('click', function () { download('png'); });
+    document.querySelectorAll('[data-download-target]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        download(button.dataset.downloadTarget, button.dataset.downloadKind);
+        const menu = button.closest('details');
+        if (menu) menu.open = false;
+      });
+    });
+    document.addEventListener('click', function (event) {
+      document.querySelectorAll('details.download-menu[open]').forEach(function (menu) {
+        if (!menu.contains(event.target)) menu.open = false;
+      });
+    });
     render();
   </script>
 </body>
@@ -376,4 +497,8 @@ function cssVars(theme: UsageTheme): string {
 
 function stat(label: string, value: string): string {
   return `<div class="stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
+}
+
+function downloadMenu(target: "heatmap" | "chart"): string {
+  return `<details class="download-menu"><summary>Download</summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`;
 }

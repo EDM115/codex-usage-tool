@@ -22,19 +22,20 @@ export async function loadWhamAnalytics(options: {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${options.auth.accessToken}`,
     Accept: "application/json",
-    "User-Agent": "codex-usage-tool/0.2",
+    "User-Agent": "codex-usage-tool/0.3",
     Referer: "https://chatgpt.com/codex/cloud/settings/analytics",
   };
   if (options.auth.accountId) headers["ChatGPT-Account-Id"] = options.auth.accountId;
   try {
-    const [usage, tasks, dailyBreakdown, workspaceCounts] = await Promise.all([
+    const [usage, tasksCurrent, tasksArchived, dailyBreakdown, workspaceCounts] = await Promise.all([
       fetchJson(endpoints.usage, headers),
-      fetchJson(endpoints.tasks, headers),
+      fetchJson(endpoints.tasksCurrent, headers),
+      fetchJson(endpoints.tasksArchived, headers),
       fetchJson(endpoints.dailyTokenUsageBreakdown, headers),
       fetchJson(endpoints.dailyWorkspaceUsageCounts, headers),
     ]);
-    const errors = [usage, tasks, dailyBreakdown, workspaceCounts].filter((result) => !result.ok).map((result) => result.error);
-    const analytics = normalizeWhamAnalytics({ usage: usage.value, tasks: tasks.value, dailyTokenUsageBreakdown: dailyBreakdown.value, workspaceUsageCounts: workspaceCounts.value }, endpoints, true);
+    const errors = [usage, tasksCurrent, tasksArchived, dailyBreakdown, workspaceCounts].filter((result) => !result.ok).map((result) => result.error);
+    const analytics = normalizeWhamAnalytics({ usage: usage.value, tasks: { current: tasksCurrent.value, archived: tasksArchived.value }, dailyTokenUsageBreakdown: dailyBreakdown.value, workspaceUsageCounts: workspaceCounts.value }, endpoints, true);
     if (errors.length) analytics.error = errors.join("; ");
     return analytics;
   } catch (error) {
@@ -47,7 +48,8 @@ function endpointMap(baseUrl: string, from: string, to: string): Record<string, 
   const query = `start_date=${encodeURIComponent(from)}&end_date=${encodeURIComponent(to)}&group_by=day`;
   return {
     usage: `${base}/wham/usage`,
-    tasks: `${base}/wham/tasks/list?limit=19&task_filter=current`,
+    tasksCurrent: `${base}/wham/tasks/list?limit=20&task_filter=current`,
+    tasksArchived: `${base}/wham/tasks/list?limit=20&task_filter=archived`,
     dailyTokenUsageBreakdown: `${base}/wham/usage/daily-token-usage-breakdown?${query}`,
     dailyWorkspaceUsageCounts: `${base}/wham/analytics/daily-workspace-usage-counts?${query}&workspace_user=true`,
   };
@@ -84,7 +86,7 @@ function normalizeWhamAnalytics(raw: any, endpoints: Record<string, string>, fet
   const usage = normalizeUsage(raw?.usage ?? raw?.whamUsage ?? raw?.usageResponse);
   const dailyTokenUsageBreakdown = normalizeDailyBreakdown(raw?.dailyTokenUsageBreakdown ?? raw?.daily_token_usage_breakdown);
   const workspaceUsageCounts = normalizeWorkspaceCounts(raw?.workspaceUsageCounts ?? raw?.dailyWorkspaceUsageCounts ?? raw?.daily_workspace_usage_counts);
-  const tasks = raw?.tasks?.items || raw?.tasks?.data || raw?.tasks ? { currentCount: Array.isArray(raw?.tasks?.items) ? raw.tasks.items.length : Array.isArray(raw?.tasks) ? raw.tasks.length : 0 } : undefined;
+  const tasks = normalizeTasks(raw?.tasks);
   const totals = workspaceUsageCounts?.data.reduce((acc, bucket) => {
     acc.credits += numberFrom(bucket.totals.credits);
     acc.turns += numberFrom(bucket.totals.turns);
@@ -92,7 +94,7 @@ function normalizeWhamAnalytics(raw: any, endpoints: Record<string, string>, fet
     acc.users = Math.max(acc.users, numberFrom(bucket.totals.users));
     acc.textTotalTokens += numberFrom(bucket.totals.text_total_tokens ?? bucket.totals.textTotalTokens);
     return acc;
-  }, { credits: 0, turns: 0, threads: 0, users: 0, textTotalTokens: 0 });
+  }, { credits: 0, turns: 0, threads: 0, users: 0, textTotalTokens: 0 }) ?? { credits: 0, turns: 0, threads: 0, users: 0, textTotalTokens: 0 };
   const byModel = aggregateModels(workspaceUsageCounts?.data ?? [], dailyTokenUsageBreakdown?.data ?? []);
   const bySurface = aggregateSurfaces(dailyTokenUsageBreakdown?.data ?? [], workspaceUsageCounts?.data ?? []);
   const bySource = aggregateSources(workspaceUsageCounts?.data ?? []);
@@ -108,6 +110,79 @@ function normalizeWhamAnalytics(raw: any, endpoints: Record<string, string>, fet
     bySurface,
     bySource,
   };
+}
+
+function normalizeTasks(value: any): WhamAnalytics["tasks"] | undefined {
+  if (!value) return undefined;
+  const current = taskItems(value.current ?? value.currentTasks ?? value);
+  const archivedResponse = value.archived ?? value.archivedTasks;
+  const archived = taskItems(archivedResponse);
+  if (current.length === 0 && archived.length === 0) return undefined;
+  const pullRequests = { total: 0, open: 0, merged: 0, closed: 0 };
+  const diffStats = { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
+  const byEnvironment = new Map<string, number>();
+  const byStatus = new Map<string, number>();
+  const byIntent = new Map<string, number>();
+  for (const task of current) {
+    const display = task.task_status_display ?? task.taskStatusDisplay ?? {};
+    const latest = display.latest_turn_status_display ?? display.latestTurnStatusDisplay ?? {};
+    const environment = String(display.environment_label ?? display.environmentLabel ?? "Unknown environment");
+    const status = String(latest.turn_status ?? latest.turnStatus ?? "unknown");
+    const intent = String(latest.intent ?? display.initial_intent ?? display.initialIntent ?? "unknown");
+    increment(byEnvironment, environment);
+    increment(byStatus, labelClient(status));
+    increment(byIntent, labelClient(intent));
+    const diff = latest.diff_stats ?? latest.diffStats ?? {};
+    diffStats.filesModified += numberFrom(diff.files_modified ?? diff.filesModified);
+    diffStats.linesAdded += numberFrom(diff.lines_added ?? diff.linesAdded);
+    diffStats.linesRemoved += numberFrom(diff.lines_removed ?? diff.linesRemoved);
+    const prs = Array.isArray(task.pull_requests) ? task.pull_requests : [];
+    for (const pr of prs) {
+      const item = pr.pull_request ?? pr.pullRequest ?? pr;
+      pullRequests.total += 1;
+      if (item.merged) pullRequests.merged += 1;
+      else if (item.state === "open") pullRequests.open += 1;
+      else if (item.state === "closed") pullRequests.closed += 1;
+    }
+  }
+  return {
+    currentCount: current.length,
+    archivedCount: archived.length,
+    archivedHasMore: Boolean((archivedResponse && typeof archivedResponse === "object" && archivedResponse.cursor) || false),
+    currentByEnvironment: sortedCounts(byEnvironment, "environment"),
+    currentByStatus: sortedCounts(byStatus, "status"),
+    currentByIntent: sortedCounts(byIntent, "intent"),
+    pullRequests,
+    diffStats,
+    recent: current.slice().sort((a, b) => numberFrom(b.updated_at ?? b.updatedAt) - numberFrom(a.updated_at ?? a.updatedAt)).slice(0, 5).map((task: any) => {
+      const display = task.task_status_display ?? task.taskStatusDisplay ?? {};
+      const latest = display.latest_turn_status_display ?? display.latestTurnStatusDisplay ?? {};
+      return {
+        title: String(task.title ?? "Untitled task"),
+        environment: String(display.environment_label ?? display.environmentLabel ?? "Unknown environment"),
+        status: String(latest.turn_status ?? latest.turnStatus ?? "unknown"),
+        branch: display.branch_name ?? display.branchName,
+        updatedAt: nullableNumber(task.updated_at ?? task.updatedAt) ?? undefined,
+        archived: Boolean(task.archived),
+        pullRequests: Array.isArray(task.pull_requests) ? task.pull_requests.length : 0,
+      };
+    }),
+  };
+}
+
+function taskItems(value: any): any[] {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.data)) return value.data;
+  return [];
+}
+
+function increment(map: Map<string, number>, key: string): void {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function sortedCounts<Key extends string>(map: Map<string, number>, key: Key): Array<Record<Key, string> & { count: number }> {
+  return [...map.entries()].sort((a, b) => b[1] - a[1]).map(([label, count]) => ({ [key]: label, count }) as Record<Key, string> & { count: number });
 }
 
 function normalizeUsage(value: any): WhamUsageResponse | undefined {
@@ -174,13 +249,13 @@ function aggregateModels(workspace: WhamWorkspaceUsageBucket[], daily: WhamDaily
   }
   for (const bucket of daily) {
     for (const row of bucket.models) {
-      const key = row.speed ? `${row.model} (${row.speed})` : row.model;
-      const item = map.get(key) ?? { model: key, credits: 0, turns: 0, threads: 0, users: 0 };
+      const model = row.model;
+      const item = map.get(model) ?? { model, credits: 0, turns: 0, threads: 0, users: 0 };
       item.credits += row.credits;
-      map.set(key, item);
+      map.set(model, item);
     }
   }
-  return [...map.values()].sort((a, b) => b.credits - a.credits).slice(0, 12);
+  return [...map.values()].sort((a, b) => (b.turns || b.credits) - (a.turns || a.credits)).slice(0, 12);
 }
 
 function aggregateSurfaces(daily: WhamDailyBreakdownBucket[], workspace: WhamWorkspaceUsageBucket[]): WhamAnalytics["bySurface"] {
@@ -188,15 +263,19 @@ function aggregateSurfaces(daily: WhamDailyBreakdownBucket[], workspace: WhamWor
   for (const bucket of daily) {
     for (const [surface, value] of Object.entries(bucket.productSurfaceUsageValues)) percents.set(surface, (percents.get(surface) ?? 0) + value);
   }
-  const clientStats = new Map<string, { turns: number; threads: number; users: number; credits: number }>();
+  const clientStats = new Map<string, { turns: number; threads: number; users: number; credits: number; textTotalTokens: number; inputTokens: number; cachedInputTokens: number; outputTokens: number }>();
   for (const bucket of workspace) {
     for (const client of bucket.clients) {
       const surface = labelClient(String(client.client_id ?? client.clientId ?? client.source ?? "unknown"));
-      const item = clientStats.get(surface) ?? { turns: 0, threads: 0, users: 0, credits: 0 };
+      const item = clientStats.get(surface) ?? { turns: 0, threads: 0, users: 0, credits: 0, textTotalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
       item.turns += numberFrom(client.turns);
       item.threads += numberFrom(client.threads);
       item.users = Math.max(item.users, numberFrom(client.users));
       item.credits += numberFrom(client.credits);
+      item.inputTokens += numberFrom(client.uncached_text_input_tokens ?? client.uncachedTextInputTokens);
+      item.cachedInputTokens += numberFrom(client.cached_text_input_tokens ?? client.cachedTextInputTokens);
+      item.outputTokens += numberFrom(client.text_output_tokens ?? client.textOutputTokens);
+      item.textTotalTokens += numberFrom(client.text_total_tokens ?? client.textTotalTokens);
       clientStats.set(surface, item);
     }
   }
@@ -212,8 +291,12 @@ function aggregateSurfaces(daily: WhamDailyBreakdownBucket[], workspace: WhamWor
       turns: stats?.turns ?? 0,
       threads: stats?.threads ?? 0,
       users: stats?.users ?? 0,
+      textTotalTokens: stats?.textTotalTokens ?? 0,
+      inputTokens: stats?.inputTokens ?? 0,
+      cachedInputTokens: stats?.cachedInputTokens ?? 0,
+      outputTokens: stats?.outputTokens ?? 0,
     };
-  }).filter((row) => row.credits > 0 || row.percent > 0 || row.turns > 0).sort((a, b) => (b.credits || b.percent) - (a.credits || a.percent)).slice(0, 12);
+  }).filter((row) => row.credits > 0 || row.percent > 0 || row.turns > 0 || row.textTotalTokens > 0).sort((a, b) => (b.textTotalTokens || b.turns || b.credits || b.percent) - (a.textTotalTokens || a.turns || a.credits || a.percent)).slice(0, 12);
 }
 
 function aggregateSources(workspace: WhamWorkspaceUsageBucket[]): WhamAnalytics["bySource"] {
@@ -230,11 +313,24 @@ function aggregateSources(workspace: WhamWorkspaceUsageBucket[]): WhamAnalytics[
       map.set(source, item);
     }
   }
-  return [...map.values()].sort((a, b) => b.credits - a.credits).slice(0, 12);
+  return [...map.values()].sort((a, b) => (b.textTotalTokens || b.turns || b.credits) - (a.textTotalTokens || a.turns || a.credits)).slice(0, 12);
 }
 
 function labelClient(value: string): string {
-  return value.toLowerCase().replace(/^codex_/, "").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const normalized = value.toLowerCase().replace(/^codex_/, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const known: Record<string, string> = {
+    cli: "CLI",
+    desktop_app: "Desktop App",
+    ide_vscode: "VS Code",
+    vscode: "VS Code",
+    service_exec: "Service Exec",
+    exec: "Service Exec",
+    github_code_review: "GitHub Code Review",
+    pr: "PR",
+    qa: "QA",
+  };
+  if (known[normalized]) return known[normalized];
+  return normalized.replaceAll("_", " ").replace(/w/g, (letter) => letter.toUpperCase());
 }
 
 function normalizeNumberRecord(value: any): Record<string, number> {
