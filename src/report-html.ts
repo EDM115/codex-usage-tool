@@ -1,15 +1,17 @@
-import type { UsageDataset, UsageTheme } from "./types";
-import { compactNumber, escapeHtml, money } from "./util";
+import type { UsageDataset, UsageTheme } from "./types"
+
+import { compactNumber, escapeHtml, money, pluralize } from "./util"
 
 export function renderReportHtml(dataset: UsageDataset): string {
-  const dataJson = JSON.stringify(dataset).replaceAll("</", "<\\/");
-  const theme = dataset.theme;
+  const dataJson = JSON.stringify(dataset).replaceAll("</", "<\\/")
+  const theme = dataset.theme
+
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Codex Usage Report</title>
+  <title>Codex usage report</title>
   <style>
     ${cssVars(theme)}
     * { box-sizing: border-box; }
@@ -133,8 +135,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
   <main>
     <header>
       <div>
-        <h1>Codex Usage Report</h1>
-        <p>Generated ${escapeHtml(dataset.generatedAt)}. Timezone: ${escapeHtml(dataset.timezone)}.</p>
+        <h1>Codex usage report</h1>
+        <p>Generated at ${escapeHtml(dataset.generatedAt)} (${escapeHtml(dataset.timezone)})</p>
       </div>
       <div class="toolbar">
         <select id="mode" aria-label="Chart time mode">
@@ -164,8 +166,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
     <section class="section">
       <div class="section-head">
         <div class="section-title">
-          <h2>Daily Intensity</h2>
-          <p class="section-copy">Hover a day to inspect total tokens, local attribution, backend-only estimate, and cost.</p>
+          <h2>Daily intensity</h2>
+          <p class="section-copy">Hover a day to inspect total tokens, local attribution, backend-only estimate, and cost</p>
         </div>
         <div class="section-actions">${downloadMenu("heatmap")}</div>
       </div>
@@ -176,7 +178,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     <section class="section">
       <div class="section-head">
         <div class="section-title">
-          <h2>Usage Trend</h2>
+          <h2>Usage trend</h2>
           <p class="section-copy">Switch between daily, weekly, and cumulative views. Hover bars or points for token and cost detail.</p>
         </div>
         <div class="section-actions">${downloadMenu("chart")}</div>
@@ -187,7 +189,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     <section class="section">
       <div class="section-head">
         <div class="section-title">
-          <h2>Cloud Dashboard Breakdown</h2>
+          <h2>Cloud dashboard breakdown</h2>
           <p class="section-copy">Model, surface, and task metadata from the WHAM dashboard APIs. Bars use tokens or turns when credits are zero.</p>
         </div>
         <div class="section-actions">
@@ -199,13 +201,13 @@ export function renderReportHtml(dataset: UsageDataset): string {
     </section>
 
     <section class="section notes">
-      <div><strong>Data sources:</strong> ${escapeHtml(dataset.sourceMode)}. Profile API ${dataset.profile?.endpoint ? `from ${escapeHtml(dataset.profile.endpoint)}` : "not used"}. Analytics ${dataset.analytics?.fetched ? "requested from wham dashboard APIs" : "not fetched live"}.</div>
-      <div><strong>Local enrichment:</strong> ${dataset.local.tokenEvents} token events from ${dataset.local.rolloutFiles} rollout files, ${dataset.local.sqliteThreads} SQLite thread rows across ${dataset.local.sqliteDatabases} DB(s), ${dataset.codexHomes.length} .codex source(s).</div>
-      <div><strong>Theme:</strong> ${escapeHtml(dataset.theme.name)} from ${escapeHtml(dataset.theme.source)}.</div>
-      <div><strong>Pricing:</strong> ${escapeHtml(dataset.pricing.source)} using ${escapeHtml(dataset.pricing.estimateModel)} for unattributed backend-only tokens.</div>
-      ${dataset.profile?.error ? `<div class="warning"><strong>Profile API:</strong> ${escapeHtml(dataset.profile.error)}</div>` : ""}
-      ${dataset.analytics?.error ? `<div class="warning"><strong>Analytics API:</strong> ${escapeHtml(dataset.analytics.error)}</div>` : ""}
-      ${dataset.pricing.warning ? `<div class="warning"><strong>Pricing:</strong> ${escapeHtml(dataset.pricing.warning)}</div>` : ""}
+      <div><strong>Data sources :</strong> ${escapeHtml(dataset.sourceMode)}, profile API ${dataset.profile?.endpoint ? `from ${escapeHtml(dataset.profile.endpoint)}` : "not used"}, analytics ${dataset.analytics?.fetched ? "requested from wham dashboard APIs" : "not fetched live"}</div>
+      <div><strong>Local enrichment :</strong> ${dataset.local.tokenEvents} ${pluralize("token event", dataset.local.tokenEvents)} from ${dataset.local.rolloutFiles} ${pluralize("rollout file", dataset.local.rolloutFiles)}, ${dataset.local.sqliteThreads} ${pluralize("SQLite thread row", dataset.local.sqliteThreads)} across ${dataset.local.sqliteDatabases} ${pluralize("SQLite database", dataset.local.sqliteDatabases)}, ${dataset.codexHomes.length} .codex ${pluralize("source", dataset.codexHomes.length)}</div>
+      <div><strong>Theme :</strong> ${escapeHtml(dataset.theme.name)} from ${escapeHtml(dataset.theme.source)}</div>
+      <div><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.source)} using ${escapeHtml(dataset.pricing.estimateModel)} for unattributed backend-only tokens</div>
+      ${dataset.profile?.error ? `<div class="warning"><strong>Profile API :</strong> ${escapeHtml(dataset.profile.error)}</div>` : ""}
+      ${dataset.analytics?.error ? `<div class="warning"><strong>Analytics API :</strong> ${escapeHtml(dataset.analytics.error)}</div>` : ""}
+      ${dataset.pricing.warning ? `<div class="warning"><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.warning)}</div>` : ""}
     </section>
   </main>
   <div id="tooltip" class="tooltip"></div>
@@ -222,49 +224,82 @@ export function renderReportHtml(dataset: UsageDataset): string {
     const analyticsBreakdown = document.getElementById('analyticsBreakdown');
     const theme = dataset.theme;
 
-    function trimFixed(value) { return value.toFixed(1).replace(/\\.0$/, ''); }
+    function trimFixed(value) {
+      return value.toFixed(1).replace(/\\.0$/, '');
+    }
+
     function compact(value) {
       const abs = Math.abs(value || 0);
-      if (abs >= 1000000000) return trimFixed(value / 1000000000) + 'B';
-      if (abs >= 1000000) return trimFixed(value / 1000000) + 'M';
-      if (abs >= 1000) return trimFixed(value / 1000) + 'K';
+
+      if (abs >= 1000000000) {
+        return trimFixed(value / 1000000000) + 'B';
+      }
+
+      if (abs >= 1000000) {
+        return trimFixed(value / 1000000) + 'M';
+      }
+
+      if (abs >= 1000) {
+        return trimFixed(value / 1000) + 'K';
+      }
+
       return String(Math.round(value || 0));
     }
+
     function money(value) {
-      if (!Number.isFinite(value)) return '$0.00';
-      if (Math.abs(value) < 0.01 && value !== 0) return '$' + value.toFixed(4);
+      if (!Number.isFinite(value)) {
+        return '$0.00';
+      }
+
+      if (Math.abs(value) < 0.01 && value !== 0) {
+        return '$' + value.toFixed(4);
+      }
+
       return '$' + value.toFixed(2);
     }
+
     function escapeText(value) {
       return String(value).replace(/[&<>\"]/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]; });
     }
+
     function filteredDaily() {
       return dataset.daily.filter(function (day) { return (!fromEl.value || day.date >= fromEl.value) && (!toEl.value || day.date <= toEl.value); });
     }
+
     function values() {
       const daily = filteredDaily();
       let cumulative = 0;
+
       if (modeEl.value === 'weekly') {
         const byWeek = new Map();
+
         for (let i = 0; i < daily.length; i += 7) {
           const chunk = daily.slice(i, i + 7);
           const total = chunk.reduce(function (sum, day) { return sum + day.totalTokens; }, 0);
-          for (const day of chunk) byWeek.set(day.date, total);
+
+          for (const day of chunk) {
+            byWeek.set(day.date, total);
+          }
         }
-        return daily.map(function (day) { return Object.assign({}, day, { displayValue: byWeek.get(day.date) || 0 }); });
+
+        return daily.map(function (day) { return Object.assign({ }, day, { displayValue: byWeek.get(day.date) || 0 }); });
       }
+
       return daily.map(function (day) {
         cumulative += day.totalTokens;
-        return Object.assign({}, day, { displayValue: modeEl.value === 'cumulative' ? cumulative : day.totalTokens });
+        return Object.assign({ }, day, { displayValue: modeEl.value === 'cumulative' ? cumulative : day.totalTokens });
       });
     }
+
     function tipFor(day) {
-      return day.date + '\\nTotal: ' + compact(day.displayValue) + ' tokens\\nLocal: ' + compact(day.localTokens.totalTokens) + '\\nBackend-only: ' + compact(day.unattributedTokens) + '\\nCost: ' + money(day.estimatedCostUsd);
+      return day.date + '\\nTotal : ' + compact(day.displayValue) + ' tokens\\nLocal : ' + compact(day.localTokens.totalTokens) + '\\nBackend-only : ' + compact(day.unattributedTokens) + '\\nCost : ' + money(day.estimatedCostUsd);
     }
+
     function renderHeatmap() {
       const days = values();
       const max = Math.max(1, ...days.map(function (day) { return day.displayValue; }));
       heatmap.innerHTML = '';
+
       for (const day of days) {
         const level = day.displayValue <= 0 ? 0 : Math.min(5, Math.max(1, Math.ceil(day.displayValue / max * 5)));
         const cell = document.createElement('div');
@@ -276,6 +311,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         heatmap.appendChild(cell);
       }
     }
+
     function renderChart() {
       const days = values();
       const width = 920, height = 330, left = 70, right = 28, top = 30, bottom = 42;
@@ -284,11 +320,14 @@ export function renderReportHtml(dataset: UsageDataset): string {
       chart.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
       chart.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       chart.innerHTML = '';
+
       for (const frac of [0, .25, .5, .75, 1]) {
         const y = top + chartH - frac * chartH;
         chart.insertAdjacentHTML('beforeend', '<line x1="'+left+'" x2="'+(width-right)+'" y1="'+y+'" y2="'+y+'" class="grid"/><text x="'+(left-10)+'" y="'+(y+4)+'" text-anchor="end" class="axis">'+compact(max*frac)+'</text>');
       }
+
       const style = chartStyleEl.value === 'auto' ? (modeEl.value === 'daily' ? 'bar' : 'area') : chartStyleEl.value;
+
       if (style === 'bar') {
         const step = chartW / Math.max(1, days.length);
         days.forEach(function (day, i) {
@@ -303,6 +342,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
           const y = top + chartH - day.displayValue / max * chartH;
           return {x:x,y:y,day:day};
         });
+
         if (pts.length) {
           const line = pts.map(function (p) { return p.x + ',' + p.y; }).join(' ');
           const area = pts[0].x + ',' + (top+chartH) + ' ' + line + ' ' + pts[pts.length-1].x + ',' + (top+chartH);
@@ -310,21 +350,28 @@ export function renderReportHtml(dataset: UsageDataset): string {
           pts.forEach(function (p) { chart.insertAdjacentHTML('beforeend', '<circle class="chart-dot" cx="'+p.x+'" cy="'+p.y+'" r="3"></circle><circle class="hit" cx="'+p.x+'" cy="'+p.y+'" r="10" data-tip="'+escapeText(tipFor(p.day))+'"></circle>'); });
         }
       }
+
       chart.querySelectorAll('.hit').forEach(bindTip);
     }
+
     function renderAnalytics() {
       const analytics = dataset.analytics;
+
       if (!analytics || (analytics.byModel.length === 0 && analytics.bySurface.length === 0 && !analytics.tasks)) {
-        analyticsBreakdown.innerHTML = '<div class="breakdown-panel"><h3>Dashboard data unavailable</h3><div class="rows"><p>' + escapeText(analytics && analytics.error ? analytics.error : 'No wham analytics response was available for this run.') + '</p></div></div>';
+        analyticsBreakdown.innerHTML = '<div class="breakdown-panel"><h3>Dashboard data unavailable</h3><div class="rows"><p>' + escapeText(analytics && analytics.error ? analytics.error : 'No wham analytics response was available for this run') + '</p></div></div>';
+
         return;
       }
+
       analyticsBreakdown.innerHTML = modelPanel(analytics.byModel || [], analytics.byModelVariants || []) + surfacePanel(analytics.bySurface || []) + taskPanel(analytics.tasks);
       analyticsBreakdown.querySelectorAll('[data-tip]').forEach(bindTip);
     }
+
     function modelTokenRows() {
       const map = new Map();
+
       for (const day of dataset.daily) {
-        for (const model of Object.keys(day.models || {})) {
+        for (const model of Object.keys(day.models || { })) {
           const item = map.get(model) || { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
           const usage = day.models[model];
           item.totalTokens += usage.totalTokens || 0;
@@ -334,33 +381,44 @@ export function renderReportHtml(dataset: UsageDataset): string {
           map.set(model, item);
         }
       }
+
       return map;
     }
+
     function estimatedCostForTokens(tokens) {
       const total = dataset.analytics && dataset.analytics.totals ? dataset.analytics.totals.textTotalTokens : 0;
-      if (!total || !dataset.summary.estimatedCostUsd) return 0;
+
+      if (!total || !dataset.summary.estimatedCostUsd) {
+        return 0;
+      }
+
       return tokens / total * dataset.summary.estimatedCostUsd;
     }
+
     function estimatedVariantRows(model, variants, localTokens) {
       const totalCredits = variants.reduce(function (sum, variant) { return sum + variant.credits; }, 0);
       const modelCost = estimatedCostForTokens(localTokens);
+
       return variants.map(function (variant) {
         const share = totalCredits > 0 ? variant.credits / totalCredits : 0;
-        return Object.assign({}, variant, {
+        return Object.assign({ }, variant, {
           estimatedTokens: localTokens && share ? localTokens * share : 0,
           estimatedCostUsd: modelCost && share ? modelCost * share : 0,
-          estimateSource: localTokens && share ? 'Estimated from local model tokens allocated by WHAM variant credit share.' : 'WHAM exposes credits for this model version, but no token count was available to allocate.'
+          estimateSource: localTokens && share ? 'Estimated from local model tokens allocated by WHAM variant credit share' : 'WHAM exposes credits for this model version, but no token count was available to allocate'
         });
       });
     }
+
     function modeRowsFromVariants(variants) {
       const local = modelTokenRows();
       const variantsByModel = modelVariantsByName(variants || []);
       const speeds = new Map();
+
       for (const entry of variantsByModel.entries()) {
         const model = entry[0];
         const list = entry[1];
-        const localTokens = (local.get(model) || {}).totalTokens || 0;
+        const localTokens = (local.get(model) || { }).totalTokens || 0;
+
         for (const variant of estimatedVariantRows(model, list, localTokens)) {
           const item = speeds.get(variant.speed) || { speed: variant.speed, credits: 0, estimatedTokens: 0, estimatedCostUsd: 0 };
           item.credits += variant.credits;
@@ -369,12 +427,14 @@ export function renderReportHtml(dataset: UsageDataset): string {
           speeds.set(variant.speed, item);
         }
       }
+
       return [...speeds.values()].filter(function (row) { return row.credits > 0 || row.estimatedTokens > 0; }).sort(function (a, b) { return (b.estimatedTokens || b.credits) - (a.estimatedTokens || a.credits); });
     }
+
     function modelPanel(rows, variants) {
       const local = modelTokenRows();
       const variantsByModel = modelVariantsByName(variants || []);
-      const merged = rows.map(function (row) { return Object.assign({}, row, { localTokens: (local.get(row.model) || {}).totalTokens || 0 }); });
+      const merged = rows.map(function (row) { return Object.assign({ }, row, { localTokens: (local.get(row.model) || { }).totalTokens || 0 }); });
       const max = Math.max(1, ...merged.map(function (row) { return row.localTokens || row.turns || row.credits || 0; }));
       const modelRows = merged.map(function (row, index) {
         const value = row.localTokens || row.turns || row.credits || 0;
@@ -383,75 +443,120 @@ export function renderReportHtml(dataset: UsageDataset): string {
         const tip = modelTip(row, row.localTokens);
         return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label" title="'+escapeText(row.model)+'">'+escapeText(row.model)+'</div><div class="row-value">'+escapeText(text)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div>'+variantRows(row, variantsByModel.get(row.model) || [], row, row.localTokens, color)+'</div>';
       }).join('');
+
       return '<div class="breakdown-panel"><h3>Models</h3><div class="rows">' + modelRows + reasoningPanel() + fastModePanel(variants || []) + '</div></div>';
     }
+
     function modelTip(row, localTokens) {
-      return row.model + '\\nDashboard turns: ' + compact(row.turns) + '\\nThreads: ' + compact(row.threads) + '\\nCredits: ' + compact(row.credits) + '\\nLocal tokens: ' + compact(localTokens) + '\\nEstimated local cost share: ' + money(estimatedCostForTokens(localTokens));
+      return row.model + '\\nDashboard turns : ' + compact(row.turns) + '\\nThreads : ' + compact(row.threads) + '\\nCredits : ' + compact(row.credits) + '\\nLocal tokens : ' + compact(localTokens) + '\\nEstimated local cost share : ' + money(estimatedCostForTokens(localTokens));
     }
+
     function modelVariantsByName(variants) {
       const map = new Map();
+
       for (const variant of variants) {
-        if (!map.has(variant.model)) map.set(variant.model, []);
+        if (!map.has(variant.model)) {
+          map.set(variant.model, []);
+        }
+
         map.get(variant.model).push(variant);
       }
-      for (const list of map.values()) list.sort(function (a, b) { return b.credits - a.credits; });
+
+      for (const list of map.values()) {
+        list.sort(function (a, b) { return b.credits - a.credits; });
+      }
+
       return map;
     }
+
     function variantRows(row, variants, modelRow, localTokens, color) {
-      if (!variants.length) return '';
+      if (!variants.length) {
+        return '';
+      }
+
       const estimates = estimatedVariantRows(row.model, variants, localTokens);
       const max = Math.max(1, ...estimates.map(function (variant) { return variant.estimatedTokens || variant.credits; }));
+
       return '<div class="subrows">' + estimates.map(function (variant) {
         const label = variant.speed + (variant.speed === 'fast' ? ' mode' : '');
         const multiplier = speedMultiplier(variant.speed);
         const value = variant.estimatedTokens || variant.credits;
         const valueText = variant.estimatedTokens ? compact(variant.estimatedTokens) + ' tokens - ' + money(variant.estimatedCostUsd) : compact(variant.credits) + ' credits';
-        const tip = variant.model + ' / ' + variant.speed + '\\nEstimated tokens: ' + compact(variant.estimatedTokens) + '\\nEstimated cost: ' + money(variant.estimatedCostUsd) + '\\nVariant credits: ' + compact(variant.credits) + '\\nModel dashboard turns: ' + compact(modelRow.turns) + '\\nModel local tokens: ' + compact(localTokens) + '\\nCost multiplier: ' + multiplier + 'x' + (variant.speed === 'fast' ? '\\nFast mode is cost-weighted at 1.5x.' : '') + '\\n' + variant.estimateSource;
+        const tip = variant.model + ' / ' + variant.speed + '\\nEstimated tokens : ' + compact(variant.estimatedTokens) + '\\nEstimated cost : ' + money(variant.estimatedCostUsd) + '\\nVariant credits : ' + compact(variant.credits) + '\\nModel dashboard turns : ' + compact(modelRow.turns) + '\\nModel local tokens : ' + compact(localTokens) + '\\nCost multiplier : ' + multiplier + 'x' + (variant.speed === 'fast' ? '\\nFast mode is cost-weighted at 1.5x' : '') + '\\n' + variant.estimateSource;
+
         return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(label)+'</div><div>'+escapeText(valueText)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
       }).join('') + '</div>';
     }
-    function speedMultiplier(speed) { return speed === 'fast' ? 1.5 : 1; }
+
+    function speedMultiplier(speed) {
+      return speed === 'fast' ? 1.5 : 1;
+    }
+
     function reasoningRows() {
       const map = new Map();
+
       for (const day of dataset.daily) {
-        for (const effort of Object.keys(day.reasoningEfforts || {})) map.set(effort, (map.get(effort) || 0) + (day.reasoningEfforts[effort] || 0));
+        for (const effort of Object.keys(day.reasoningEfforts || { })) {
+          map.set(effort, (map.get(effort) || 0) + (day.reasoningEfforts[effort] || 0));
+        }
       }
+
       return [...map.entries()].map(function (entry) { return { effort: entry[0], tokens: entry[1] }; }).filter(function (row) { return row.tokens > 0; }).sort(function (a, b) { return b.tokens - a.tokens; });
     }
+
     function reasoningPanel() {
       const rows = reasoningRows();
-      if (!rows.length) return '';
+
+      if (!rows.length) {
+        return '';
+      }
+
       const max = Math.max(1, ...rows.map(function (row) { return row.tokens; }));
+
       return '<div class="mini-section"><h4>Thinking effort</h4>' + rows.map(function (row, index) {
         const color = theme.colors.series[(index + 2) % theme.colors.series.length];
-        const tip = row.effort + '\\nLocal reasoning-effort tokens: ' + compact(row.tokens) + '\\nEstimated cost: ' + money(estimatedCostForTokens(row.tokens)) + '\\nSource: rollout turn context; not exposed by WHAM dashboard totals.';
+        const tip = row.effort + '\\nLocal reasoning-effort tokens : ' + compact(row.tokens) + '\\nEstimated cost : ' + money(estimatedCostForTokens(row.tokens)) + '\\nSource : rollout turn context, not exposed by WHAM dashboard totals';
+
         return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.effort)+'</div><div class="row-value">'+compact(row.tokens)+' tokens - '+money(estimatedCostForTokens(row.tokens))+'</div><div class="meter"><span style="width:'+Math.max(2, row.tokens / max * 100)+'%; background:'+color+'"></span></div></div>';
       }).join('') + '</div>';
     }
+
     function fastModePanel(variants) {
       const rows = modeRowsFromVariants(variants || []);
-      if (!rows.length) return '';
+
+      if (!rows.length) {
+        return '';
+      }
+
       const max = Math.max(1, ...rows.map(function (row) { return row.estimatedTokens || row.credits; }));
+
       return '<div class="mini-section"><h4>Mode mix</h4>' + rows.map(function (row, index) {
         const color = theme.colors.series[(index + 4) % theme.colors.series.length];
         const value = row.estimatedTokens || row.credits;
         const valueText = row.estimatedTokens ? compact(row.estimatedTokens) + ' tokens - ' + money(row.estimatedCostUsd) : compact(row.credits) + ' credits';
-        const tip = row.speed + '\\nEstimated tokens: ' + compact(row.estimatedTokens) + '\\nEstimated cost: ' + money(row.estimatedCostUsd) + '\\nCredits: ' + compact(row.credits) + '\\nCost multiplier: ' + speedMultiplier(row.speed) + 'x' + (row.speed === 'fast' ? '\\nFast mode is the 1.5x mode.' : '') + '\\nEstimated by allocating each model local token total across WHAM speed credits.';
+        const tip = row.speed + '\\nEstimated tokens : ' + compact(row.estimatedTokens) + '\\nEstimated cost : ' + money(row.estimatedCostUsd) + '\\nCredits : ' + compact(row.credits) + '\\nCost multiplier : ' + speedMultiplier(row.speed) + 'x' + (row.speed === 'fast' ? '\\nFast mode is the 1.5x mode' : '') + '\\nEstimated by allocating each model local token total across WHAM speed credits';
+
         return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.speed)+'</div><div class="row-value">'+escapeText(valueText)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
       }).join('') + '</div>';
     }
+
     function surfacePanel(rows) {
       const max = Math.max(1, ...rows.map(function (row) { return row.textTotalTokens || row.turns || row.credits || row.percent || 0; }));
+
       return '<div class="breakdown-panel"><h3>Surfaces</h3><div class="rows">' + rows.map(function (row, index) {
         const value = row.textTotalTokens || row.turns || row.credits || row.percent || 0;
         const color = theme.colors.series[index % theme.colors.series.length];
         const text = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : trimFixed(row.percent) + '%') + ' - ' + compact(row.turns) + ' turns';
-        const tip = row.surface + '\\nTokens: ' + compact(row.textTotalTokens) + '\\nInput: ' + compact(row.inputTokens) + '\\nCached input: ' + compact(row.cachedInputTokens) + '\\nOutput: ' + compact(row.outputTokens) + '\\nTurns: ' + compact(row.turns) + '\\nThreads: ' + compact(row.threads) + '\\nCredits: ' + compact(row.credits) + '\\nEstimated cost share: ' + money(estimatedCostForTokens(row.textTotalTokens));
+        const tip = row.surface + '\\nTokens : ' + compact(row.textTotalTokens) + '\\nInput : ' + compact(row.inputTokens) + '\\nCached input : ' + compact(row.cachedInputTokens) + '\\nOutput : ' + compact(row.outputTokens) + '\\nTurns : ' + compact(row.turns) + '\\nThreads : ' + compact(row.threads) + '\\nCredits : ' + compact(row.credits) + '\\nEstimated cost share : ' + money(estimatedCostForTokens(row.textTotalTokens));
         return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label" title="'+escapeText(row.surface)+'">'+escapeText(row.surface)+'</div><div class="row-value">'+escapeText(text)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
       }).join('') + '</div></div>';
     }
+
     function taskPanel(tasks) {
-      if (!tasks) return '<div class="breakdown-panel"><h3>Cloud tasks</h3><div class="rows"><p>No task list response was available.</p></div></div>';
+      if (!tasks) {
+        return '<div class="breakdown-panel"><h3>Cloud tasks</h3><div class="rows"><p>No task list response was available</p></div></div>';
+      }
+
       const archived = tasks.archivedCount == null ? '' : ' - ' + compact(tasks.archivedCount) + ' archived sample' + (tasks.archivedHasMore ? '+' : '');
       const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
       const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
@@ -460,26 +565,39 @@ export function renderReportHtml(dataset: UsageDataset): string {
         const meta = task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : '') + (task.pullRequests ? ' - ' + task.pullRequests + ' PR' : '');
         return '<div class="task-item" data-tip="'+escapeText(task.title + '\\n' + meta)+'"><div class="task-title">'+escapeText(task.title)+'</div><div class="task-meta">'+escapeText(meta)+'</div></div>';
       }).join('');
-      return '<div class="breakdown-panel"><h3>Cloud tasks</h3><div class="rows"><div class="row" data-tip="Current task endpoint defaults to current tasks; limit is capped at 20. Archived tasks use task_filter=archived and may paginate."><div class="row-label">Current tasks</div><div class="row-value">'+compact(tasks.currentCount)+archived+'</div><div class="meter"><span style="width:100%; background:'+theme.colors.accent+'"></span></div></div><div class="task-meta">Environments: '+escapeText(envs)+'</div><div class="task-meta">PRs: '+compact(pr.total)+' total, '+compact(pr.merged)+' merged, '+compact(pr.open)+' open. Diff: +'+compact(diff.linesAdded)+' / -'+compact(diff.linesRemoved)+' across '+compact(diff.filesModified)+' files.</div></div><div class="task-list">'+recent+'</div></div>';
+
+      return '<div class="breakdown-panel"><h3>Cloud tasks</h3><div class="rows"><div class="row" data-tip="Current task endpoint defaults to current tasks, limit is capped at 20. Archived tasks use task_filter=archived and may paginate."><div class="row-label">Current tasks</div><div class="row-value">'+compact(tasks.currentCount)+archived+'</div><div class="meter"><span style="width:100%; background:'+theme.colors.accent+'"></span></div></div><div class="task-meta">Environments : '+escapeText(envs)+'</div><div class="task-meta">PRs : '+compact(pr.total)+' total, '+compact(pr.merged)+' merged, '+compact(pr.open)+' open<br>Diff : +'+compact(diff.linesAdded)+' / -'+compact(diff.linesRemoved)+' across '+compact(diff.filesModified)+' files</div></div><div class="task-list">'+recent+'</div></div>';
     }
+
     function bindTip(el) {
       el.addEventListener('mousemove', showTip);
       el.addEventListener('mouseleave', hideTip);
     }
+
     function showTip(event) {
       tooltip.textContent = event.currentTarget.dataset.tip;
       tooltip.style.display = 'block';
       tooltip.style.left = Math.max(12, Math.min(window.innerWidth - 380, event.clientX + 14)) + 'px';
       tooltip.style.top = Math.max(12, Math.min(window.innerHeight - 220, event.clientY + 14)) + 'px';
     }
-    function hideTip() { tooltip.style.display = 'none'; }
-    function render() { renderHeatmap(); renderChart(); renderAnalytics(); }
+
+    function hideTip() {
+      tooltip.style.display = 'none';
+    }
+
+    function render() {
+      renderHeatmap(); renderChart();
+      renderAnalytics();
+    }
+
     function chartCss() {
       return '.grid{stroke:'+theme.colors.line+'}.axis{fill:'+theme.colors.muted+';font-size:11px}.bar{fill:'+theme.colors.accent+'}.line{stroke:'+theme.colors.accent+';fill:none;stroke-width:3}.area{fill:'+theme.colors.accent+';opacity:.22}.chart-dot{fill:'+theme.colors.accent+'}text{font-family:'+theme.fonts.ui+'}svg{background:'+theme.colors.bg+';color:'+theme.colors.text+'}';
     }
+
     function heatmapCss() {
       return 'text{font-family:'+theme.fonts.ui+';fill:'+theme.colors.muted+'}.label{font-size:11px}.cell{stroke:'+theme.colors.bg+';stroke-width:2}svg{background:'+theme.colors.bg+'}';
     }
+
     function serializedChartSvg() {
       const clone = chart.cloneNode(true);
       clone.querySelectorAll('.hit').forEach(function (el) { el.remove(); });
@@ -489,8 +607,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
       style.textContent = chartCss();
       clone.insertBefore(style, clone.firstChild);
+
       return '<?xml version="1.0" encoding="UTF-8"?>\\n' + new XMLSerializer().serializeToString(clone);
     }
+
     function serializedHeatmapSvg() {
       const days = values();
       const cell = 14, gap = 4, left = 14, top = 18, footer = 38;
@@ -507,8 +627,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
         body += '<rect class="cell" x="'+(left + col * (cell + gap))+'" y="'+(top + row * (cell + gap))+'" width="'+cell+'" height="'+cell+'" rx="3" fill="'+color+'"><title>'+escapeText(tipFor(day))+'</title></rect>';
       });
       body += '<text class="label" x="'+left+'" y="'+(height - 12)+'">Less to more daily token intensity. Hover cells in the HTML report for details.</text></svg>';
+
       return '<?xml version="1.0" encoding="UTF-8"?>\\n' + body;
     }
+
     function serializedDashboardSvg() {
       const clone = analyticsBreakdown.cloneNode(true);
       clone.querySelectorAll('[data-tip]').forEach(function (el) { el.removeAttribute('data-tip'); });
@@ -516,10 +638,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const height = Math.max(560, analyticsBreakdown.scrollHeight + 72);
       const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export"><h2 style="margin:0 0 12px;font-size:18px;color:'+theme.colors.text+'">Cloud Dashboard Breakdown</h2>' + clone.outerHTML + '</div>';
       const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:14px}.breakdown-panel{border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows{display:grid;gap:10px;margin-top:12px}.row{display:grid;grid-template-columns:minmax(120px,1fr) auto;gap:12px;align-items:center}.row-label,.task-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row-value{font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrows{grid-column:1/-1;display:grid;gap:6px;margin:-3px 0 3px 12px;padding-left:10px;border-left:1px solid '+theme.colors.line+'}.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.mini-section{display:grid;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid '+theme.colors.line+'}.mini-section h4{margin:0;color:'+theme.colors.muted+';font-size:12px;text-transform:uppercase}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
+
       return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
     }
+
     function renderDashboardCanvas() {
-      const analytics = dataset.analytics || {};
+      const analytics = dataset.analytics || { };
       const models = analytics.byModel || [];
       const variants = analytics.byModelVariants || [];
       const surfaces = analytics.bySurface || [];
@@ -541,14 +665,21 @@ export function renderReportHtml(dataset: UsageDataset): string {
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
+
       function font(weight, size) { return weight + ' ' + size + 'px ' + theme.fonts.ui; }
+
       function text(value) { return value == null ? '' : String(value); }
+
       function fit(value, maxWidth) {
         let out = text(value);
+
         if (ctx.measureText(out).width <= maxWidth) return out;
+
         while (out.length > 1 && ctx.measureText(out + '...').width > maxWidth) out = out.slice(0, -1);
+
         return out + '...';
       }
+
       function roundRect(x, y, w, h, r, fill, stroke) {
         ctx.beginPath();
         ctx.moveTo(x + r, y);
@@ -559,22 +690,26 @@ export function renderReportHtml(dataset: UsageDataset): string {
         ctx.closePath();
         ctx.fillStyle = fill;
         ctx.fill();
+
         if (stroke) {
           ctx.strokeStyle = stroke;
           ctx.lineWidth = 1;
           ctx.stroke();
         }
       }
+
       function title(x, y, value) {
         ctx.font = font('700', 16);
         ctx.fillStyle = theme.colors.muted;
         ctx.fillText(value, x, y);
       }
+
       function section(x, y, value) {
         ctx.font = font('700', 12);
         ctx.fillStyle = theme.colors.muted;
         ctx.fillText(value.toUpperCase(), x, y);
       }
+
       function barRow(x, y, w, label, valueText, value, max, color, options) {
         const indent = options && options.indent ? options.indent : 0;
         const muted = options && options.muted;
@@ -592,6 +727,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         roundRect(x + indent, barY, fillWidth, options && options.small ? 5 : 7, 4, color, '');
         return rowH;
       }
+
       function taskText(x, y, w, label, value) {
         ctx.font = font('650', 13);
         ctx.fillStyle = theme.colors.text;
@@ -601,11 +737,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
         ctx.fillText(fit(value, w), x, y + 18);
         return 44;
       }
+
       ctx.fillStyle = theme.colors.panel;
       ctx.fillRect(0, 0, width, height);
       ctx.font = font('750', 22);
       ctx.fillStyle = theme.colors.text;
-      ctx.fillText('Cloud Dashboard Breakdown', margin, 42);
+      ctx.fillText('Cloud dashboard breakdown', margin, 42);
       ctx.font = font('500', 13);
       ctx.fillStyle = theme.colors.muted;
       ctx.fillText('PNG export rendered directly from report data', margin, 64);
@@ -615,7 +752,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       let y = panelY + 34;
       title(xs[0] + 16, y, 'Models');
       y += 34;
-      const modelRows = models.map(function (row) { return Object.assign({}, row, { localTokens: (local.get(row.model) || {}).totalTokens || 0 }); });
+      const modelRows = models.map(function (row) { return Object.assign({ }, row, { localTokens: (local.get(row.model) || { }).totalTokens || 0 }); });
       const maxModel = Math.max(1, ...modelRows.map(function (row) { return row.localTokens || row.turns || row.credits || 0; }));
       modelRows.forEach(function (row, index) {
         const color = theme.colors.series[index % theme.colors.series.length];
@@ -630,6 +767,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
           y += barRow(xs[0] + 16, y - 8, panelWidth - 32, variant.speed + (variant.speed === 'fast' ? ' mode' : ''), variantText, variantValue, maxVariant, color, { indent: 18, small: true, muted: true });
         });
       });
+
       if (reasoning.length) {
         y += 8;
         section(xs[0] + 16, y, 'Thinking effort');
@@ -639,6 +777,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
           y += barRow(xs[0] + 16, y, panelWidth - 32, row.effort, compact(row.tokens) + ' tokens - ' + money(estimatedCostForTokens(row.tokens)), row.tokens, maxReasoning, theme.colors.series[(index + 2) % theme.colors.series.length], { small: true });
         });
       }
+
       if (speedRows.length) {
         y += 8;
         section(xs[0] + 16, y, 'Mode mix');
@@ -650,6 +789,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
           y += barRow(xs[0] + 16, y, panelWidth - 32, row.speed, speedText, speedValue, maxSpeed, theme.colors.series[(index + 4) % theme.colors.series.length], { small: true });
         });
       }
+
       y = panelY + 34;
       title(xs[1] + 16, y, 'Surfaces');
       y += 34;
@@ -665,7 +805,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       if (!tasks) {
         ctx.font = font('500', 13);
         ctx.fillStyle = theme.colors.muted;
-        ctx.fillText('No task list response was available.', xs[2] + 16, y);
+        ctx.fillText('No task list response was available', xs[2] + 16, y);
       } else {
         const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
         const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
@@ -676,6 +816,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         const environments = (tasks.currentByEnvironment || []).map(function (row) { return row.environment + ' (' + row.count + ')'; }).join(', ') || 'none';
         y += taskText(xs[2] + 16, y, panelWidth - 32, 'Environments', environments);
         const recent = (tasks.recent || []).slice(0, 8);
+
         if (recent.length) {
           y += 8;
           section(xs[2] + 16, y, 'Recent tasks');
@@ -685,27 +826,35 @@ export function renderReportHtml(dataset: UsageDataset): string {
           });
         }
       }
+
       return canvas;
     }
+
     function saveDashboardAsPng(name) {
       const canvas = renderDashboardCanvas();
       canvas.toBlob(function (blob) {
         if (blob) saveBlob(blob, name);
       }, 'image/png');
     }
+
     async function download(target, kind) {
       const name = target === 'heatmap' ? 'codex-usage-heatmap' : target === 'dashboard' ? 'codex-usage-dashboard' : 'codex-usage-chart';
+
       if (target === 'dashboard' && kind === 'png') {
         saveDashboardAsPng(name + '.png');
+
         return;
       }
+
       const svg = target === 'heatmap' ? serializedHeatmapSvg() : target === 'dashboard' ? serializedDashboardSvg() : serializedChartSvg();
+
       if (kind === 'svg') {
         saveBlob(new Blob([svg], {type:'image/svg+xml;charset=utf-8'}), name + '.svg');
       } else {
         await saveSvgAsPng(svg, name + '.png');
       }
     }
+
     async function saveSvgAsPng(svg, name) {
       const img = new Image();
       const url = URL.createObjectURL(new Blob([svg], {type:'image/svg+xml;charset=utf-8'}));
@@ -725,6 +874,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       img.onerror = function () { URL.revokeObjectURL(url); console.error('PNG export failed while loading serialized SVG'); };
       img.src = url;
     }
+
     function saveBlob(blob, name) {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -734,6 +884,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       a.remove();
       setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
     }
+
     modeEl.addEventListener('change', render);
     chartStyleEl.addEventListener('change', render);
     fromEl.addEventListener('input', render);
@@ -753,11 +904,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
     render();
   </script>
 </body>
-</html>`;
+</html>`
 }
 
 function cssVars(theme: UsageTheme): string {
-  const cells = theme.colors.cells;
+  const cells = theme.colors.cells
   return `:root {
       color-scheme: dark;
       --bg: ${theme.colors.bg};
@@ -777,13 +928,13 @@ function cssVars(theme: UsageTheme): string {
       --cell5: ${cells[5]};
       --font-ui: ${theme.fonts.ui};
       --font-code: ${theme.fonts.code};
-    }`;
+    }`
 }
 
 function stat(label: string, value: string): string {
-  return `<div class="stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`;
+  return `<div class="stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`
 }
 
 function downloadMenu(target: "heatmap" | "chart" | "dashboard"): string {
-  return `<details class="download-menu"><summary aria-label="Download" title="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`;
+  return `<details class="download-menu"><summary aria-label="Download" title="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`
 }

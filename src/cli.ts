@@ -1,54 +1,122 @@
 #!/usr/bin/env bun
-import path from "node:path";
-import { resolveCodexHomes } from "./codex-homes";
-import { loadAuthFromHomes } from "./auth";
-import { loadProfile } from "./profile-api";
-import { loadWhamAnalytics } from "./analytics-api";
-import { resolveUsageTheme } from "./theme";
-import { collectRolloutEvents } from "./rollouts";
-import { buildDataset } from "./aggregate";
-import { loadPricing } from "./pricing";
-import { writeOutputs } from "./export";
-import type { CliOptions, SourceMode, PricingSource } from "./types";
-import { compactNumber, money } from "./util";
+import type { CliOptions, SourceMode, PricingSource } from "./types"
+
+import { resolve } from "node:path"
+
+import { buildDataset } from "./aggregate"
+import { loadWhamAnalytics } from "./analytics-api"
+import { loadAuthFromHomes } from "./auth"
+import { resolveCodexHomes } from "./codex-homes"
+import { outputStepCount, writeOutputs } from "./export"
+import { loadPricing } from "./pricing"
+import { loadProfile } from "./profile-api"
+import { CliProgress } from "./progress"
+import { collectRolloutEvents } from "./rollouts"
+import { resolveUsageTheme } from "./theme"
+import { compactNumber, money, pluralize } from "./util"
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2));
+  const options = parseArgs(process.argv.slice(2))
+
   if (options.command === "help") {
-    console.log(helpText());
-    return;
+    console.log(helpText())
+
+    return
   }
 
-  const codexHomes = resolveCodexHomes(options.codexHomes, options.codexRoots);
+  const progress = new CliProgress({ silent: options.silent })
+  progress.setTotal(globalStepCount(options))
+
+  const codexHomes = resolveCodexHomes(options.codexHomes, options.codexRoots)
+  progress.step(
+    `Resolved ${codexHomes.length} ${pluralize("Codex home", codexHomes.length)}`,
+    codexHomes.length > 0 ? "success" : "failure",
+  )
+
   if (codexHomes.length === 0) {
-    throw new Error("No .codex homes found. Pass --codex-home or --codex-root.");
+    progress.finish()
+
+    throw new Error("No .codex homes found, pass --codex-home or --codex-root")
   }
 
-  const auth = loadAuthFromHomes(codexHomes);
-  const pricing = await loadPricing({ source: options.pricingSource, pricingJson: options.pricingJson });
-  const theme = await resolveUsageTheme(codexHomes);
-  const profileResult = options.source === "local"
-    ? { fetched: false, error: "Profile API skipped because --source local was selected" }
-    : await loadProfile({
-        profileJson: options.profileJson,
-        noApi: options.noApi,
-        baseUrl: options.baseUrl,
-        auth,
-      });
+  const auth = loadAuthFromHomes(codexHomes)
+  progress.step(
+    auth ? "Auth material found" : "No auth material found",
+    auth ? "success" : "neutral",
+  )
+  progress.status("Loading pricing table")
+  const pricing = await loadPricing({
+    source: options.pricingSource,
+    pricingJson: options.pricingJson,
+  })
+  progress.step(`Pricing table : ${pricing.source}`)
+  progress.status("Resolving report theme")
+  const theme = await resolveUsageTheme(codexHomes)
+  progress.step(`Theme : ${theme.name}`)
+  progress.status(
+    options.source === "local"
+      ? "Skipping profile API for local source"
+      : options.profileJson
+        ? "Reading profile JSON"
+        : options.noApi
+          ? "Skipping profile API because --no-api is set"
+          : "Fetching profile API",
+  )
+  const profileResult =
+    options.source === "local"
+      ? { fetched: false, error: "Profile API skipped because --source local was selected" }
+      : await loadProfile({
+          profileJson: options.profileJson,
+          noApi: options.noApi,
+          baseUrl: options.baseUrl,
+          auth,
+        })
+  const profileSkipped = !profileResult.profile && (options.source === "local" || options.noApi)
+  progress.step(
+    profileResult.profile
+      ? "Profile data ready"
+      : profileSkipped
+        ? "Profile API skipped"
+        : "Profile data unavailable",
+    profileResult.profile ? "success" : profileSkipped ? "neutral" : "failure",
+  )
 
   if (options.source === "backend" && !profileResult.profile) {
-    throw new Error(`Backend source requested but Profile API data is unavailable: ${profileResult.error ?? "unknown error"}`);
+    progress.finish()
+
+    throw new Error(
+      `Backend source requested but Profile API data is unavailable : ${profileResult.error ?? "unknown error"}`,
+    )
   }
 
-  const local = options.source === "backend"
-    ? { events: [], rolloutFiles: 0, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] }
-    : collectRolloutEvents({
-        homes: codexHomes,
-        timezone: options.timezone,
-        from: options.from,
-        to: options.to,
-      });
+  const local =
+    options.source === "backend"
+      ? (() => {
+          progress.step("Skipped local collection for backend source")
 
+          return {
+            events: [],
+            rolloutFiles: 0,
+            sqliteDatabases: 0,
+            sqliteThreads: 0,
+            parseErrors: [],
+          }
+        })()
+      : collectRolloutEvents({
+          homes: codexHomes,
+          timezone: options.timezone,
+          from: options.from,
+          to: options.to,
+          progress,
+        })
+
+  progress.status(
+    options.analyticsJson
+      ? "Reading WHAM analytics JSON"
+      : options.noApi
+        ? "Skipping WHAM analytics APIs because --no-api is set"
+        : "Fetching WHAM analytics APIs",
+  )
   const analytics = await loadWhamAnalytics({
     analyticsJson: options.analyticsJson,
     noApi: options.noApi,
@@ -56,8 +124,17 @@ async function main() {
     auth,
     from: options.from,
     to: options.to,
-  });
+  })
+  progress.step(
+    analytics && !analytics.error
+      ? "WHAM analytics ready"
+      : options.noApi
+        ? "WHAM analytics skipped"
+        : "WHAM analytics unavailable or partial",
+    analytics && !analytics.error ? "success" : options.noApi ? "neutral" : "failure",
+  )
 
+  progress.status("Aggregating daily, weekly, model, and cost summaries")
   const dataset = buildDataset({
     profileResult,
     events: local.events,
@@ -76,24 +153,43 @@ async function main() {
     estimateModel: options.estimateModel,
     theme,
     analytics,
-  });
+  })
+  progress.step("Dataset built")
 
-  const result = await writeOutputs(dataset, path.resolve(options.outDir), {
+  const result = await writeOutputs(dataset, resolve(options.outDir), {
     includePng: !options.noPng,
     reportOnly: options.command === "collect",
-  });
+    progress,
+  })
 
-  console.log(`Wrote ${result.files.length} file(s) to ${path.resolve(options.outDir)}`);
-  console.log(`Total tokens: ${compactNumber(dataset.summary.lifetimeTokens)}; local enriched: ${compactNumber(dataset.summary.localKnownTokens)}; estimated cost: ${money(dataset.summary.estimatedCostUsd)}`);
-  if (dataset.profile?.error) console.warn(`Profile API warning: ${dataset.profile.error}`);
-  if (dataset.pricing.warning) console.warn(`Pricing warning: ${dataset.pricing.warning}`);
-  if (dataset.analytics?.error) console.warn(`Analytics API warning: ${dataset.analytics.error}`);
-  for (const warning of result.warnings) console.warn(warning);
+  progress.finish()
+
+  if (!options.silent)
+    console.log(`Wrote ${result.files.length} ${pluralize("file", result.files.length)} to ${resolve(options.outDir)}`)
+  console.log(`Total tokens : ${compactNumber(dataset.summary.lifetimeTokens)}; local enriched : ${compactNumber(dataset.summary.localKnownTokens)}, estimated cost : ${money(dataset.summary.estimatedCostUsd)}`)
+
+  if (!options.silent) {
+    if (dataset.profile?.error) {
+      console.warn(`Profile API warning : ${dataset.profile.error}`)
+    }
+
+    if (dataset.pricing.warning) {
+      console.warn(`Pricing warning : ${dataset.pricing.warning}`)
+    }
+
+    if (dataset.analytics?.error) {
+      console.warn(`Analytics API warning : ${dataset.analytics.error}`)
+    }
+
+    for (const warning of result.warnings) {
+      console.warn(warning)
+    }
+  }
 }
 
 function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
-    command: "generate",
+    command: "help",
     codexHomes: [],
     codexRoots: [],
     outDir: "outputs/codex-usage",
@@ -106,135 +202,195 @@ function parseArgs(args: string[]): CliOptions {
     pricingSource: "models.dev",
     estimateModel: "gpt-5.5",
     noPng: false,
-  };
+    silent: false,
+  }
 
-  const first = args[0];
+  if (args.length === 0) {
+    options.command = "help"
+  }
+
+  const first = args[0]
+
   if (first && !first.startsWith("-")) {
-    if (!["generate", "collect", "help"].includes(first)) throw new Error(`Unknown command: ${first}`);
-    options.command = first as CliOptions["command"];
-    args = args.slice(1);
+    if (!["generate", "collect", "help"].includes(first)) {
+      throw new Error(`Unknown command : ${first}`)
+    }
+
+    options.command = first as CliOptions["command"]
+    args = args.slice(1)
   }
 
   for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
+    const arg = args[i]
     const next = () => {
-      const value = args[++i];
-      if (!value) throw new Error(`${arg} requires a value`);
-      return value;
-    };
+      const value = args[++i]
+
+      if (!value) {
+        throw new Error(`${arg} requires a value`)
+      }
+
+      return value
+    }
     switch (arg) {
       case "--codex-home":
-        options.codexHomes.push(next());
-        break;
+        options.codexHomes.push(next())
+
+        break
       case "--codex-root":
-        options.codexRoots.push(next());
-        break;
+        options.codexRoots.push(next())
+
+        break
       case "--out":
-        options.outDir = next();
-        break;
+        options.outDir = next()
+
+        break
       case "--from":
-        options.from = validateDate(next(), "--from");
-        break;
+        options.from = validateDate(next(), "--from")
+
+        break
       case "--to":
-        options.to = validateDate(next(), "--to");
-        break;
+        options.to = validateDate(next(), "--to")
+
+        break
       case "--timezone":
-        options.timezone = next();
-        break;
+        options.timezone = next()
+
+        break
       case "--source":
-        options.source = validateSource(next());
-        break;
+        options.source = validateSource(next())
+
+        break
       case "--profile-json":
-        options.profileJson = next();
-        break;
+        options.profileJson = next()
+
+        break
       case "--no-api":
-        options.noApi = true;
-        break;
+        options.noApi = true
+
+        break
       case "--base-url":
-        options.baseUrl = next();
-        break;
+        options.baseUrl = next()
+
+        break
       case "--pricing-source":
-        options.pricingSource = validatePricingSource(next());
-        break;
+        options.pricingSource = validatePricingSource(next())
+
+        break
       case "--pricing-json":
-        options.pricingJson = next();
-        break;
+        options.pricingJson = next()
+
+        break
       case "--estimate-model":
-        options.estimateModel = next();
-        break;
+        options.estimateModel = next()
+
+        break
       case "--no-png":
-        options.noPng = true;
-        break;
+        options.noPng = true
+
+        break
       case "--analytics-json":
-        options.analyticsJson = next();
-        break;
+        options.analyticsJson = next()
+
+        break
+      case "--silent":
+        options.silent = true
+
+        break
       case "--help":
       case "-h":
-        options.command = "help";
-        break;
+        options.command = "help"
+
+        break
       default:
-        throw new Error(`Unknown option: ${arg}`);
+        throw new Error(`Unknown option : ${arg}`)
     }
   }
-  return options;
+  return options
+}
+
+function globalStepCount(options: CliOptions): number {
+  const inputSteps = 4
+  const profileSteps = 1
+  const localSteps = options.source === "backend" ? 1 : 3
+  const analyticsSteps = 1
+  const datasetSteps = 1
+
+  return (
+    inputSteps +
+    profileSteps +
+    localSteps +
+    analyticsSteps +
+    datasetSteps +
+    outputStepCount({ includePng: !options.noPng, reportOnly: options.command === "collect" })
+  )
 }
 
 function validateDate(value: string, flag: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`${flag} must be YYYY-MM-DD`);
-  return value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error(`${flag} must be YYYY-MM-DD`)
+  }
+
+  return value
 }
 
 function validateSource(value: string): SourceMode {
-  if (value === "hybrid" || value === "backend" || value === "local") return value;
-  throw new Error("--source must be hybrid, backend, or local");
+  if (value === "hybrid" || value === "backend" || value === "local") {
+    return value
+  }
+
+  throw new Error("--source must be hybrid, backend, or local")
 }
 
 function validatePricingSource(value: string): PricingSource {
-  if (value === "bundled" || value === "models.dev") return value;
-  throw new Error("--pricing-source must be bundled or models.dev");
+  if (value === "bundled" || value === "models.dev") {
+    return value
+  }
+
+  throw new Error("--pricing-source must be bundled or models.dev")
 }
 
 function helpText(): string {
-  return `Codex Usage Tool
+  return `Codex usage tool by EDM115
 
-Usage:
+Usage :
   bun src/cli.ts [generate|collect|help] [options]
 
-Commands:
-  generate   Collect data and write HTML, SVG, PNG, JSON, and CSV outputs. Default.
-  collect    Collect data and write usage-data.json/cost-estimate.csv only.
-  help       Show this help.
+Commands :
+  generate   Collect data and write HTML, SVG, PNG, JSON, and CSV outputs
+  collect    Collect data and write usage-data.json/cost-estimate.csv only
+  help       Show this help (default)
 
-Data options:
-  --codex-home <path>        Add a .codex directory. Repeatable.
-  --codex-root <path>        Add a parent directory containing .codex. Repeatable.
-  --source <mode>            hybrid | backend | local. Default: hybrid.
-  --profile-json <path>      Use a saved /profiles/me JSON response.
-  --no-api                   Disable Profile API calls.
-  --base-url <url>           Default: https://chatgpt.com/backend-api.
+Data options :
+  --codex-home <path>        Add a .codex directory, repeatable
+  --codex-root <path>        Add a parent directory containing .codex, repeatable
+  --source <mode>            hybrid (default) | backend | local
+  --profile-json <path>      Use a saved /profiles/me JSON response
+  --no-api                   Disable Profile API calls
+  --base-url <url>           Default : https://chatgpt.com/backend-api
 
-Filters:
-  --from YYYY-MM-DD          Inclusive start date.
-  --to YYYY-MM-DD            Inclusive end date.
-  --timezone <tz>            Default: Europe/Paris.
+Filters :
+  --from YYYY-MM-DD          Inclusive start date
+  --to YYYY-MM-DD            Inclusive end date
+  --timezone <tz>            Default : Europe/Paris
 
-Pricing:
-  --pricing-source <source>  models.dev | bundled. Default: models.dev.
-  --pricing-json <path>      Custom pricing JSON.
-  --estimate-model <model>   Default: gpt-5.5.
+Pricing :
+  --pricing-source <source>  models.dev (default) | bundled
+  --pricing-json <path>      Custom pricing JSON
+  --estimate-model <model>   Default : gpt-5.5
 
-Output:
-  --out <path>               Output directory. Default: outputs/codex-usage.
-  --no-png                   Skip PNG export.
-  --analytics-json <path>    Use saved wham analytics JSON instead of calling the dashboard APIs.
+Output :
+  --out <path>               Output directory (default : outputs/codex-usage)
+  --no-png                   Skip PNG export
+  --analytics-json <path>    Use saved wham analytics JSON instead of calling the dashboard APIs
+  --silent                   Hide action lines, file count, and warnings, keep the progress bar and token summary
 
-Examples:
+Examples :
   bun src/cli.ts generate --codex-home C:\\Users\\EDM115\\.codex --out outputs\\codex-usage
   bun src/cli.ts generate --codex-home C:\\Users\\EDM115\\.codex --codex-home D:\\Laptop\\.codex --from 2026-01-01
-`;
+`
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+})
