@@ -1,0 +1,151 @@
+export type SourceMode = "hybrid" | "backend" | "local";
+export type PricingSource = "bundled" | "models.dev";
+
+export type TokenBreakdown = {
+  totalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+};
+
+export type CodexHome = {
+  path: string;
+  label: string;
+};
+
+export type ThreadMetadata = {
+  threadId: string;
+  rolloutPath: string;
+  model?: string;
+  reasoningEffort?: string;
+  source?: string;
+  tokensUsed?: number;
+  archived?: boolean;
+};
+
+export type TokenEvent = {
+  eventId: string;
+  homePath: string;
+  homeLabel: string;
+  rolloutPath: string;
+  threadId: string;
+  timestamp: string;
+  date: string;
+  model: string;
+  reasoningEffort?: string;
+  planType?: string;
+  breakdown: TokenBreakdown;
+  modelContextWindow?: number;
+};
+
+export type AccountTokenUsageSummary = {
+  lifetimeTokens: number | null;
+  peakDailyTokens: number | null;
+  longestRunningTurnSec: number | null;
+  currentStreakDays: number | null;
+  longestStreakDays: number | null;
+};
+
+export type AccountTokenUsageDailyBucket = {
+  startDate: string;
+  tokens: number;
+};
+
+export type AccountProfileResponse = {
+  summary: AccountTokenUsageSummary;
+  dailyUsageBuckets: AccountTokenUsageDailyBucket[] | null;
+};
+
+export type ModelPricing = {
+  model: string;
+  inputPerMillion: number;
+  cachedInputPerMillion?: number;
+  outputPerMillion: number;
+  source: string;
+};
+
+export type DailyUsage = {
+  date: string;
+  totalTokens: number;
+  backendTokens?: number;
+  localTokens: TokenBreakdown;
+  unattributedTokens: number;
+  sourceTotal: "backend" | "local";
+  models: Record<string, TokenBreakdown>;
+  reasoningEfforts: Record<string, number>;
+  homes: Record<string, number>;
+  knownLocalCostUsd: number;
+  estimatedUnattributedCostUsd: number;
+  estimatedCostUsd: number;
+};
+
+export type WeeklyUsage = {
+  weekStart: string;
+  totalTokens: number;
+  backendTokens?: number;
+  localTokens: TokenBreakdown;
+  unattributedTokens: number;
+  estimatedCostUsd: number;
+};
+
+export type UsageDataset = {
+  generatedAt: string;
+  timezone: string;
+  sourceMode: SourceMode;
+  dateRange: {
+    from: string | null;
+    to: string | null;
+  };
+  codexHomes: CodexHome[];
+  profile?: {
+    fetched: boolean;
+    endpoint?: string;
+    error?: string;
+    summary: AccountTokenUsageSummary;
+  };
+  local: {
+    rolloutFiles: number;
+    tokenEvents: number;
+    sqliteDatabases: number;
+    sqliteThreads: number;
+    parseErrors: Array<{ path: string; line?: number; error: string }>;
+  };
+  pricing: {
+    source: string;
+    estimateModel: string;
+    fetchedAt?: string;
+    warning?: string;
+  };
+  summary: {
+    lifetimeTokens: number;
+    peakDailyTokens: number;
+    currentStreakDays: number | null;
+    longestStreakDays: number | null;
+    longestRunningTurnSec: number | null;
+    localKnownTokens: number;
+    unattributedTokens: number;
+    knownLocalCostUsd: number;
+    estimatedCostUsd: number;
+  };
+  daily: DailyUsage[];
+  weekly: WeeklyUsage[];
+};
+
+export type CliOptions = {
+  command: "generate" | "collect" | "help";
+  codexHomes: string[];
+  codexRoots: string[];
+  outDir: string;
+  from: string | null;
+  to: string | null;
+  timezone: string;
+  source: SourceMode;
+  profileJson?: string;
+  noApi: boolean;
+  baseUrl: string;
+  pricingSource: PricingSource;
+  pricingJson?: string;
+  estimateModel: string;
+  noPng: boolean;
+};
