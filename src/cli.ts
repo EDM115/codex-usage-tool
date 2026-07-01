@@ -3,6 +3,8 @@ import path from "node:path";
 import { resolveCodexHomes } from "./codex-homes";
 import { loadAuthFromHomes } from "./auth";
 import { loadProfile } from "./profile-api";
+import { loadWhamAnalytics } from "./analytics-api";
+import { resolveUsageTheme } from "./theme";
 import { collectRolloutEvents } from "./rollouts";
 import { buildDataset } from "./aggregate";
 import { loadPricing } from "./pricing";
@@ -24,6 +26,7 @@ async function main() {
 
   const auth = loadAuthFromHomes(codexHomes);
   const pricing = await loadPricing({ source: options.pricingSource, pricingJson: options.pricingJson });
+  const theme = await resolveUsageTheme(codexHomes);
   const profileResult = options.source === "local"
     ? { fetched: false, error: "Profile API skipped because --source local was selected" }
     : await loadProfile({
@@ -46,6 +49,15 @@ async function main() {
         to: options.to,
       });
 
+  const analytics = await loadWhamAnalytics({
+    analyticsJson: options.analyticsJson,
+    noApi: options.noApi,
+    baseUrl: options.baseUrl,
+    auth,
+    from: options.from,
+    to: options.to,
+  });
+
   const dataset = buildDataset({
     profileResult,
     events: local.events,
@@ -62,6 +74,8 @@ async function main() {
     },
     pricing,
     estimateModel: options.estimateModel,
+    theme,
+    analytics,
   });
 
   const result = await writeOutputs(dataset, path.resolve(options.outDir), {
@@ -73,6 +87,7 @@ async function main() {
   console.log(`Total tokens: ${compactNumber(dataset.summary.lifetimeTokens)}; local enriched: ${compactNumber(dataset.summary.localKnownTokens)}; estimated cost: ${money(dataset.summary.estimatedCostUsd)}`);
   if (dataset.profile?.error) console.warn(`Profile API warning: ${dataset.profile.error}`);
   if (dataset.pricing.warning) console.warn(`Pricing warning: ${dataset.pricing.warning}`);
+  if (dataset.analytics?.error) console.warn(`Analytics API warning: ${dataset.analytics.error}`);
   for (const warning of result.warnings) console.warn(warning);
 }
 
@@ -150,6 +165,9 @@ function parseArgs(args: string[]): CliOptions {
       case "--no-png":
         options.noPng = true;
         break;
+      case "--analytics-json":
+        options.analyticsJson = next();
+        break;
       case "--help":
       case "-h":
         options.command = "help";
@@ -208,6 +226,7 @@ Pricing:
 Output:
   --out <path>               Output directory. Default: outputs/codex-usage.
   --no-png                   Skip PNG export.
+  --analytics-json <path>    Use saved wham analytics JSON instead of calling the dashboard APIs.
 
 Examples:
   bun src/cli.ts generate --codex-home C:\\Users\\EDM115\\.codex --out outputs\\codex-usage

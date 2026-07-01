@@ -1,4 +1,4 @@
-import type { AccountProfileResponse, DailyUsage, TokenBreakdown, TokenEvent, UsageDataset, WeeklyUsage } from "./types";
+import type { AccountProfileResponse, DailyUsage, TokenBreakdown, TokenEvent, UsageDataset, UsageTheme, WeeklyUsage, WhamAnalytics } from "./types";
 import { addBreakdown, clampDate, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util";
 import { estimateBreakdownCost, estimateUnattributedCost, type PricingLoadResult } from "./pricing";
 import type { CodexHome, SourceMode } from "./types";
@@ -24,6 +24,8 @@ export function buildDataset(args: {
   };
   pricing: PricingLoadResult;
   estimateModel: string;
+  theme: UsageTheme;
+  analytics?: WhamAnalytics;
 }): UsageDataset {
   const backendByDate = new Map<string, number>();
   for (const bucket of args.profileResult.profile?.dailyUsageBuckets ?? []) {
@@ -108,6 +110,8 @@ export function buildDataset(args: {
       fetchedAt: args.pricing.fetchedAt,
       warning: args.pricing.warning,
     },
+    theme: args.theme,
+    analytics: args.analytics,
     summary,
     daily,
     weekly,

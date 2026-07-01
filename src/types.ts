@@ -1,6 +1,28 @@
 export type SourceMode = "hybrid" | "backend" | "local";
 export type PricingSource = "bundled" | "models.dev";
 
+export type UsageTheme = {
+  name: string;
+  source: string;
+  colors: {
+    bg: string;
+    panel: string;
+    panel2: string;
+    line: string;
+    text: string;
+    muted: string;
+    accent: string;
+    accent2: string;
+    warning: string;
+    cells: string[];
+    series: string[];
+  };
+  fonts: {
+    ui: string;
+    code: string;
+  };
+};
+
 export type TokenBreakdown = {
   totalTokens: number;
   inputTokens: number;
@@ -55,6 +77,66 @@ export type AccountTokenUsageDailyBucket = {
 export type AccountProfileResponse = {
   summary: AccountTokenUsageSummary;
   dailyUsageBuckets: AccountTokenUsageDailyBucket[] | null;
+};
+
+export type WhamUsageResponse = {
+  planType?: string;
+  rateLimit?: {
+    primaryUsedPercent?: number;
+    secondaryUsedPercent?: number;
+    primaryResetAt?: number | null;
+    secondaryResetAt?: number | null;
+  };
+  credits?: {
+    hasCredits?: boolean;
+    unlimited?: boolean;
+    balance?: string;
+    overageLimitReached?: boolean;
+    approxLocalMessages?: number[];
+    approxCloudMessages?: number[];
+  };
+};
+
+export type WhamDailyBreakdownBucket = {
+  date: string;
+  productSurfaceUsageValues: Record<string, number>;
+  models: Array<{ model: string; speed?: string; credits: number }>;
+};
+
+export type WhamWorkspaceUsageBucket = {
+  date: string;
+  totals: Record<string, number>;
+  clients: Array<Record<string, string | number>>;
+  models: Array<Record<string, string | number>>;
+};
+
+export type WhamAnalytics = {
+  fetched: boolean;
+  endpoints: Record<string, string>;
+  error?: string;
+  usage?: WhamUsageResponse;
+  dailyTokenUsageBreakdown?: {
+    units?: string;
+    groupBy?: string;
+    data: WhamDailyBreakdownBucket[];
+  };
+  workspaceUsageCounts?: {
+    groupBy?: string;
+    data: WhamWorkspaceUsageBucket[];
+  };
+  tasks?: {
+    currentCount: number;
+  };
+  totals: {
+    credits: number;
+    turns: number;
+    threads: number;
+    users: number;
+    textTotalTokens: number;
+  };
+  byModel: Array<{ model: string; credits: number; turns: number; threads: number; users: number }>;
+  bySurface: Array<{ surface: string; credits: number; percent: number; turns: number; threads: number; users: number }>;
+  bySource: Array<{ source: string; credits: number; turns: number; threads: number; users: number; textTotalTokens: number }>;
 };
 
 export type ModelPricing = {
@@ -117,6 +199,8 @@ export type UsageDataset = {
     fetchedAt?: string;
     warning?: string;
   };
+  theme: UsageTheme;
+  analytics?: WhamAnalytics;
   summary: {
     lifetimeTokens: number;
     peakDailyTokens: number;
@@ -148,4 +232,5 @@ export type CliOptions = {
   pricingJson?: string;
   estimateModel: string;
   noPng: boolean;
+  analyticsJson?: string;
 };

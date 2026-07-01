@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { collectRolloutEvents } from "../src/rollouts";
 import { buildDataset } from "../src/aggregate";
 import { loadPricing } from "../src/pricing";
+import { renderReportHtml } from "../src/report-html";
+import { resolveUsageTheme } from "../src/theme";
 
 test("collectRolloutEvents parses token_count breakdowns", () => {
   const root = path.join(tmpdir(), `codex-usage-test-${Date.now()}`);
@@ -91,10 +93,51 @@ test("buildDataset keeps backend totals authoritative and local details enriched
     localStats: { rolloutFiles: 1, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
     pricing,
     estimateModel: "gpt-5",
+    theme: await resolveUsageTheme([]),
   });
 
   expect(dataset.daily[0].totalTokens).toBe(1000);
   expect(dataset.daily[0].localTokens.totalTokens).toBe(150);
   expect(dataset.daily[0].unattributedTokens).toBe(850);
   expect(dataset.summary.lifetimeTokens).toBe(1000);
+});
+test("renderHtmlReport emits parseable runtime scripts", async () => {
+  const pricing = await loadPricing({ source: "bundled" });
+  const dataset = buildDataset({
+    profileResult: { fetched: false, error: "offline" },
+    events: [{
+      eventId: "e1",
+      homePath: "home",
+      homeLabel: "home",
+      rolloutPath: "rollout",
+      threadId: "thread",
+      timestamp: "2026-06-27T08:00:00.000Z",
+      date: "2026-06-27",
+      model: "gpt-5",
+      breakdown: {
+        inputTokens: 100,
+        cachedInputTokens: 10,
+        outputTokens: 20,
+        reasoningOutputTokens: 5,
+        totalTokens: 120,
+      },
+    }],
+    codexHomes: [{ path: "home", label: "home" }],
+    sourceMode: "local",
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    localStats: { rolloutFiles: 1, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
+    pricing,
+    estimateModel: "gpt-5",
+    theme: await resolveUsageTheme([]),
+  });
+
+  const html = renderReportHtml(dataset);
+  const scripts = [...html.matchAll(/<script(?![^>]*application\/json)[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+  expect(scripts.length).toBeGreaterThan(0);
+  for (const script of scripts) {
+    expect(() => new Function(script)).not.toThrow();
+  }
+  expect(html).toContain("\\nTotal: ");
 });

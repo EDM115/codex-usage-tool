@@ -1,38 +1,41 @@
-import type { DailyUsage, UsageDataset } from "./types";
+import type { DailyUsage, UsageDataset, UsageTheme } from "./types";
 import { compactNumber, escapeHtml, money } from "./util";
 
-const COLORS = ["#20252e", "#3b2f28", "#5a3b26", "#8a5a2c", "#c9823a", "#ffb15f"];
-
 export function renderHeatmapSvg(dataset: UsageDataset, mode: "daily" | "weekly" | "cumulative"): string {
+  const theme = dataset.theme;
+  const colors = theme.colors.cells;
   const cell = 14;
   const gap = 4;
-  const top = 32;
+  const top = 34;
   const left = 42;
   const values = valueMap(dataset.daily, mode);
   const max = Math.max(1, ...values.map((day) => day.value));
   const weeks = Math.ceil(dataset.daily.length / 7);
-  const width = Math.max(760, left + weeks * (cell + gap) + 28);
-  const height = top + 7 * (cell + gap) + 72;
+  const width = Math.max(820, left + weeks * (cell + gap) + 34);
+  const footerY = top + 7 * (cell + gap) + 32;
+  const height = footerY + 70;
   const rects = values.map((day, index) => {
     const date = new Date(`${day.date}T00:00:00Z`);
     const weekday = date.getUTCDay();
     const col = Math.floor(index / 7);
     const x = left + col * (cell + gap);
     const y = top + weekday * (cell + gap);
-    const fill = colorFor(day.value, max);
+    const fill = colorFor(day.value, max, colors);
     return `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="3" fill="${fill}">
       <title>${escapeHtml(`${day.date}: ${compactNumber(day.value)} tokens; local ${compactNumber(day.localTokens)}; cost ${money(day.cost)}`)}</title>
     </rect>`;
   }).join("\n");
-  return svgWrap(width, height, `
-    <text x="${left}" y="20" class="title">Codex token activity - ${mode}</text>
+  const sourceText = `Profile totals are authoritative when available. Local rollout detail comes from ${dataset.codexHomes.length} .codex source(s). Theme: ${theme.name}.`;
+  return svgWrap(width, height, theme, `
+    <text x="${left}" y="22" class="title">Codex token activity - ${mode}</text>
     ${rects}
-    <text x="${left}" y="${height - 36}" class="muted">Profile totals are authoritative when available. Local rollout detail comes from ${dataset.codexHomes.length} .codex source(s).</text>
-    ${legend(width - 190, height - 48)}
+    ${textLines(sourceText, left, footerY, Math.max(48, Math.floor((width - left - 250) / 6.2)), "muted")}
+    ${legend(width - 190, footerY - 12, colors)}
   `);
 }
 
 export function renderChartSvg(dataset: UsageDataset, mode: "daily" | "weekly" | "cumulative", style: "bar" | "area" = mode === "daily" ? "bar" : "area"): string {
+  const theme = dataset.theme;
   const series = mode === "weekly"
     ? dataset.weekly.map((week) => ({ label: week.weekStart, value: week.totalTokens, cost: week.estimatedCostUsd }))
     : dataset.daily.map((day) => ({ label: day.date, value: day.totalTokens, cost: day.estimatedCostUsd }));
@@ -64,11 +67,11 @@ export function renderChartSvg(dataset: UsageDataset, mode: "daily" | "weekly" |
         const barW = Math.max(2, chartW / Math.max(1, points.length) - 2);
         const x = pad.left + index * (chartW / Math.max(1, points.length));
         const h = pad.top + chartH - point.y;
-        return `<rect x="${x}" y="${point.y}" width="${barW}" height="${h}" fill="#ffb15f"><title>${escapeHtml(`${point.label}: ${compactNumber(point.value)} tokens; ${money(point.cost)}`)}</title></rect>`;
+        return `<rect x="${x}" y="${point.y}" width="${barW}" height="${h}" fill="${theme.colors.accent}"><title>${escapeHtml(`${point.label}: ${compactNumber(point.value)} tokens; ${money(point.cost)}`)}</title></rect>`;
       }).join("\n")
-    : renderArea(points, pad.top + chartH);
+    : renderArea(points, pad.top + chartH, theme);
 
-  return svgWrap(width, height, `
+  return svgWrap(width, height, theme, `
     <text x="${pad.left}" y="24" class="title">Token activity - ${mode}</text>
     ${yTicks}
     ${body}
@@ -78,12 +81,12 @@ export function renderChartSvg(dataset: UsageDataset, mode: "daily" | "weekly" |
   `);
 }
 
-function renderArea(points: Array<{ x: number; y: number; value: number; label: string; cost: number }>, baseline: number): string {
+function renderArea(points: Array<{ x: number; y: number; value: number; label: string; cost: number }>, baseline: number, theme: UsageTheme): string {
   if (points.length === 0) return "";
   const line = points.map((point) => `${point.x},${point.y}`).join(" ");
   const area = `${points[0].x},${baseline} ${line} ${points.at(-1)!.x},${baseline}`;
-  const circles = points.map((point) => `<circle cx="${point.x}" cy="${point.y}" r="3" fill="#ffb15f"><title>${escapeHtml(`${point.label}: ${compactNumber(point.value)} tokens; ${money(point.cost)}`)}</title></circle>`).join("\n");
-  return `<polygon points="${area}" fill="#ffb15f" opacity="0.22"/><polyline points="${line}" fill="none" stroke="#ffb15f" stroke-width="3"/>${circles}`;
+  const circles = points.map((point) => `<circle cx="${point.x}" cy="${point.y}" r="3" fill="${theme.colors.accent}"><title>${escapeHtml(`${point.label}: ${compactNumber(point.value)} tokens; ${money(point.cost)}`)}</title></circle>`).join("\n");
+  return `<polygon points="${area}" fill="${theme.colors.accent}" opacity="0.22"/><polyline points="${line}" fill="none" stroke="${theme.colors.accent}" stroke-width="3"/>${circles}`;
 }
 
 function valueMap(daily: DailyUsage[], mode: "daily" | "weekly" | "cumulative"): Array<{ date: string; value: number; localTokens: number; cost: number }> {
@@ -107,26 +110,42 @@ function valueMap(daily: DailyUsage[], mode: "daily" | "weekly" | "cumulative"):
   });
 }
 
-function colorFor(value: number, max: number): string {
-  if (value <= 0) return COLORS[0];
-  const index = Math.min(COLORS.length - 1, Math.max(1, Math.ceil((value / max) * (COLORS.length - 1))));
-  return COLORS[index];
+function colorFor(value: number, max: number, colors: string[]): string {
+  if (value <= 0) return colors[0];
+  const index = Math.min(colors.length - 1, Math.max(1, Math.ceil((value / max) * (colors.length - 1))));
+  return colors[index];
 }
 
-function legend(x: number, y: number): string {
-  return COLORS.map((color, index) => `<rect x="${x + index * 22}" y="${y}" width="16" height="16" rx="3" fill="${color}"/>`).join("\n")
-    + `<text x="${x - 8}" y="${y + 13}" text-anchor="end" class="muted">Less</text><text x="${x + COLORS.length * 22 + 4}" y="${y + 13}" class="muted">More</text>`;
+function legend(x: number, y: number, colors: string[]): string {
+  return colors.map((color, index) => `<rect x="${x + index * 22}" y="${y}" width="16" height="16" rx="3" fill="${color}"/>`).join("\n")
+    + `<text x="${x - 8}" y="${y + 13}" text-anchor="end" class="muted">Less</text><text x="${x + colors.length * 22 + 4}" y="${y + 13}" class="muted">More</text>`;
 }
 
-function svgWrap(width: number, height: number, body: string): string {
+function textLines(text: string, x: number, y: number, maxChars: number, className: string): string {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (`${current} ${word}`.trim().length > maxChars && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = `${current} ${word}`.trim();
+    }
+  }
+  if (current) lines.push(current);
+  return lines.slice(0, 3).map((line, index) => `<text x="${x}" y="${y + index * 16}" class="${className}">${escapeHtml(line)}</text>`).join("\n");
+}
+
+function svgWrap(width: number, height: number, theme: UsageTheme, body: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <style>
-    svg { background: #050811; color: #f7f1e8; font-family: Inter, ui-sans-serif, system-ui, Segoe UI, sans-serif; }
-    .title { fill: #f7f1e8; font-size: 18px; font-weight: 700; }
-    .muted { fill: #a7a7ad; font-size: 12px; }
-    .axis { fill: #a7a7ad; font-size: 11px; }
-    .grid { stroke: #222832; stroke-width: 1; }
-    .axis-line { stroke: #3a414d; stroke-width: 1; }
+    svg { background: ${theme.colors.bg}; color: ${theme.colors.text}; font-family: ${theme.fonts.ui}; }
+    .title { fill: ${theme.colors.text}; font-size: 18px; font-weight: 700; }
+    .muted { fill: ${theme.colors.muted}; font-size: 12px; }
+    .axis { fill: ${theme.colors.muted}; font-size: 11px; }
+    .grid { stroke: ${theme.colors.line}; stroke-width: 1; }
+    .axis-line { stroke: ${theme.colors.line}; stroke-width: 1; }
   </style>
   ${body}
 </svg>`;
