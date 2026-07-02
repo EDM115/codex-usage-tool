@@ -11,6 +11,14 @@ The tool is designed for people who use Codex across several machines or surface
 - `cost-estimate.csv` for daily token and cost analysis
 - Reports styled from the first selected Codex home theme, including named theme fallbacks when the config only stores a theme name
 
+## Preview
+![Daily intensity](https://i.postimg.cc/8CGYnsYS/Capture-d-ecran-2026-07-02-225226.png)
+![Usage trend](https://i.postimg.cc/3whqbWqK/Capture-d-ecran-2026-07-02-225304.png)
+![Models](https://i.postimg.cc/pdvS1ySR/Capture-d-ecran-2026-07-02-225324.png)
+![Surfaces](https://i.postimg.cc/MGwLrXLw/Capture-d-ecran-2026-07-02-225329.png)
+![Thinking effort + Mode mix](https://i.postimg.cc/HLmNPjNT/Capture-d-ecran-2026-07-02-225335.png)
+Example of generated images can be found [here](https://github.com/EDM115/codex-usage-tool/issues/1).
+
 ## Data sources
 
 The report combines several data sources and keeps their roles explicit :
