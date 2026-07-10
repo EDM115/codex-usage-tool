@@ -7,7 +7,69 @@ import type {
   WhamAnalytics,
 } from "./types"
 
+import { readFileSync } from "node:fs"
+
 import { compactNumber, escapeHtml, money, pluralize } from "./util"
+
+const CODEX_ICON_DATA_URI = `data:image/webp;base64,${readFileSync(
+  new URL("../codex_icon.webp", import.meta.url),
+).toString("base64")}`
+
+type ProgressColorPair = { dark: string; light: string }
+
+const MODEL_PROGRESS_COLORS: Record<string, ProgressColorPair> = {
+  "chat-latest": { dark: "#67d8ef", light: "#087c94" },
+  "gpt-5.6-sol": { dark: "#f6c453", light: "#9a5b00" },
+  "gpt-5.6-terra": { dark: "#50d890", light: "#087a46" },
+  "gpt-5.6-luna": { dark: "#afa8ff", light: "#5c45b8" },
+  "gpt-5.5": { dark: "#8b9cff", light: "#4655b8" },
+  "gpt-5.5-pro": { dark: "#c49aff", light: "#7446b8" },
+  "gpt-5.4": { dark: "#ff82b2", light: "#b21f67" },
+  "gpt-5.4-mini": { dark: "#d5e45c", light: "#687a00" },
+  "gpt-5.4-nano": { dark: "#67d8ef", light: "#087c94" },
+  "gpt-5.4-pro": { dark: "#ff9f6e", light: "#a94718" },
+  "gpt-5.3-chat-latest": { dark: "#7fb2ff", light: "#2d63b5" },
+  "gpt-5.3-codex": { dark: "#67d8ef", light: "#087c94" },
+  "gpt-5.3-codex-spark": { dark: "#f6c453", light: "#9a5b00" },
+  "gpt-5.2": { dark: "#63d7c7", light: "#087a6d" },
+  "gpt-5.2-chat-latest": { dark: "#75b8ff", light: "#2366a8" },
+  "gpt-5.2-codex": { dark: "#55b7f3", light: "#0067a5" },
+  "gpt-5.2-pro": { dark: "#c49aff", light: "#7446b8" },
+  "gpt-5.1": { dark: "#a997ff", light: "#5d48b0" },
+  "gpt-5.1-chat-latest": { dark: "#7fb2ff", light: "#2d63b5" },
+  "gpt-5.1-codex": { dark: "#67d8ef", light: "#087c94" },
+  "gpt-5.1-codex-max": { dark: "#ff9f6e", light: "#a94718" },
+  "gpt-5.1-codex-mini": { dark: "#50d890", light: "#087a46" },
+  "gpt-5": { dark: "#6ea8fe", light: "#2457b2" },
+  "gpt-5-chat-latest": { dark: "#63d7c7", light: "#087a6d" },
+  "gpt-5-codex": { dark: "#55b7f3", light: "#0067a5" },
+  "gpt-5-mini": { dark: "#50d890", light: "#087a46" },
+  "gpt-5-nano": { dark: "#d5e45c", light: "#687a00" },
+  "gpt-5-pro": { dark: "#f6c453", light: "#9a5b00" },
+  "gpt-4.1": { dark: "#b28dff", light: "#6f3eaa" },
+  "gpt-4.1-mini": { dark: "#ff82b2", light: "#b21f67" },
+  "gpt-4.1-nano": { dark: "#67d8ef", light: "#087c94" },
+  "gpt-4o": { dark: "#50d890", light: "#087a46" },
+  "gpt-4o-2024-05-13": { dark: "#63d7c7", light: "#087a6d" },
+  "gpt-4o-2024-08-06": { dark: "#55b7f3", light: "#0067a5" },
+  "gpt-4o-2024-11-20": { dark: "#8b9cff", light: "#4655b8" },
+  "gpt-4o-mini": { dark: "#d5e45c", light: "#687a00" },
+  o1: { dark: "#c49aff", light: "#7446b8" },
+  "o1-pro": { dark: "#f6c453", light: "#9a5b00" },
+  o3: { dark: "#ff9f6e", light: "#a94718" },
+  "o3-mini": { dark: "#d5e45c", light: "#687a00" },
+  "o3-pro": { dark: "#ff82b2", light: "#b21f67" },
+  "o3-deep-research": { dark: "#67d8ef", light: "#087c94" },
+  "o4-mini": { dark: "#50d890", light: "#087a46" },
+  "o4-mini-deep-research": { dark: "#8b9cff", light: "#4655b8" },
+  "gpt-3.5-turbo": { dark: "#63d7c7", light: "#087a6d" },
+  "gpt-4": { dark: "#a997ff", light: "#5d48b0" },
+  "gpt-4-turbo": { dark: "#ff9f6e", light: "#a94718" },
+  "gpt-image-2": { dark: "#c49aff", light: "#7446b8" },
+  "text-embedding-3-large": { dark: "#67d8ef", light: "#087c94" },
+  "text-embedding-3-small": { dark: "#50d890", light: "#087a46" },
+  "text-embedding-ada-002": { dark: "#d5e45c", light: "#687a00" },
+}
 
 export type ReportModelRow = WhamAnalytics["byModel"][number] & {
   localTokens: number
@@ -65,6 +127,7 @@ export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
 export function renderReportHtml(dataset: UsageDataset): string {
   const dataJson = JSON.stringify(dataset).replaceAll("</", "<\\/")
   const modelRowsJson = JSON.stringify(buildReportModelRows(dataset)).replaceAll("</", "<\\/")
+  const modelProgressColorsJson = JSON.stringify(MODEL_PROGRESS_COLORS).replaceAll("</", "<\\/")
   const theme = dataset.theme
 
   return `<!doctype html>
@@ -72,6 +135,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/webp" href="${CODEX_ICON_DATA_URI}">
   <title>Codex usage report</title>
   <style>
     ${cssVars(theme)}
@@ -84,18 +148,24 @@ export function renderReportHtml(dataset: UsageDataset): string {
     }
     main { max-width: 1220px; margin: 0 auto; padding: 28px 24px 42px; }
     header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
-    .report-title { display: flex; align-items: flex-start; gap: 10px; }
-    .github-link { display: grid; place-items: center; width: 30px; height: 30px; margin-top: 2px; color: var(--muted); border-radius: 6px; }
-    .github-link:hover { color: var(--text); background: var(--panel2); }
+    .report-title { min-width: 0; }
+    .github-link { display: grid; place-items: center; width: 40px; height: 38px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); }
+    .github-link:hover { color: var(--text); border-color: var(--accent2); }
     .github-link svg { width: 20px; height: 20px; }
     h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
     h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
     h3 { margin: 0; font-size: 13px; letter-spacing: 0; color: var(--muted); font-weight: 600; }
     p { margin: 0; color: var(--muted); }
-    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .toolbar { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 8px; width: min(100%, 570px); }
+    .toolbar > * { min-width: 0; }
     .theme-picker { position: relative; }
-    .theme-picker-button { min-width: 150px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-    .theme-picker-button::after { content: "⌄"; color: var(--muted); }
+    .theme-picker-button { position: relative; width: 100%; height: 38px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; padding-right: 30px; text-align: left; }
+    .theme-picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .select-control { position: relative; min-width: 0; }
+    .select-control select { width: 100%; height: 38px; appearance: none; padding-right: 30px; }
+    .control-chevron { position: absolute; right: 10px; top: 50%; width: 12px; height: 12px; color: var(--muted); pointer-events: none; transform: translateY(-50%); }
+    .toolbar > input { width: 100%; height: 38px; }
+    .toolbar-meta { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 8px; }
     .theme-picker-popover { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: min(320px, calc(100vw - 32px)); padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 34px rgba(0,0,0,.4); }
     .theme-picker-popover[hidden] { display: none; }
     .theme-search { width: 100%; }
@@ -117,7 +187,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     button, summary { cursor: pointer; }
     button:hover, summary:hover { border-color: var(--accent2); }
     button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .toggle-control { display: inline-flex; align-items: center; gap: 7px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--text); cursor: pointer; user-select: none; }
+    .toggle-control { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--text); cursor: pointer; user-select: none; }
     .toggle-control input { width: auto; margin: 0; padding: 0; accent-color: var(--accent); }
     .stats { display: grid; grid-template-columns: repeat(6, minmax(135px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 22px; }
     .stat { background: var(--panel); padding: 16px; min-width: 0; }
@@ -127,7 +197,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .section-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 12px; }
     .section-title { display: grid; gap: 4px; min-width: 0; }
     .section-copy { color: var(--muted); font-size: 13px; }
-    .section-actions { display: flex; gap: 8px; align-items: flex-start; flex: 0 0 auto; }
+    .section-actions { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
     .download-menu { position: relative; }
     .download-menu summary { list-style: none; user-select: none; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; }
     .download-menu summary::-webkit-details-marker { display: none; }
@@ -151,7 +221,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .subrow { display: grid; grid-template-columns: minmax(100px, 1fr) auto; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; cursor: help; min-width: 0; }
     .subrow .meter { height: 5px; }
     .model-group { display: grid; gap: 9px; padding-bottom: 12px; border-bottom: 1px solid var(--line); min-width: 0; }
-    .model-group:last-child { padding-bottom: 0; border-bottom: 0; }
+    .model-group.last-model { padding-bottom: 0; border-bottom: 0; }
     .model-details { display: grid; gap: 9px; margin-left: 12px; padding-left: 11px; border-left: 1px solid var(--line); }
     .model-section { display: grid; gap: 7px; }
     .model-section + .model-section { padding-top: 9px; border-top: 1px solid var(--line); }
@@ -210,7 +280,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .warning { color: var(--warning); }
     @media (max-width: 900px) {
       header { display: block; }
-      .toolbar { justify-content: flex-start; margin-top: 14px; }
+      .toolbar { margin-top: 14px; }
       .theme-picker-popover { right: auto; left: 0; }
       .stats { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
       .section-head { display: grid; }
@@ -218,39 +288,33 @@ export function renderReportHtml(dataset: UsageDataset): string {
       .download-panel { right: auto; left: 0; }
       .breakdown-grid { grid-template-columns: 1fr; min-width: 0; }
     }
+    @media (max-width: 620px) {
+      main { padding-inline: 16px; }
+      .toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+      .theme-picker, .toolbar-meta { grid-column: 1 / -1; }
+    }
   </style>
 </head>
 <body>
   <main>
     <header>
       <div class="report-title">
-        <div>
-          <h1>Codex usage report</h1>
-          <p>Generated at ${escapeHtml(dataset.generatedAt)} (${escapeHtml(dataset.timezone)})</p>
-        </div>
-        <a class="github-link" href="https://github.com/EDM115/codex-usage-tool" target="_blank" rel="noreferrer" aria-label="Open codex-usage-tool on GitHub" title="GitHub repository"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z" fill="none"/><path fill="currentColor" d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656c0-.781.281-1.625.75-2.188c-.203-.515-.172-1.609.063-2.062c.625-.078 1.468.25 1.968.703c.594-.187 1.219-.281 1.985-.281c.765 0 1.39.094 1.953.265c.484-.437 1.344-.765 1.969-.687c.218.422.25 1.515.046 2.047c.5.593.766 1.39.766 2.203c0 1.922-1.453 3.375-3.547 3.64c.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03C16 3.61 12.406 0 7.984 0C3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156c-1.031 0-1.64-.562-2.078-1.609c-.172-.422-.36-.672-.719-.719c-.187-.015-.25-.093-.25-.187c0-.188.313-.328.625-.328c.453 0 .844.281 1.25.86c.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"/></svg></a>
+        <h1>Codex usage report</h1>
+        <p>Generated at ${escapeHtml(dataset.generatedAt)} (${escapeHtml(dataset.timezone)})</p>
       </div>
       <div class="toolbar">
         <div id="themePicker" class="theme-picker">
-          <button id="themePickerButton" class="theme-picker-button" type="button" aria-haspopup="listbox" aria-expanded="false">Theme : <span id="themePickerLabel">${escapeHtml(dataset.themeChoice)}</span></button>
+          <button id="themePickerButton" class="theme-picker-button" type="button" aria-haspopup="listbox" aria-expanded="false">Theme : <span id="themePickerLabel" class="theme-picker-label">${escapeHtml(dataset.themeChoice)}</span>${controlChevron()}</button>
           <div id="themePickerPopover" class="theme-picker-popover" hidden>
             <input id="themeSearch" class="theme-search" type="search" role="combobox" aria-label="Search themes" aria-controls="themeOptions" aria-expanded="false" aria-autocomplete="list" autocomplete="off" placeholder="Search themes">
             <div id="themeOptions" class="theme-options" role="listbox" aria-label="Themes"></div>
           </div>
         </div>
-        <select id="mode" aria-label="Chart time mode">
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-          <option value="cumulative">Cumulative</option>
-        </select>
-        <select id="chartStyle" aria-label="Chart style">
-          <option value="auto">Auto chart</option>
-          <option value="bar">Bar</option>
-          <option value="area">Line/area</option>
-        </select>
+        <label class="select-control"><select id="mode" aria-label="Chart time mode"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="cumulative">Cumulative</option></select>${controlChevron()}</label>
+        <label class="select-control"><select id="chartStyle" aria-label="Chart style"><option value="auto">Auto chart</option><option value="bar">Bar</option><option value="area">Line/area</option></select>${controlChevron()}</label>
         <input id="from" type="date" value="${escapeHtml(dataset.dateRange.from ?? dataset.daily[0]?.date ?? "")}" aria-label="Start date">
         <input id="to" type="date" value="${escapeHtml(dataset.dateRange.to ?? dataset.daily.at(-1)?.date ?? "")}" aria-label="End date">
-        <label class="toggle-control"><input id="rawCounts" type="checkbox">Exact counts</label>
+        <div class="toolbar-meta"><label class="toggle-control"><input id="rawCounts" type="checkbox">Exact counts</label>${githubLink()}</div>
       </div>
     </header>
 
@@ -292,7 +356,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
           <h2>Usage breakdown</h2>
           <p class="section-copy">Local model usage enriched with matching WHAM metrics, plus cloud surface and task metadata</p>
         </div>
-        <div class="section-actions">
+        <div class="section-actions breakdown-actions">
           <h3>${escapeHtml(dataset.analytics?.error ? "best effort" : dataset.analytics?.fetched ? "from wham APIs" : "saved or unavailable")}</h3>
           ${downloadMenu("dashboard")}
         </div>
@@ -336,6 +400,74 @@ export function renderReportHtml(dataset: UsageDataset): string {
     let themeChoice = dataset.themeChoice;
     let filteredThemes = dataset.availableThemes.slice();
     let activeThemeIndex = 0;
+    const modelProgressColors = ${modelProgressColorsJson};
+    const reasoningEffortOrder = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+    const fallbackProgressColors = [
+      { dark: '#67d8ef', light: '#087c94' },
+      { dark: '#8b9cff', light: '#4655b8' },
+      { dark: '#f6c453', light: '#9a5b00' },
+      { dark: '#50d890', light: '#087a46' },
+      { dark: '#ff82b2', light: '#b21f67' },
+      { dark: '#c49aff', light: '#7446b8' },
+      { dark: '#ff9f6e', light: '#a94718' }
+    ];
+
+    function progressColor(pair) {
+      return themeColorScheme(theme.colors.bg) === 'light' ? pair.light : pair.dark;
+    }
+
+    function stableProgressColor(value) {
+      let hash = 0;
+      const text = String(value || '').toLowerCase();
+      for (let index = 0; index < text.length; index++) hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+      return progressColor(fallbackProgressColors[Math.abs(hash) % fallbackProgressColors.length]);
+    }
+
+    function modelColor(model) {
+      const name = String(model || '').toLowerCase();
+      if (modelProgressColors[name]) return progressColor(modelProgressColors[name]);
+      const undated = name.replace(/-\d{4}-\d{2}-\d{2}$/, '');
+      if (modelProgressColors[undated]) return progressColor(modelProgressColors[undated]);
+      if (name.includes('codex')) return progressColor({ dark: '#67d8ef', light: '#087c94' });
+      if (name.includes('gpt-image')) return progressColor({ dark: '#c49aff', light: '#7446b8' });
+      return stableProgressColor(name);
+    }
+
+    function surfaceColor(surface) {
+      const name = String(surface || '').toLowerCase();
+      if (name.includes('desktop')) return progressColor({ dark: '#8b9cff', light: '#4655b8' });
+      if (name.includes('vs code') || name.includes('vscode')) return progressColor({ dark: '#55b7f3', light: '#0067a5' });
+      if (name === 'cli' || name.includes('terminal')) return progressColor({ dark: '#50d890', light: '#087a46' });
+      if (name.includes('service exec')) return progressColor({ dark: '#ff9f6e', light: '#a94718' });
+      if (name.includes('web')) return progressColor({ dark: '#67d8ef', light: '#087c94' });
+      if (name.includes('github')) return progressColor({ dark: '#c49aff', light: '#7446b8' });
+      return stableProgressColor(name);
+    }
+
+    function mixHex(from, to, amount) {
+      const left = String(from || '').replace('#', '');
+      const right = String(to || '').replace('#', '');
+      if (!/^[0-9a-f]{6}$/i.test(left) || !/^[0-9a-f]{6}$/i.test(right)) return theme.colors.accent;
+      const channel = function (offset) { return Math.round(parseInt(left.slice(offset, offset + 2), 16) * (1 - amount) + parseInt(right.slice(offset, offset + 2), 16) * amount).toString(16).padStart(2, '0'); };
+      return '#' + channel(0) + channel(2) + channel(4);
+    }
+
+    function reasoningColor(effort) {
+      const normalized = String(effort || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
+      const canonical = normalized === 'extra high' ? 'xhigh' : normalized;
+      const index = reasoningEffortOrder.indexOf(canonical);
+      const weights = [0.24, 0.36, 0.48, 0.60, 0.72, 0.86, 1];
+      return mixHex(theme.colors.bg, theme.colors.accent, weights[index < 0 ? 2 : index]);
+    }
+
+    function modeColor(mode) {
+      return /fast|priority/i.test(String(mode || '')) ? theme.colors.accent : mixHex(theme.colors.accent, '#ffffff', 0.20);
+    }
+
+    function meterWidth(value, maximum) {
+      if (!(value > 0)) return '0';
+      return 'max(2px, ' + (value / Math.max(1, maximum) * 100) + '%)';
+    }
 
     function exact(value, maximumFractionDigits, minimumFractionDigits) {
       if (!Number.isFinite(value)) {
@@ -670,10 +802,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const variantsByModel = modelVariantsByName(variants || []);
       const totalLocalTokens = Math.max(1, rows.reduce(function (sum, row) { return sum + row.localTokens; }, 0));
       const modelRows = rows.map(function (row, index) {
-        const color = theme.colors.series[index % theme.colors.series.length];
-        const meter = row.localTokens ? '<div class="meter" aria-label="'+escapeText(row.model)+' share of local tokens"><span style="width:'+(row.localTokens / totalLocalTokens * 100)+'%; background:'+color+'"></span></div>' : '';
-        const details = modelDetails(row, variantsByModel.get(row.model) || [], color);
-        return '<div class="model-group"><div class="row model-summary" data-tip="'+escapeText(modelTip(row))+'"><div class="row-label">'+escapeText(row.model)+'</div><div class="row-value">'+escapeText(modelValueText(row))+'</div>'+meter+'</div>'+details+'</div>';
+        const color = modelColor(row.model);
+        const meter = row.localTokens ? '<div class="meter" aria-label="'+escapeText(row.model)+' share of local tokens"><span style="width:'+meterWidth(row.localTokens, totalLocalTokens)+'; background:'+color+'"></span></div>' : '';
+        const details = modelDetails(row, variantsByModel.get(row.model) || []);
+        return '<div class="model-group'+(index === rows.length - 1 ? ' last-model' : '')+'"><div class="row model-summary" data-tip="'+escapeText(modelTip(row))+'"><div class="row-label">'+escapeText(row.model)+'</div><div class="row-value">'+escapeText(modelValueText(row))+'</div>'+meter+'</div>'+details+'</div>';
       }).join('');
       const overall = overallPanels(rows, variantsByModel);
 
@@ -729,9 +861,9 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return map;
     }
 
-    function modelDetails(row, variants, color) {
-      const reasoning = reasoningSection(row, color);
-      const tiers = serviceTierSection(row, variants, color);
+    function modelDetails(row, variants) {
+      const reasoning = reasoningSection(row);
+      const tiers = serviceTierSection(row, variants);
 
       if (!reasoning && !tiers) {
         return '';
@@ -740,7 +872,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return '<div class="model-details">' + reasoning + tiers + '</div>';
     }
 
-    function reasoningSection(row, color) {
+    function reasoningSection(row) {
       const efforts = (row.reasoningEfforts || []).slice().sort(function (a, b) { return b.breakdown.totalTokens - a.breakdown.totalTokens; });
 
       if (!efforts.length) {
@@ -750,11 +882,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return '<div class="model-section"><h4>Thinking effort</h4><div class="subrows">' + efforts.map(function (effort) {
         const tokens = effort.breakdown.totalTokens;
         const tip = row.model + ' / ' + effort.effort + '\\nSource : local rollout turn context' + breakdownTip(effort.breakdown) + '\\nEstimated cost : ' + money(effort.costUsd);
-        return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(effort.effort)+'</div><div>'+escapeText(compact(tokens) + ' tokens · ' + money(effort.costUsd))+'</div><div class="meter"><span style="width:'+(tokens / Math.max(1, row.localTokens) * 100)+'%; background:'+color+'"></span></div></div>';
+        return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(effort.effort)+'</div><div>'+escapeText(compact(tokens) + ' tokens · ' + money(effort.costUsd))+'</div><div class="meter"><span style="width:'+meterWidth(tokens, row.localTokens)+'; background:'+reasoningColor(effort.effort)+'"></span></div></div>';
       }).join('') + '</div></div>';
     }
 
-    function serviceTierSection(row, variants, color) {
+    function serviceTierSection(row, variants) {
       const tiers = serviceTierRows(row, variants);
 
       if (!tiers.length) {
@@ -780,7 +912,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
           tip += '\\nVariant credits : ' + exact(tier.credits, 2) + '\\n' + tier.estimateSource;
         }
 
-        return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(tier.label)+'</div><div>'+escapeText(valueText)+'</div><div class="meter"><span style="width:'+(value / denominator * 100)+'%; background:'+color+'"></span></div></div>';
+        return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(tier.label)+'</div><div>'+escapeText(valueText)+'</div><div class="meter"><span style="width:'+meterWidth(value, denominator)+'; background:'+modeColor(tier.label)+'"></span></div></div>';
       }).join('') + '</div></div>';
     }
 
@@ -820,31 +952,31 @@ export function renderReportHtml(dataset: UsageDataset): string {
         return '';
       }
 
-      return '<div class="overall-sections">' + overallSection('Overall thinking effort', reasoningRows, 2, 'Exact local totals across models') + overallSection('Overall mode mix', modeRows, 4, 'Local tiers, with WHAM estimates only for models without local tier evidence') + '</div>';
+      return '<div class="overall-sections">' + overallSection('Overall thinking effort', reasoningRows, 'reasoning', 'Exact local totals across models') + overallSection('Overall mode mix', modeRows, 'mode', 'Local tiers, with WHAM estimates only for models without local tier evidence') + '</div>';
     }
 
-    function overallSection(titleText, rows, colorOffset, sourceText) {
+    function overallSection(titleText, rows, colorKind, sourceText) {
       if (!rows.length) {
         return '';
       }
 
       const total = rows.reduce(function (sum, row) { return sum + row.totalTokens; }, 0) || 1;
-      return '<div class="model-section"><h4>'+escapeText(titleText)+'</h4>' + rows.map(function (row, index) {
-        const color = theme.colors.series[(index + colorOffset) % theme.colors.series.length];
+      return '<div class="model-section"><h4>'+escapeText(titleText)+'</h4>' + rows.map(function (row) {
+        const color = colorKind === 'reasoning' ? reasoningColor(row.label) : modeColor(row.label);
         const tip = titleText + ' / ' + row.label + '\\nSource : ' + sourceText + '\\nTokens : ' + exact(row.totalTokens, 0) + '\\nEstimated cost : ' + money(row.costUsd) + (row.estimated ? '\\nContains WHAM-estimated mode allocation' : '');
-        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.label)+'</div><div class="row-value">'+escapeText(compact(row.totalTokens) + ' tokens · ' + money(row.costUsd))+'</div><div class="meter"><span style="width:'+(row.totalTokens / total * 100)+'%; background:'+color+'"></span></div></div>';
+        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.label)+'</div><div class="row-value">'+escapeText(compact(row.totalTokens) + ' tokens · ' + money(row.costUsd))+'</div><div class="meter"><span style="width:'+meterWidth(row.totalTokens, total)+'; background:'+color+'"></span></div></div>';
       }).join('') + '</div>';
     }
 
     function surfacePanel(rows) {
       const totalSurfaceTokens = rows.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0);
 
-      return '<div class="breakdown-panel"><h3>Surfaces</h3><div class="rows">' + rows.map(function (row, index) {
-        const color = theme.colors.series[index % theme.colors.series.length];
+      return '<div class="breakdown-panel"><h3>Surfaces</h3><div class="rows">' + rows.map(function (row) {
+        const color = surfaceColor(row.surface);
         const text = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : trimFixed(row.percent) + '%') + ' - ' + compact(row.turns) + ' turns';
         const surfaceCost = totalSurfaceTokens ? dataset.summary.estimatedCostUsd * row.textTotalTokens / totalSurfaceTokens : 0;
         const tip = row.surface + '\\nTokens : ' + exact(row.textTotalTokens, 0) + '\\nInput : ' + exact(row.inputTokens, 0) + '\\nCached input : ' + exact(row.cachedInputTokens, 0) + '\\nOutput : ' + exact(row.outputTokens, 0) + '\\nTurns : ' + exact(row.turns, 0) + '\\nThreads : ' + exact(row.threads, 0) + '\\nCredits : ' + exact(row.credits, 2) + (row.textTotalTokens ? '\\nEstimated overall cost share : ' + money(surfaceCost) : '');
-        const meter = row.textTotalTokens && totalSurfaceTokens ? '<div class="meter"><span style="width:'+(row.textTotalTokens / totalSurfaceTokens * 100)+'%; background:'+color+'"></span></div>' : '';
+        const meter = row.textTotalTokens && totalSurfaceTokens ? '<div class="meter"><span style="width:'+meterWidth(row.textTotalTokens, totalSurfaceTokens)+'; background:'+color+'"></span></div>' : '';
         return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.surface)+'</div><div class="row-value">'+escapeText(text)+'</div>'+meter+'</div>';
       }).join('') + '</div></div>';
     }
@@ -935,7 +1067,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const width = 1100;
       const height = Math.max(560, analyticsBreakdown.scrollHeight + 72);
       const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export"><h2 style="margin:0 0 12px;font-size:18px;color:'+theme.colors.text+'">Usage Breakdown</h2>' + clone.outerHTML + '</div>';
-      const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;min-width:0}.row-label,.task-title,.task-meta{overflow-wrap:anywhere}.row-value{text-align:right;font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
+      const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;min-width:0}.row-label,.task-title,.task-meta{overflow-wrap:anywhere}.row-value{text-align:right;font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
 
       return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
     }
@@ -1022,7 +1154,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
         if (options && options.noMeter) return rowH;
         const barY = y + (options && options.small ? 9 : 12);
         roundRect(x + indent, barY, w - indent, options && options.small ? 5 : 7, 4, theme.colors.panel2, '');
-        const fillWidth = Math.min(w - indent, (w - indent) * value / Math.max(1, max));
+        const proportionalWidth = Math.min(w - indent, (w - indent) * value / Math.max(1, max));
+        const fillWidth = value > 0 ? Math.max(2, proportionalWidth) : 0;
         if (fillWidth > 0) roundRect(x + indent, barY, fillWidth, options && options.small ? 5 : 7, 4, color, '');
         return rowH;
       }
@@ -1055,8 +1188,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
       title(modelX + 16, y, 'Models');
       y += 34;
       const totalModelTokens = Math.max(1, models.reduce(function (sum, row) { return sum + row.localTokens; }, 0));
-      models.forEach(function (row, index) {
-        const color = theme.colors.series[index % theme.colors.series.length];
+      models.forEach(function (row) {
+        const color = modelColor(row.model);
         const value = row.localTokens || row.turns || row.credits;
         const valueText = modelValueText(row);
         y += barRow(modelX + 16, y, mainWidth - 32, row.model, valueText, value, totalModelTokens, color, { noMeter: !row.localTokens });
@@ -1067,7 +1200,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
           section(modelX + 34, y, 'Thinking effort');
           y += 22;
           efforts.forEach(function (effort) {
-            y += barRow(modelX + 16, y, mainWidth - 32, effort.effort, compact(effort.breakdown.totalTokens) + ' tokens · ' + money(effort.costUsd), effort.breakdown.totalTokens, row.localTokens, color, { indent: 18, small: true, muted: true });
+            y += barRow(modelX + 16, y, mainWidth - 32, effort.effort, compact(effort.breakdown.totalTokens) + ' tokens · ' + money(effort.costUsd), effort.breakdown.totalTokens, row.localTokens, reasoningColor(effort.effort), { indent: 18, small: true, muted: true });
           });
         }
 
@@ -1080,32 +1213,33 @@ export function renderReportHtml(dataset: UsageDataset): string {
           tiers.forEach(function (tier) {
             const tierValue = tier.totalTokens || tier.credits;
             const tierText = tier.totalTokens ? compact(tier.totalTokens) + ' tokens · ' + money(tier.costUsd) : compact(tier.credits) + ' credits';
-            y += barRow(modelX + 16, y, mainWidth - 32, tier.label, tierText, tierValue, denominator, color, { indent: 18, small: true, muted: true });
+            y += barRow(modelX + 16, y, mainWidth - 32, tier.label, tierText, tierValue, denominator, modeColor(tier.label), { indent: 18, small: true, muted: true });
           });
         }
       });
 
-      function drawOverallRows(titleText, rows, colorOffset) {
+      function drawOverallRows(titleText, rows, colorKind) {
         if (!rows.length) return;
         y += 4;
         section(modelX + 16, y, titleText);
         y += 22;
         const total = rows.reduce(function (sum, row) { return sum + row.totalTokens; }, 0) || 1;
-        rows.forEach(function (row, index) {
-          y += barRow(modelX + 16, y, mainWidth - 32, row.label, compact(row.totalTokens) + ' tokens · ' + money(row.costUsd), row.totalTokens, total, theme.colors.series[(index + colorOffset) % theme.colors.series.length], { small: true });
+        rows.forEach(function (row) {
+          const color = colorKind === 'reasoning' ? reasoningColor(row.label) : modeColor(row.label);
+          y += barRow(modelX + 16, y, mainWidth - 32, row.label, compact(row.totalTokens) + ' tokens · ' + money(row.costUsd), row.totalTokens, total, color, { small: true });
         });
       }
 
-      drawOverallRows('Overall thinking effort', overall.reasoningRows, 2);
-      drawOverallRows('Overall mode mix', overall.modeRows, 4);
+      drawOverallRows('Overall thinking effort', overall.reasoningRows, 'reasoning');
+      drawOverallRows('Overall mode mix', overall.modeRows, 'mode');
 
       y = panelY + 34;
       title(sideX + 16, y, 'Surfaces');
       y += 34;
       const totalSurfaceTokens = surfaces.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0) || 1;
-      surfaces.forEach(function (row, index) {
+      surfaces.forEach(function (row) {
         const valueText = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : trimFixed(row.percent) + '%') + ' - ' + compact(row.turns) + ' turns';
-        y += barRow(sideX + 16, y, sideWidth - 32, row.surface, valueText, row.textTotalTokens, totalSurfaceTokens, theme.colors.series[index % theme.colors.series.length], { noMeter: !row.textTotalTokens });
+        y += barRow(sideX + 16, y, sideWidth - 32, row.surface, valueText, row.textTotalTokens, totalSurfaceTokens, surfaceColor(row.surface), { noMeter: !row.textTotalTokens });
       });
       y = panelY + surfaceHeight + gap + 34;
       title(sideX + 16, y, 'Cloud tasks');
@@ -1298,4 +1432,12 @@ function stat(label: string, value: number, kind: "number" | "money" = "number")
 
 function downloadMenu(target: "heatmap" | "chart" | "dashboard"): string {
   return `<details class="download-menu"><summary aria-label="Download" title="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`
+}
+
+function controlChevron(): string {
+  return `<svg class="control-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 4.25 3.5 3.5 3.5-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/></svg>`
+}
+
+function githubLink(): string {
+  return `<a class="github-link" href="https://github.com/EDM115/codex-usage-tool" target="_blank" rel="noreferrer" aria-label="Open codex-usage-tool on GitHub" title="GitHub repository"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z" fill="none"/><path fill="currentColor" d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656c0-.781.281-1.625.75-2.188c-.203-.515-.172-1.609.063-2.062c.625-.078 1.468.25 1.968.703c.594-.187 1.219-.281 1.985-.281c.765 0 1.39.094 1.953.265c.484-.437 1.344-.765 1.969-.687c.218.422.25 1.515.046 2.047c.5.593.766 1.39.766 2.203c0 1.922-1.453 3.375-3.547 3.64c.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03C16 3.61 12.406 0 7.984 0C3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156c-1.031 0-1.64-.562-2.078-1.609c-.172-.422-.36-.672-.719-.719c-.187-.015-.25-.093-.25-.187c0-.188.313-.328.625-.328c.453 0 .844.281 1.25.86c.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"/></svg></a>`
 }

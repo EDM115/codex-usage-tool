@@ -1,7 +1,15 @@
+<div align="center">
+
 # Codex usage tool
+
+<img src="./codex_icon.webp" alt="Codex usage tool icon" width="128">
 
 Generate polished, self-contained Codex usage reports from local `.codex` folders plus the authenticated ChatGPT/Codex dashboard APIs.  
 The tool is designed for people who use Codex across several machines or surfaces and want one offline report that reconciles authoritative backend totals with the richer context available in local rollout files: models, reasoning effort, cached input, output tokens, cost estimates, themes, surfaces, and cloud task metadata.
+
+![Demo composited](https://i.postimg.cc/N09sFNNC/demo-composited.png)
+
+</div>
 
 ## What it produces
 
@@ -12,11 +20,12 @@ The tool is designed for people who use Codex across several machines or surface
 - Reports styled from the first selected Codex home theme, including named theme fallbacks when the config only stores a theme name
 
 ## Preview
-![Daily intensity](https://i.postimg.cc/8CGYnsYS/Capture-d-ecran-2026-07-02-225226.png)  
-![Usage trend](https://i.postimg.cc/3whqbWqK/Capture-d-ecran-2026-07-02-225304.png)  
-![Models](https://i.postimg.cc/pdvS1ySR/Capture-d-ecran-2026-07-02-225324.png)  
-![Surfaces](https://i.postimg.cc/MGwLrXLw/Capture-d-ecran-2026-07-02-225329.png)  
-![Thinking effort + Mode mix](https://i.postimg.cc/HLmNPjNT/Capture-d-ecran-2026-07-02-225335.png)  
+
+![Daily intensity](https://i.postimg.cc/W1cPN2BK/overview.png)  
+![Usage trend](https://i.postimg.cc/Hk01jqmS/trend.png)  
+![Models](https://i.postimg.cc/Z5Pz0GmH/models-excerpt.png)  
+![Surfaces](https://i.postimg.cc/K87h46bN/surfaces.png)  
+![Thinking effort + Mode mix](https://i.postimg.cc/SxLbjB4D/effort-mode.png)  
 Example of generated images can be found [here](https://github.com/EDM115/codex-usage-tool/issues/1).
 
 ## Data sources

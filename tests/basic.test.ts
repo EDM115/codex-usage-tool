@@ -544,6 +544,28 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
   expect(html).toContain('role="listbox"')
   expect(html).toContain("function applyTheme")
   expect(html).toContain("function selectTheme")
+  expect(html).toContain('<link rel="icon" type="image/webp" href="data:image/webp;base64,')
+  expect(html).toContain('class="select-control"')
+  expect(html).toContain('class="control-chevron"')
+  expect(html).toContain('class="theme-picker-label"')
+  expect(html).toContain('.theme-picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }')
+  expect(html).toContain('class="toolbar-meta"')
+  expect(html).toContain('class="github-link"')
+  expect(html).toContain('class="section-actions breakdown-actions"')
+  expect(html).toContain('.model-group.last-model')
+  expect(html).not.toContain('.theme-picker-button::after')
+  expect(html).toContain("const reasoningEffortOrder = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']")
+  expect(html).toContain('function modelColor')
+  expect(html).toContain('function surfaceColor')
+  expect(html).toContain('function reasoningColor')
+  expect(html).toContain('function modeColor')
+  expect(html).toContain('function meterWidth')
+  expect(html).toContain('Math.max(2,')
+  const bundledColorCatalog = html.match(/const modelProgressColors = (\{[^;]+\});/)
+  expect(bundledColorCatalog).not.toBeNull()
+  expect(Object.keys(JSON.parse(bundledColorCatalog?.[1] ?? "{}") as Record<string, unknown>).sort()).toEqual(
+    [...pricing.table.keys()].sort(),
+  )
   const modelRowsScript = html.match(
     /<script id="model-rows" type="application\/json">([\s\S]*?)<\/script>/,
   )
