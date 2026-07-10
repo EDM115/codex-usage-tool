@@ -98,6 +98,30 @@ test("CLI parses canonical theme choices and rejects unknown names", () => {
   )
 })
 
+test("CLI accepts repeated usage JSON inputs alongside Codex homes", () => {
+  const options = parseArgs([
+    "generate",
+    "--usage-json",
+    "laptop/usage-data.json",
+    "--codex-home",
+    "desktop/.codex",
+    "--usage-json",
+    "archive/usage-data.json",
+  ])
+
+  expect(options.usageJsons).toEqual([
+    "laptop/usage-data.json",
+    "archive/usage-data.json",
+  ])
+  expect(options.codexHomes).toEqual(["desktop/.codex"])
+})
+
+test("CLI rejects date filters that cannot be applied faithfully to usage JSON", () => {
+  expect(() => parseArgs(["generate", "--usage-json", "usage-data.json", "--from", "2026-07-01"])).toThrow(
+    "--from and --to cannot be applied to --usage-json inputs",
+  )
+})
+
 test("batch SVG renderers use the CLI-selected dataset theme", async () => {
   const pricing = await loadPricing({ source: "bundled" })
   const resolution = resolveUsageThemes([], "dracula")

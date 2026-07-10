@@ -284,10 +284,11 @@ export type CliOptions = {
   command: "generate" | "collect" | "help"
   codexHomes: string[]
   codexRoots: string[]
+  usageJsons: string[]
   outDir: string
   from: string | null
   to: string | null
-  timezone: string
+  timezone?: string
   source: SourceMode
   profileJson?: string
   noApi: boolean

@@ -529,8 +529,13 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
     estimateModel: "gpt-5",
     ...resolveUsageThemes([]),
   })
+  dataset.generatedAt = "2026-07-10T13:33:11.042Z"
 
   const html = renderReportHtml(dataset)
+  expect(html).toContain("Generated at 2026-07-10 15:33:11.042 UTC+02:00 (Europe/Paris)")
+  expect(html).not.toContain("Generated at 2026-07-10T13:33:11.042Z")
+  dataset.generatedAt = "2026-01-10T13:33:11.042Z"
+  expect(renderReportHtml(dataset)).toContain("Generated at 2026-01-10 14:33:11.042 UTC+01:00 (Europe/Paris)")
   expect(html).toContain('id="rawCounts"')
   expect(html).toContain('data-stat-value="120"')
   expect(html).toContain('class="report-title"')

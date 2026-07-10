@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import type { CliOptions, SourceMode, PricingSource } from "./types"
+import type { CliOptions, SourceMode, PricingSource, UsageDataset } from "./types"
 
 import { resolve } from "node:path"
 
@@ -13,6 +13,7 @@ import { loadProfile } from "./profile-api"
 import { CliProgress } from "./progress"
 import { collectRolloutEvents } from "./rollouts"
 import { resolveUsageThemes, validateThemeChoice } from "./theme"
+import { loadUsageDatasets, mergeUsageDatasets } from "./usage-json"
 import { compactNumber, money, pluralize } from "./util"
 
 async function main() {
@@ -27,16 +28,41 @@ async function main() {
   const progress = new CliProgress({ silent: options.silent })
   progress.setTotal(globalStepCount(options))
 
-  const codexHomes = resolveCodexHomes(options.codexHomes, options.codexRoots)
+  const codexHomes = resolveCodexHomes(options.codexHomes, options.codexRoots, options.usageJsons.length === 0)
   progress.step(
     `Resolved ${codexHomes.length} ${pluralize("Codex home", codexHomes.length)}`,
-    codexHomes.length > 0 ? "success" : "failure",
+    codexHomes.length > 0 ? "success" : options.usageJsons.length > 0 ? "neutral" : "failure",
   )
+  progress.status("Reading usage JSON inputs")
+  const importedDatasets = loadUsageDatasets(options.usageJsons)
+  progress.step(
+    importedDatasets.length > 0
+      ? `Loaded ${importedDatasets.length} ${pluralize("usage JSON", importedDatasets.length)}`
+      : "No usage JSON inputs",
+    importedDatasets.length > 0 ? "success" : "neutral",
+  )
+  const timezone = resolveUsageTimezone(codexHomes.length > 0, importedDatasets, options.timezone)
 
-  if (codexHomes.length === 0) {
+  if (codexHomes.length === 0 && importedDatasets.length === 0) {
     progress.finish()
 
-    throw new Error("No .codex homes found, pass --codex-home or --codex-root")
+    throw new Error("No usage sources found, pass --codex-home, --codex-root, or --usage-json")
+  }
+
+  if (codexHomes.length === 0) {
+    const themeResolution = resolveImportedTheme(importedDatasets, options.theme)
+    progress.step(`Theme : ${themeResolution?.themeChoice ?? importedDatasets[0].themeChoice}`)
+    progress.status("Merging imported usage datasets")
+    const dataset = mergeUsageDatasets(importedDatasets, {
+      from: options.from,
+      to: options.to,
+      timezone,
+      ...themeResolution,
+    })
+    progress.step("Dataset built from usage JSON")
+    await writeDataset(dataset, options, progress)
+
+    return
   }
 
   const auth = loadAuthFromHomes(codexHomes)
@@ -104,7 +130,7 @@ async function main() {
         })()
       : collectRolloutEvents({
           homes: codexHomes,
-          timezone: options.timezone,
+          timezone,
           from: options.from,
           to: options.to,
           progress,
@@ -135,14 +161,14 @@ async function main() {
   )
 
   progress.status("Aggregating daily, weekly, model, and cost summaries")
-  const dataset = buildDataset({
+  const currentDataset = buildDataset({
     profileResult,
     events: local.events,
     codexHomes,
     sourceMode: options.source,
     from: options.from,
     to: options.to,
-    timezone: options.timezone,
+    timezone,
     localStats: {
       rolloutFiles: local.rolloutFiles,
       sqliteDatabases: local.sqliteDatabases,
@@ -154,8 +180,19 @@ async function main() {
     ...themeResolution,
     analytics,
   })
+  const dataset = importedDatasets.length > 0
+    ? mergeUsageDatasets([currentDataset, ...importedDatasets], {
+        from: options.from,
+        to: options.to,
+        timezone,
+      })
+    : currentDataset
   progress.step("Dataset built")
 
+  await writeDataset(dataset, options, progress)
+}
+
+async function writeDataset(dataset: UsageDataset, options: CliOptions, progress: CliProgress): Promise<void> {
   const result = await writeOutputs(dataset, resolve(options.outDir), {
     includePng: !options.noPng,
     reportOnly: options.command === "collect",
@@ -190,15 +227,50 @@ async function main() {
   }
 }
 
+function resolveImportedTheme(datasets: UsageDataset[], choice: CliOptions["theme"]) {
+  if (!choice) {
+    return undefined
+  }
+
+  if (choice !== "config") {
+    return resolveUsageThemes([], choice)
+  }
+
+  for (const dataset of datasets) {
+    const option = dataset.availableThemes.find((theme) => theme.id === "config")
+
+    if (option) {
+      return {
+        theme: option.theme,
+        themeChoice: option.id,
+        availableThemes: dataset.availableThemes,
+      }
+    }
+  }
+
+  throw new Error("--theme config requires a usable Codex config theme")
+}
+
+function resolveUsageTimezone(hasCodexHomes: boolean, datasets: UsageDataset[], requested?: string): string {
+  const timezone = requested ?? (hasCodexHomes ? "Europe/Paris" : datasets[0]?.timezone ?? "Europe/Paris")
+  const incompatible = datasets.find((dataset) => dataset.timezone !== timezone)
+
+  if (incompatible) {
+    throw new Error(`Usage JSON timezone ${incompatible.timezone} does not match ${timezone}, existing daily buckets cannot be rebucketed`)
+  }
+
+  return timezone
+}
+
 export function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     command: "help",
     codexHomes: [],
     codexRoots: [],
+    usageJsons: [],
     outDir: "outputs/codex-usage",
     from: null,
     to: null,
-    timezone: "Europe/Paris",
     source: "hybrid",
     noApi: false,
     baseUrl: "https://chatgpt.com/backend-api",
@@ -241,6 +313,10 @@ export function parseArgs(args: string[]): CliOptions {
         break
       case "--codex-root":
         options.codexRoots.push(next())
+
+        break
+      case "--usage-json":
+        options.usageJsons.push(next())
 
         break
       case "--out":
@@ -312,11 +388,20 @@ export function parseArgs(args: string[]): CliOptions {
         throw new Error(`Unknown option : ${arg}`)
     }
   }
+
+  if (options.usageJsons.length > 0 && (options.from || options.to)) {
+    throw new Error("--from and --to cannot be applied to --usage-json inputs because per-day reasoning and service-tier detail is not available")
+  }
+
   return options
 }
 
 function globalStepCount(options: CliOptions): number {
-  const inputSteps = 4
+  if (options.usageJsons.length > 0 && options.codexHomes.length === 0 && options.codexRoots.length === 0) {
+    return 4 + outputStepCount({ includePng: !options.noPng, reportOnly: options.command === "collect" })
+  }
+
+  const inputSteps = 5
   const profileSteps = 1
   const localSteps = options.source === "backend" ? 1 : 3
   const analyticsSteps = 1
@@ -370,15 +455,16 @@ Commands :
 Data options :
   --codex-home <path>        Add a .codex directory, repeatable
   --codex-root <path>        Add a parent directory containing .codex, repeatable
+  --usage-json <path>        Add a generated usage-data.json, repeatable
   --source <mode>            hybrid (default) | backend | local
   --profile-json <path>      Use a saved /profiles/me JSON response
   --no-api                   Disable Profile API calls
   --base-url <url>           Default : https://chatgpt.com/backend-api
 
 Filters :
-  --from YYYY-MM-DD          Inclusive start date
-  --to YYYY-MM-DD            Inclusive end date
-  --timezone <tz>            Default : Europe/Paris
+  --from YYYY-MM-DD          Inclusive start date, unavailable with --usage-json
+  --to YYYY-MM-DD            Inclusive end date, unavailable with --usage-json
+  --timezone <tz>            Local .codex default : Europe/Paris, usage JSON keeps its timezone
 
 Pricing :
   --pricing-source <source>  models.dev (default) | bundled
@@ -397,6 +483,8 @@ Theme :
 Examples :
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --out outputs\\codex-usage
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --codex-home D:\\Laptop\\.codex --from 2026-01-01
+  bun usage generate --usage-json D:\\Shared\\usage-data.json --out outputs\\codex-usage
+  bun usage generate --codex-home C:\\Users\\EDM115\\.codex --usage-json D:\\Laptop\\usage-data.json
 `
 }
 

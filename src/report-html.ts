@@ -300,7 +300,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     <header>
       <div class="report-title">
         <h1>Codex usage report</h1>
-        <p>Generated at ${escapeHtml(dataset.generatedAt)} (${escapeHtml(dataset.timezone)})</p>
+        <p>Generated at ${escapeHtml(formatGeneratedAt(dataset.generatedAt, dataset.timezone))} (${escapeHtml(dataset.timezone)})</p>
       </div>
       <div class="toolbar">
         <div id="themePicker" class="theme-picker">
@@ -1385,6 +1385,35 @@ export function renderReportHtml(dataset: UsageDataset): string {
   </script>
 </body>
 </html>`
+}
+
+export function formatGeneratedAt(timestamp: string, timezone: string): string {
+  const date = new Date(timestamp)
+
+  if (Number.isNaN(date.getTime())) {
+    return timestamp
+  }
+
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      fractionalSecondDigits: 3,
+      timeZoneName: "longOffset",
+      hourCycle: "h23",
+    }).formatToParts(date)
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+    const offset = (values.timeZoneName ?? timezone).replace(/^GMT/, "UTC")
+
+    return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}.${values.fractionalSecond ?? "000"} ${offset}`
+  } catch {
+    return timestamp
+  }
 }
 
 function cssVars(theme: UsageTheme): string {

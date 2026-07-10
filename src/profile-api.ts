@@ -37,7 +37,7 @@ export async function loadProfile(options: {
   try {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${options.auth.accessToken}`,
-      "User-Agent": "codex-usage-tool/1.2",
+      "User-Agent": "codex-usage-tool/1.3",
       Accept: "application/json",
     }
 

@@ -4,7 +4,7 @@
 
 <img src="./codex_icon.webp" alt="Codex usage tool icon" width="128">
 
-Generate polished, self-contained Codex usage reports from local `.codex` folders plus the authenticated ChatGPT/Codex dashboard APIs.  
+Generate polished, self-contained Codex usage reports from local `.codex` folders, shared `usage-data.json` files, and the authenticated ChatGPT/Codex dashboard APIs.  
 The tool is designed for people who use Codex across several machines or surfaces and want one offline report that reconciles authoritative backend totals with the richer context available in local rollout files: models, reasoning effort, cached input, output tokens, cost estimates, themes, surfaces, and cloud task metadata.
 
 ![Demo composited](https://i.postimg.cc/N09sFNNC/demo-composited.png)
@@ -34,6 +34,7 @@ The report combines several data sources and keeps their roles explicit :
 
 - **Profile API totals** from `/profiles/me` : authoritative daily total token usage when available
 - **Local `.codex` enrichment** from rollout JSONL files and SQLite thread databases : model, token breakdown, reasoning effort, source home, and local cost context
+- **Generated `usage-data.json` inputs** : portable normalized datasets that can be rendered again or combined with other machines without copying their `.codex` folders
 - **WHAM dashboard analytics** from the Codex cloud dashboard : model turns, surface tokens, current and archived task samples, PR metadata, and task diff summaries
 - **Pricing metadata** from [`models.dev`](https://models.dev/), with bundled fallback pricing for offline runs
 
@@ -48,7 +49,7 @@ bun install --frozen-lockfile
 Requirements:
 
 - Bun 1.3 or newer
-- A readable Codex home, usually `C:\Users\<you>\.codex`
+- A readable Codex home, usually `C:\Users\<you>\.codex`, or at least one generated `usage-data.json`
 - Optional network access for Profile, WHAM dashboard, theme, and pricing refreshes (make sure you're authenticated through the Codex CLI)
 
 ## Quick start
@@ -75,6 +76,26 @@ bun usage generate --codex-home "C:\Users\EDM115\.codex" --codex-home "D:\Backup
 
 `--codex-home` accepts a `.codex` directory. `--codex-root` accepts either a `.codex` directory or a parent directory that contains one.
 
+## Share and combine generated JSON
+
+`--usage-json` accepts the `usage-data.json` produced by an earlier run. It is repeatable and can be mixed freely with explicit Codex homes or roots, so only this one portable file needs to move between machines.
+
+Rebuild every JSON, CSV, SVG, PNG, and HTML artifact from one shared dataset :
+
+```pwsh
+bun usage generate --usage-json "D:\Shared\usage-data.json" --out ./usage
+```
+
+Combine several shared datasets with this machine's local Codex history :
+
+```pwsh
+bun usage generate --codex-home "$env:USERPROFILE\.codex" --usage-json "D:\Laptop\usage-data.json" --usage-json "D:\Workstation\usage-data.json" --out ./usage
+```
+
+When at least one `--usage-json` is provided without an explicit `--codex-home` or `--codex-root`, automatic home discovery is disabled. This keeps the recipient's own Codex history out of the rebuilt report. Local data from every supplied input is added together, cloud profile and WHAM analytics remain a single enhancement snapshot so the same account totals are not counted once per machine.
+
+Portable JSON keeps its original timezone because its daily buckets have already been computed. Every combined JSON must use the same timezone, an explicit `--timezone` must match it. `--from` and `--to` are rejected with `--usage-json` because the normalized file does not contain date-granular model/reasoning/service-tier detail needed to re-filter every report section consistently. Generate the shared JSON with the wanted date range instead.
+
 ## Commands
 
 ```text
@@ -88,10 +109,11 @@ help       Show CLI help (default)
 ```text
 --codex-home <path>                 Add a .codex directory, repeatable
 --codex-root <path>                 Add a parent directory containing .codex, repeatable
+--usage-json <path>                 Add a generated usage-data.json, repeatable
 --out <path>                        Output directory (default : outputs/codex-usage)
---from YYYY-MM-DD                   Inclusive date filter
---to YYYY-MM-DD                     Inclusive date filter
---timezone <tz>                     IANA timezone for local rollout bucketing (default : Europe/Paris)
+--from YYYY-MM-DD                   Inclusive date filter, unavailable with --usage-json
+--to YYYY-MM-DD                     Inclusive date filter, unavailable with --usage-json
+--timezone <tz>                     IANA timezone for local rollouts (default : Europe/Paris), JSON keeps its timezone
 --source hybrid|backend|local       Default : hybrid, backend totals plus local enrichment
 --profile-json <path>               Use a saved /profiles/me JSON response instead of calling the API
 --analytics-json <path>             Use saved WHAM analytics JSON instead of calling the dashboard APIs
