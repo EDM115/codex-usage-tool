@@ -203,7 +203,7 @@ function parseArgs(args: string[]): CliOptions {
     noApi: false,
     baseUrl: "https://chatgpt.com/backend-api",
     pricingSource: "models.dev",
-    estimateModel: "gpt-5.5",
+    estimateModel: "gpt-5.6-sol",
     noPng: false,
     silent: false,
   }
@@ -379,7 +379,7 @@ Filters :
 Pricing :
   --pricing-source <source>  models.dev (default) | bundled
   --pricing-json <path>      Custom pricing JSON
-  --estimate-model <model>   Default : gpt-5.5
+  --estimate-model <model>   Default : gpt-5.6-sol
 
 Output :
   --out <path>               Output directory (default : outputs/codex-usage)

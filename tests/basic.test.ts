@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test"
+import { Database } from "bun:sqlite"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { buildDataset } from "../src/aggregate"
 import { loadPricing } from "../src/pricing"
-import { renderReportHtml } from "../src/report-html"
+import { buildReportModelRows, renderReportHtml, type ReportModelRow } from "../src/report-html"
 import { collectRolloutEvents } from "../src/rollouts"
 import { resolveUsageTheme } from "../src/theme"
 
@@ -78,6 +79,134 @@ test("collectRolloutEvents parses token_count breakdowns", () => {
   expect(result.events[0].reasoningEffort).toBe("high")
 })
 
+test("collectRolloutEvents follows thread settings model changes", () => {
+  const root = join(tmpdir(), `codex-usage-switch-test-${Date.now()}`)
+  const codexHome = join(root, ".codex")
+  const sessions = join(codexHome, "sessions", "2026", "07", "10")
+  mkdirSync(sessions, { recursive: true })
+  const rollout = join(
+    sessions,
+    "rollout-2026-07-10T08-00-00-00000000-0000-0000-0000-000000000002.jsonl",
+  )
+  writeFileSync(
+    rollout,
+    [
+      JSON.stringify({
+        timestamp: "2026-07-10T08:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "00000000-0000-0000-0000-000000000002" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:01:00.000Z",
+        type: "turn_context",
+        payload: { model: "gpt-5.5", reasoning_effort: "xhigh" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:02:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: { input_tokens: 80, output_tokens: 20, total_tokens: 100 },
+            last_token_usage: { input_tokens: 80, output_tokens: 20, total_tokens: 100 },
+          },
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:03:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "thread_settings_applied",
+          thread_settings: { model: "gpt-5.6-sol", reasoning_effort: "high" },
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:04:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: { input_tokens: 120, output_tokens: 30, total_tokens: 150 },
+            last_token_usage: { input_tokens: 40, output_tokens: 10, total_tokens: 50 },
+          },
+        },
+      }),
+    ].join("\n"),
+  )
+
+  const result = collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+  })
+
+  expect(result.events.map((event) => [event.model, event.reasoningEffort])).toEqual([
+    ["gpt-5.5", "xhigh"],
+    ["gpt-5.6-sol", "high"],
+  ])
+})
+
+test("collectRolloutEvents does not let SQLite metadata overwrite rollout state", () => {
+  const root = join(tmpdir(), `codex-usage-sqlite-test-${Date.now()}`)
+  const codexHome = join(root, ".codex")
+  const sessions = join(codexHome, "sessions", "2026", "07", "10")
+  mkdirSync(sessions, { recursive: true })
+  const threadId = "00000000-0000-0000-0000-000000000003"
+  const rollout = join(sessions, `rollout-2026-07-10T09-00-00-${threadId}.jsonl`)
+  writeFileSync(
+    rollout,
+    [
+      JSON.stringify({
+        timestamp: "2026-07-10T09:00:00.000Z",
+        type: "session_meta",
+        payload: { id: threadId },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T09:01:00.000Z",
+        type: "turn_context",
+        payload: { model: "gpt-5.5", reasoning_effort: "medium" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T09:02:00.000Z",
+        type: "session_meta",
+        payload: { id: threadId },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T09:03:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: { input_tokens: 80, output_tokens: 20, total_tokens: 100 },
+            last_token_usage: { input_tokens: 80, output_tokens: 20, total_tokens: 100 },
+          },
+        },
+      }),
+    ].join("\n"),
+  )
+  const database = new Database(join(codexHome, "state_5.sqlite"), { create: true })
+  database.run(
+    "create table threads (id text, rollout_path text, source text, tokens_used integer, archived integer, model text, reasoning_effort text)",
+  )
+  database.run(
+    "insert into threads values (?, ?, ?, ?, ?, ?, ?)",
+    [threadId, rollout, "vscode", 100, 0, "gpt-5.6-terra", "high"],
+  )
+  database.close()
+
+  const result = collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+  })
+
+  expect(result.events).toHaveLength(1)
+  expect(result.events[0].model).toBe("gpt-5.5")
+  expect(result.events[0].reasoningEffort).toBe("medium")
+})
+
 test("buildDataset keeps backend totals authoritative and local details enriched", async () => {
   const pricing = await loadPricing({ source: "bundled" })
   const dataset = buildDataset({
@@ -130,6 +259,83 @@ test("buildDataset keeps backend totals authoritative and local details enriched
   expect(dataset.daily[0].unattributedTokens).toBe(850)
   expect(dataset.summary.lifetimeTokens).toBe(1000)
 })
+
+test("report model rows keep local models authoritative and add cloud enrichment", async () => {
+  const pricing = await loadPricing({ source: "bundled" })
+  const dataset = buildDataset({
+    profileResult: { fetched: false, error: "offline" },
+    events: [
+      {
+        eventId: "local-gpt-5.5",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout-1",
+        threadId: "thread-1",
+        timestamp: "2026-07-10T08:00:00.000Z",
+        date: "2026-07-10",
+        model: "gpt-5.5",
+        breakdown: {
+          inputTokens: 160,
+          cachedInputTokens: 0,
+          outputTokens: 40,
+          reasoningOutputTokens: 10,
+          totalTokens: 200,
+        },
+      },
+      {
+        eventId: "local-terra",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout-2",
+        threadId: "thread-2",
+        timestamp: "2026-07-10T09:00:00.000Z",
+        date: "2026-07-10",
+        model: "gpt-5.6-terra",
+        breakdown: {
+          inputTokens: 80,
+          cachedInputTokens: 0,
+          outputTokens: 20,
+          reasoningOutputTokens: 5,
+          totalTokens: 100,
+        },
+      },
+    ],
+    codexHomes: [{ path: "home", label: "home" }],
+    sourceMode: "local",
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    localStats: { rolloutFiles: 2, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
+    pricing,
+    estimateModel: "gpt-5.6-sol",
+    theme: await resolveUsageTheme([]),
+    analytics: {
+      fetched: true,
+      endpoints: {},
+      totals: { credits: 10, turns: 20, threads: 3, users: 1, textTotalTokens: 300 },
+      byModel: [
+        { model: "gpt-5.5", credits: 8, turns: 12, threads: 2, users: 1 },
+        { model: "gpt-5.4", credits: 2, turns: 8, threads: 1, users: 1 },
+      ],
+      byModelVariants: [],
+      bySurface: [],
+      bySource: [],
+    },
+  })
+  const rows = buildReportModelRows(dataset)
+  expect(rows.map((row) => [row.model, row.source])).toEqual([
+    ["gpt-5.5", "local+cloud"],
+    ["gpt-5.6-terra", "local"],
+    ["gpt-5.4", "cloud"],
+  ])
+  expect(rows[0].turns).toBe(12)
+  expect(rows[0].localTokens).toBe(200)
+  expect(buildReportModelRows({ ...dataset, analytics: undefined }).map((row) => row.model)).toEqual([
+    "gpt-5.5",
+    "gpt-5.6-terra",
+  ])
+})
+
 test("renderHtmlReport emits parseable runtime scripts", async () => {
   const pricing = await loadPricing({ source: "bundled" })
   const dataset = buildDataset({
@@ -165,6 +371,14 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
   })
 
   const html = renderReportHtml(dataset)
+  const modelRowsScript = html.match(
+    /<script id="model-rows" type="application\/json">([\s\S]*?)<\/script>/,
+  )
+  expect(modelRowsScript).not.toBeNull()
+  const modelRows = JSON.parse(modelRowsScript?.[1] ?? "[]") as ReportModelRow[]
+  expect(modelRows.map((row) => [row.model, row.source, row.localTokens])).toEqual([
+    ["gpt-5", "local", 120],
+  ])
   const scripts = [
     ...html.matchAll(/<script(?![^>]*application\/json)[^>]*>([\s\S]*?)<\/script>/g),
   ].map((match) => match[1])
@@ -174,5 +388,5 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
     expect(() => new Function(script)).not.toThrow()
   }
 
-  expect(html).toContain("\\nTotal: ")
+  expect(html).toContain("\\nTotal : ")
 })

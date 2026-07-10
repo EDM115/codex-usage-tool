@@ -112,7 +112,7 @@ function parseRolloutFile(args: {
   const text = readFileSync(args.rolloutPath, "utf8")
   const lines = text.split(/\r?\n/)
   let threadId = threadIdFromFilename(args.rolloutPath)
-  let currentModel = "unknown"
+  let currentModel: string | undefined
   let currentReasoningEffort: string | undefined
   let previousTotal = ZERO_BREAKDOWN
 
@@ -142,21 +142,43 @@ function parseRolloutFile(args: {
 
     if (type === "session_meta") {
       threadId = payload.id ?? payload.session_id ?? threadId
-      currentModel = firstString(payload.model, args.metadataByThreadId.get(threadId)?.model, currentModel) ?? "unknown"
+      currentModel = firstString(
+        payload.model,
+        currentModel,
+        args.metadataByThreadId.get(threadId)?.model,
+      )
       currentReasoningEffort = firstString(
         payload.reasoning_effort,
-        args.metadataByThreadId.get(threadId)?.reasoningEffort,
+        payload.reasoningEffort,
         currentReasoningEffort,
+        args.metadataByThreadId.get(threadId)?.reasoningEffort,
       )
 
       continue
     }
 
     if (type === "turn_context") {
-      currentModel = firstString(payload.model, currentModel) ?? "unknown"
+      currentModel = firstString(payload.model, currentModel)
       currentReasoningEffort = firstString(
         payload.reasoning_effort,
+        payload.reasoningEffort,
         payload.effort,
+        currentReasoningEffort,
+      )
+
+      continue
+    }
+
+    if (type === "event_msg" && payload?.type === "thread_settings_applied") {
+      const settings = payload.thread_settings ?? payload.threadSettings ?? {}
+      const collaborationSettings =
+        settings.collaboration_mode?.settings ?? settings.collaborationMode?.settings ?? {}
+      currentModel = firstString(settings.model, collaborationSettings.model, currentModel)
+      currentReasoningEffort = firstString(
+        settings.reasoning_effort,
+        settings.reasoningEffort,
+        collaborationSettings.reasoning_effort,
+        collaborationSettings.reasoningEffort,
         currentReasoningEffort,
       )
 

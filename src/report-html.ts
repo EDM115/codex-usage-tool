@@ -1,9 +1,49 @@
-import type { UsageDataset, UsageTheme } from "./types"
+import type { UsageDataset, UsageTheme, WhamAnalytics } from "./types"
 
 import { compactNumber, escapeHtml, money, pluralize } from "./util"
 
+export type ReportModelRow = WhamAnalytics["byModel"][number] & {
+  localTokens: number
+  source: "local" | "local+cloud" | "cloud"
+}
+
+export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
+  const localTokens = new Map<string, number>()
+
+  for (const day of dataset.daily) {
+    for (const [model, breakdown] of Object.entries(day.models)) {
+      localTokens.set(model, (localTokens.get(model) ?? 0) + breakdown.totalTokens)
+    }
+  }
+
+  const cloudRows = dataset.analytics?.byModel ?? []
+  const cloudByModel = new Map(cloudRows.map((row) => [row.model, row]))
+  const localRows = [...localTokens.entries()]
+    .sort(([modelA, tokensA], [modelB, tokensB]) => tokensB - tokensA || modelA.localeCompare(modelB))
+    .map(([model, tokens]): ReportModelRow => {
+      const cloud = cloudByModel.get(model)
+
+      return {
+        model,
+        credits: cloud?.credits ?? 0,
+        turns: cloud?.turns ?? 0,
+        threads: cloud?.threads ?? 0,
+        users: cloud?.users ?? 0,
+        localTokens: tokens,
+        source: cloud ? "local+cloud" : "local",
+      }
+    })
+  const localModels = new Set(localTokens.keys())
+  const cloudOnlyRows = cloudRows
+    .filter((row) => !localModels.has(row.model))
+    .map((row): ReportModelRow => ({ ...row, localTokens: 0, source: "cloud" }))
+
+  return [...localRows, ...cloudOnlyRows]
+}
+
 export function renderReportHtml(dataset: UsageDataset): string {
   const dataJson = JSON.stringify(dataset).replaceAll("</", "<\\/")
+  const modelRowsJson = JSON.stringify(buildReportModelRows(dataset)).replaceAll("</", "<\\/")
   const theme = dataset.theme
 
   return `<!doctype html>
@@ -189,8 +229,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
     <section class="section">
       <div class="section-head">
         <div class="section-title">
-          <h2>Cloud dashboard breakdown</h2>
-          <p class="section-copy">Model, surface, and task metadata from the WHAM dashboard APIs. Bars use tokens or turns when credits are zero.</p>
+          <h2>Usage breakdown</h2>
+          <p class="section-copy">Local model usage enriched with matching WHAM metrics, plus cloud surface and task metadata</p>
         </div>
         <div class="section-actions">
           <h3>${escapeHtml(dataset.analytics?.error ? "best effort" : dataset.analytics?.fetched ? "from wham APIs" : "saved or unavailable")}</h3>
@@ -212,8 +252,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
   </main>
   <div id="tooltip" class="tooltip"></div>
   <script id="usage-data" type="application/json">${dataJson}</script>
+  <script id="model-rows" type="application/json">${modelRowsJson}</script>
   <script>
     const dataset = JSON.parse(document.getElementById('usage-data').textContent);
+    const reportModels = JSON.parse(document.getElementById('model-rows').textContent);
     const modeEl = document.getElementById('mode');
     const chartStyleEl = document.getElementById('chartStyle');
     const fromEl = document.getElementById('from');
@@ -356,14 +398,17 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
     function renderAnalytics() {
       const analytics = dataset.analytics;
+      const surfaces = analytics && analytics.bySurface ? analytics.bySurface : [];
 
-      if (!analytics || (analytics.byModel.length === 0 && analytics.bySurface.length === 0 && !analytics.tasks)) {
+      if (reportModels.length === 0 && surfaces.length === 0 && !(analytics && analytics.tasks)) {
         analyticsBreakdown.innerHTML = '<div class="breakdown-panel"><h3>Dashboard data unavailable</h3><div class="rows"><p>' + escapeText(analytics && analytics.error ? analytics.error : 'No wham analytics response was available for this run') + '</p></div></div>';
 
         return;
       }
 
-      analyticsBreakdown.innerHTML = modelPanel(analytics.byModel || [], analytics.byModelVariants || []) + surfacePanel(analytics.bySurface || []) + taskPanel(analytics.tasks);
+      const modelHtml = reportModels.length ? modelPanel(reportModels, analytics && analytics.byModelVariants ? analytics.byModelVariants : []) : '<div class="breakdown-panel"><h3>Models</h3><div class="rows"><p>No local model usage was recorded</p></div></div>';
+      const cloudHtml = analytics ? surfacePanel(surfaces) + taskPanel(analytics.tasks) : '<div class="breakdown-panel"><h3>Cloud enrichment unavailable</h3><div class="rows"><p>No WHAM analytics response was available for this run</p></div></div>';
+      analyticsBreakdown.innerHTML = modelHtml + cloudHtml;
       analyticsBreakdown.querySelectorAll('[data-tip]').forEach(bindTip);
     }
 
@@ -432,23 +477,40 @@ export function renderReportHtml(dataset: UsageDataset): string {
     }
 
     function modelPanel(rows, variants) {
-      const local = modelTokenRows();
       const variantsByModel = modelVariantsByName(variants || []);
-      const merged = rows.map(function (row) { return Object.assign({ }, row, { localTokens: (local.get(row.model) || { }).totalTokens || 0 }); });
-      const max = Math.max(1, ...merged.map(function (row) { return row.localTokens || row.turns || row.credits || 0; }));
-      const modelRows = merged.map(function (row, index) {
+      const max = Math.max(1, ...rows.map(function (row) { return row.localTokens || row.turns || row.credits || 0; }));
+      const modelRows = rows.map(function (row, index) {
         const value = row.localTokens || row.turns || row.credits || 0;
         const color = theme.colors.series[index % theme.colors.series.length];
-        const text = (row.localTokens ? compact(row.localTokens) + ' tokens - ' : '') + compact(row.turns) + ' turns';
-        const tip = modelTip(row, row.localTokens);
+        const text = modelValueText(row);
+        const tip = modelTip(row);
         return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label" title="'+escapeText(row.model)+'">'+escapeText(row.model)+'</div><div class="row-value">'+escapeText(text)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div>'+variantRows(row, variantsByModel.get(row.model) || [], row, row.localTokens, color)+'</div>';
       }).join('');
 
       return '<div class="breakdown-panel"><h3>Models</h3><div class="rows">' + modelRows + reasoningPanel() + fastModePanel(variants || []) + '</div></div>';
     }
 
-    function modelTip(row, localTokens) {
-      return row.model + '\\nDashboard turns : ' + compact(row.turns) + '\\nThreads : ' + compact(row.threads) + '\\nCredits : ' + compact(row.credits) + '\\nLocal tokens : ' + compact(localTokens) + '\\nEstimated local cost share : ' + money(estimatedCostForTokens(localTokens));
+    function modelValueText(row) {
+      if (row.localTokens) {
+        return compact(row.localTokens) + ' local tokens' + (row.source === 'local+cloud' && row.turns ? ' - ' + compact(row.turns) + ' cloud turns' : '');
+      }
+
+      return row.turns ? compact(row.turns) + ' cloud turns' : compact(row.credits) + ' cloud credits';
+    }
+
+    function modelTip(row) {
+      const source = row.source === 'local+cloud' ? 'Local rollout usage + WHAM enrichment' : row.source === 'local' ? 'Local rollout usage' : 'WHAM cloud only';
+      let tip = row.model + '\\nSource : ' + source;
+
+      if (row.localTokens) {
+        tip += '\\nLocal tokens : ' + compact(row.localTokens) + '\\nEstimated local cost share : ' + money(estimatedCostForTokens(row.localTokens));
+      }
+
+      if (row.source !== 'local') {
+        tip += '\\nDashboard turns : ' + compact(row.turns) + '\\nThreads : ' + compact(row.threads) + '\\nCredits : ' + compact(row.credits);
+      }
+
+      return tip;
     }
 
     function modelVariantsByName(variants) {
@@ -636,7 +698,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       clone.querySelectorAll('[data-tip]').forEach(function (el) { el.removeAttribute('data-tip'); });
       const width = 1100;
       const height = Math.max(560, analyticsBreakdown.scrollHeight + 72);
-      const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export"><h2 style="margin:0 0 12px;font-size:18px;color:'+theme.colors.text+'">Cloud Dashboard Breakdown</h2>' + clone.outerHTML + '</div>';
+      const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export"><h2 style="margin:0 0 12px;font-size:18px;color:'+theme.colors.text+'">Usage Breakdown</h2>' + clone.outerHTML + '</div>';
       const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:14px}.breakdown-panel{border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows{display:grid;gap:10px;margin-top:12px}.row{display:grid;grid-template-columns:minmax(120px,1fr) auto;gap:12px;align-items:center}.row-label,.task-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row-value{font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrows{grid-column:1/-1;display:grid;gap:6px;margin:-3px 0 3px 12px;padding-left:10px;border-left:1px solid '+theme.colors.line+'}.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.mini-section{display:grid;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid '+theme.colors.line+'}.mini-section h4{margin:0;color:'+theme.colors.muted+';font-size:12px;text-transform:uppercase}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
 
       return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
@@ -644,11 +706,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
     function renderDashboardCanvas() {
       const analytics = dataset.analytics || { };
-      const models = analytics.byModel || [];
+      const models = reportModels;
       const variants = analytics.byModelVariants || [];
       const surfaces = analytics.bySurface || [];
       const tasks = analytics.tasks;
-      const local = modelTokenRows();
       const variantsByModel = modelVariantsByName(variants);
       const reasoning = reasoningRows();
       const speedRows = modeRowsFromVariants(variants);
@@ -742,7 +803,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       ctx.fillRect(0, 0, width, height);
       ctx.font = font('750', 22);
       ctx.fillStyle = theme.colors.text;
-      ctx.fillText('Cloud dashboard breakdown', margin, 42);
+      ctx.fillText('Usage breakdown', margin, 42);
       ctx.font = font('500', 13);
       ctx.fillStyle = theme.colors.muted;
       ctx.fillText('PNG export rendered directly from report data', margin, 64);
@@ -752,12 +813,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
       let y = panelY + 34;
       title(xs[0] + 16, y, 'Models');
       y += 34;
-      const modelRows = models.map(function (row) { return Object.assign({ }, row, { localTokens: (local.get(row.model) || { }).totalTokens || 0 }); });
+      const modelRows = models;
       const maxModel = Math.max(1, ...modelRows.map(function (row) { return row.localTokens || row.turns || row.credits || 0; }));
       modelRows.forEach(function (row, index) {
         const color = theme.colors.series[index % theme.colors.series.length];
         const value = row.localTokens || row.turns || row.credits || 0;
-        const valueText = (row.localTokens ? compact(row.localTokens) + ' tokens - ' : '') + compact(row.turns) + ' turns';
+        const valueText = modelValueText(row);
         y += barRow(xs[0] + 16, y, panelWidth - 32, row.model, valueText, value, maxModel, color);
         const modelVariants = estimatedVariantRows(row.model, variantsByModel.get(row.model) || [], row.localTokens);
         const maxVariant = Math.max(1, ...modelVariants.map(function (variant) { return variant.estimatedTokens || variant.credits; }));

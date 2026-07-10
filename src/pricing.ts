@@ -19,7 +19,30 @@ const BUNDLED: ModelPricing[] = [
     source: "bundled/openai dev docs snapshot 2026-07-01",
   },
 
-  // GPT-5.5/GPT-5.4 latest flagship models
+  // GPT-5.6 latest flagship models
+  {
+    model: "gpt-5.6-sol",
+    inputPerMillion: 5,
+    cachedInputPerMillion: 0.5,
+    outputPerMillion: 30,
+    source: "bundled/models.dev snapshot 2026-07-10",
+  },
+  {
+    model: "gpt-5.6-terra",
+    inputPerMillion: 2.5,
+    cachedInputPerMillion: 0.5,
+    outputPerMillion: 15,
+    source: "bundled/models.dev snapshot 2026-07-10",
+  },
+  {
+    model: "gpt-5.6-luna",
+    inputPerMillion: 1,
+    cachedInputPerMillion: 0.1,
+    outputPerMillion: 6,
+    source: "bundled/models.dev snapshot 2026-07-10",
+  },
+
+  // GPT-5.5/GPT-5.4
   {
     model: "gpt-5.5",
     inputPerMillion: 5,
@@ -403,7 +426,7 @@ export function estimateBreakdownCost(
   const row =
     findPricing(model, pricing) ??
     findPricing(estimateModel, pricing) ??
-    findPricing("gpt-5.5", pricing)
+    findPricing("gpt-5.6-sol", pricing)
 
   if (!row) {
     return 0
@@ -433,7 +456,7 @@ export function estimateUnattributedCost(
     return tokens * (observedLocalCost / observedLocalTokens)
   }
 
-  const row = findPricing(estimateModel, pricing) ?? findPricing("gpt-5.5", pricing)
+  const row = findPricing(estimateModel, pricing) ?? findPricing("gpt-5.6-sol", pricing)
 
   if (!row) {
     return 0
