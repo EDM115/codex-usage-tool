@@ -93,6 +93,7 @@ help       Show CLI help (default)
 --estimate-model <model>            Model used for unattributed backend-only token cost estimates
 --no-png                            Skip static PNG export and write SVG/HTML/JSON/CSV only
 --silent                            Hide action lines, file count, and warnings, keep the progress bar and token summary
+--theme <theme>                     Default : EDM115, can also be "config" for your `config.toml` one or a any of the built-in Codex themes
 --help                              Show help
 ```
 

@@ -93,6 +93,19 @@ export function renderReportHtml(dataset: UsageDataset): string {
     h3 { margin: 0; font-size: 13px; letter-spacing: 0; color: var(--muted); font-weight: 600; }
     p { margin: 0; color: var(--muted); }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .theme-picker { position: relative; }
+    .theme-picker-button { min-width: 150px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .theme-picker-button::after { content: "⌄"; color: var(--muted); }
+    .theme-picker-popover { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: min(320px, calc(100vw - 32px)); padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 34px rgba(0,0,0,.4); }
+    .theme-picker-popover[hidden] { display: none; }
+    .theme-search { width: 100%; }
+    .theme-options { display: grid; gap: 3px; max-height: 320px; margin-top: 7px; overflow-y: auto; }
+    .theme-option { width: 100%; display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; align-items: center; text-align: left; border-color: transparent; background: transparent; }
+    .theme-option:hover, .theme-option[data-active="true"] { background: var(--panel2); border-color: var(--line); }
+    .theme-option[aria-selected="true"] { border-color: var(--accent); }
+    .theme-swatch { width: 14px; height: 14px; border: 1px solid var(--line); border-radius: 50%; }
+    .theme-option-copy { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .theme-empty { padding: 10px; color: var(--muted); }
     button, select, input, summary {
       background: var(--panel2);
       border: 1px solid var(--line);
@@ -198,6 +211,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     @media (max-width: 900px) {
       header { display: block; }
       .toolbar { justify-content: flex-start; margin-top: 14px; }
+      .theme-picker-popover { right: auto; left: 0; }
       .stats { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
       .section-head { display: grid; }
       .section-actions { justify-content: flex-start; }
@@ -217,6 +231,13 @@ export function renderReportHtml(dataset: UsageDataset): string {
         <a class="github-link" href="https://github.com/EDM115/codex-usage-tool" target="_blank" rel="noreferrer" aria-label="Open codex-usage-tool on GitHub" title="GitHub repository"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z" fill="none"/><path fill="currentColor" d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656c0-.781.281-1.625.75-2.188c-.203-.515-.172-1.609.063-2.062c.625-.078 1.468.25 1.968.703c.594-.187 1.219-.281 1.985-.281c.765 0 1.39.094 1.953.265c.484-.437 1.344-.765 1.969-.687c.218.422.25 1.515.046 2.047c.5.593.766 1.39.766 2.203c0 1.922-1.453 3.375-3.547 3.64c.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03C16 3.61 12.406 0 7.984 0C3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156c-1.031 0-1.64-.562-2.078-1.609c-.172-.422-.36-.672-.719-.719c-.187-.015-.25-.093-.25-.187c0-.188.313-.328.625-.328c.453 0 .844.281 1.25.86c.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"/></svg></a>
       </div>
       <div class="toolbar">
+        <div id="themePicker" class="theme-picker">
+          <button id="themePickerButton" class="theme-picker-button" type="button" aria-haspopup="listbox" aria-expanded="false">Theme : <span id="themePickerLabel">${escapeHtml(dataset.themeChoice)}</span></button>
+          <div id="themePickerPopover" class="theme-picker-popover" hidden>
+            <input id="themeSearch" class="theme-search" type="search" role="combobox" aria-label="Search themes" aria-controls="themeOptions" aria-expanded="false" aria-autocomplete="list" autocomplete="off" placeholder="Search themes">
+            <div id="themeOptions" class="theme-options" role="listbox" aria-label="Themes"></div>
+          </div>
+        </div>
         <select id="mode" aria-label="Chart time mode">
           <option value="daily">Daily</option>
           <option value="weekly">Weekly</option>
@@ -282,7 +303,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     <section class="section notes">
       <div><strong>Data sources :</strong> ${escapeHtml(dataset.sourceMode)}, profile API ${dataset.profile?.endpoint ? `from ${escapeHtml(dataset.profile.endpoint)}` : "not used"}, analytics ${dataset.analytics?.fetched ? "requested from wham dashboard APIs" : "not fetched live"}</div>
       <div><strong>Local enrichment :</strong> ${dataset.local.tokenEvents} ${pluralize("token event", dataset.local.tokenEvents)} from ${dataset.local.rolloutFiles} ${pluralize("rollout file", dataset.local.rolloutFiles)}, ${dataset.local.sqliteThreads} ${pluralize("SQLite thread row", dataset.local.sqliteThreads)} across ${dataset.local.sqliteDatabases} ${pluralize("SQLite database", dataset.local.sqliteDatabases)}, ${dataset.codexHomes.length} .codex ${pluralize("source", dataset.codexHomes.length)}</div>
-      <div><strong>Theme :</strong> ${escapeHtml(dataset.theme.name)} from ${escapeHtml(dataset.theme.source)}</div>
+      <div id="themeNote"><strong>Theme :</strong> <span id="themeNoteValue">${escapeHtml(dataset.themeChoice)} from ${escapeHtml(dataset.theme.source)}</span></div>
       <div><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.source)} using ${escapeHtml(dataset.pricing.estimateModel)} for unattributed backend-only tokens</div>
       ${dataset.profile?.error ? `<div class="warning"><strong>Profile API :</strong> ${escapeHtml(dataset.profile.error)}</div>` : ""}
       ${dataset.analytics?.error ? `<div class="warning"><strong>Analytics API :</strong> ${escapeHtml(dataset.analytics.error)}</div>` : ""}
@@ -304,7 +325,17 @@ export function renderReportHtml(dataset: UsageDataset): string {
     const heatmap = document.getElementById('heatmap');
     const chart = document.getElementById('chart');
     const analyticsBreakdown = document.getElementById('analyticsBreakdown');
-    const theme = dataset.theme;
+    const themePicker = document.getElementById('themePicker');
+    const themePickerButton = document.getElementById('themePickerButton');
+    const themePickerLabel = document.getElementById('themePickerLabel');
+    const themePickerPopover = document.getElementById('themePickerPopover');
+    const themeSearch = document.getElementById('themeSearch');
+    const themeOptions = document.getElementById('themeOptions');
+    const themeNoteValue = document.getElementById('themeNoteValue');
+    let theme = dataset.theme;
+    let themeChoice = dataset.themeChoice;
+    let filteredThemes = dataset.availableThemes.slice();
+    let activeThemeIndex = 0;
 
     function exact(value, maximumFractionDigits, minimumFractionDigits) {
       if (!Number.isFinite(value)) {
@@ -354,6 +385,124 @@ export function renderReportHtml(dataset: UsageDataset): string {
         const value = Number(el.dataset.statValue);
         el.textContent = el.dataset.statKind === 'money' ? money(value) : compact(value);
       });
+    }
+
+    function renderThemeOptions() {
+      themeOptions.innerHTML = '';
+
+      if (!filteredThemes.length) {
+        const empty = document.createElement('div');
+        empty.className = 'theme-empty';
+        empty.textContent = 'No matching themes';
+        themeOptions.appendChild(empty);
+        themeSearch.removeAttribute('aria-activedescendant');
+
+        return;
+      }
+
+      activeThemeIndex = Math.max(0, Math.min(activeThemeIndex, filteredThemes.length - 1));
+      filteredThemes.forEach(function (option, index) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.id = 'theme-option-' + index;
+        button.className = 'theme-option';
+        button.setAttribute('role', 'option');
+        button.setAttribute('aria-selected', option.id === themeChoice ? 'true' : 'false');
+        button.dataset.active = index === activeThemeIndex ? 'true' : 'false';
+        button.tabIndex = -1;
+        const swatch = document.createElement('span');
+        swatch.className = 'theme-swatch';
+        swatch.style.background = 'linear-gradient(135deg, ' + option.theme.colors.bg + ' 0 50%, ' + option.theme.colors.accent + ' 50%)';
+        const copy = document.createElement('span');
+        copy.className = 'theme-option-copy';
+        copy.textContent = option.id + (option.theme.name !== option.id ? ' · ' + option.theme.name : '');
+        button.appendChild(swatch);
+        button.appendChild(copy);
+        button.addEventListener('mouseenter', function () {
+          activeThemeIndex = index;
+          themeOptions.querySelectorAll('.theme-option').forEach(function (item) { item.dataset.active = 'false'; });
+          button.dataset.active = 'true';
+          themeSearch.setAttribute('aria-activedescendant', button.id);
+        });
+        button.addEventListener('click', function () { selectTheme(option.id); });
+        themeOptions.appendChild(button);
+      });
+      themeSearch.setAttribute('aria-activedescendant', 'theme-option-' + activeThemeIndex);
+      const active = document.getElementById('theme-option-' + activeThemeIndex);
+      if (active) active.scrollIntoView({ block: 'nearest' });
+    }
+
+    function filterThemeOptions() {
+      const query = themeSearch.value.trim().toLowerCase();
+      filteredThemes = dataset.availableThemes.filter(function (option) {
+        return !query || option.id.toLowerCase().includes(query) || option.theme.name.toLowerCase().includes(query);
+      });
+      activeThemeIndex = Math.max(0, filteredThemes.findIndex(function (option) { return option.id === themeChoice; }));
+      renderThemeOptions();
+    }
+
+    function openThemePicker() {
+      themePickerPopover.hidden = false;
+      themePickerButton.setAttribute('aria-expanded', 'true');
+      themeSearch.setAttribute('aria-expanded', 'true');
+      themeSearch.value = '';
+      filteredThemes = dataset.availableThemes.slice();
+      activeThemeIndex = Math.max(0, filteredThemes.findIndex(function (option) { return option.id === themeChoice; }));
+      renderThemeOptions();
+      themeSearch.focus();
+    }
+
+    function closeThemePicker(restoreFocus) {
+      themePickerPopover.hidden = true;
+      themePickerButton.setAttribute('aria-expanded', 'false');
+      themeSearch.setAttribute('aria-expanded', 'false');
+      themeSearch.removeAttribute('aria-activedescendant');
+      if (restoreFocus) themePickerButton.focus();
+    }
+
+    function moveThemeSelection(delta) {
+      if (!filteredThemes.length) return;
+      activeThemeIndex = (activeThemeIndex + delta + filteredThemes.length) % filteredThemes.length;
+      renderThemeOptions();
+    }
+
+    function selectTheme(id) {
+      const option = dataset.availableThemes.find(function (candidate) { return candidate.id === id; });
+      if (!option) return;
+      themeChoice = option.id;
+      themePickerLabel.textContent = option.id;
+      themeNoteValue.textContent = option.id + ' from ' + option.theme.source;
+      closeThemePicker(true);
+      applyTheme(option.theme);
+    }
+
+    function applyTheme(nextTheme) {
+      theme = nextTheme;
+      const root = document.documentElement;
+      const colors = theme.colors;
+      root.style.colorScheme = themeColorScheme(colors.bg);
+      root.style.setProperty('--bg', colors.bg);
+      root.style.setProperty('--panel', colors.panel);
+      root.style.setProperty('--panel2', colors.panel2);
+      root.style.setProperty('--line', colors.line);
+      root.style.setProperty('--text', colors.text);
+      root.style.setProperty('--muted', colors.muted);
+      root.style.setProperty('--accent', colors.accent);
+      root.style.setProperty('--accent2', colors.accent2);
+      root.style.setProperty('--warning', colors.warning);
+      colors.cells.forEach(function (color, index) { root.style.setProperty('--cell' + index, color); });
+      root.style.setProperty('--font-ui', theme.fonts.ui);
+      root.style.setProperty('--font-code', theme.fonts.code);
+      render();
+    }
+
+    function themeColorScheme(bg) {
+      const value = String(bg || '').replace('#', '');
+      if (!/^[0-9a-f]{6}$/i.test(value)) return 'dark';
+      const red = parseInt(value.slice(0, 2), 16);
+      const green = parseInt(value.slice(2, 4), 16);
+      const blue = parseInt(value.slice(4, 6), 16);
+      return (red * 0.299 + green * 0.587 + blue * 0.114) / 255 > 0.58 ? 'light' : 'dark';
     }
 
     function escapeText(value) {
@@ -1055,6 +1204,36 @@ export function renderReportHtml(dataset: UsageDataset): string {
     fromEl.addEventListener('input', render);
     toEl.addEventListener('input', render);
     rawCountsEl.addEventListener('change', render);
+    themePickerButton.addEventListener('click', function () {
+      if (themePickerPopover.hidden) openThemePicker(); else closeThemePicker(false);
+    });
+    themePickerButton.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        openThemePicker();
+      }
+    });
+    themeSearch.addEventListener('input', filterThemeOptions);
+    themeSearch.addEventListener('keydown', function (event) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveThemeSelection(1);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveThemeSelection(-1);
+      } else if (event.key === 'Enter' && filteredThemes[activeThemeIndex]) {
+        event.preventDefault();
+        selectTheme(filteredThemes[activeThemeIndex].id);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeThemePicker(true);
+      }
+    });
+    themePicker.addEventListener('focusout', function () {
+      setTimeout(function () {
+        if (!themePicker.contains(document.activeElement)) closeThemePicker(false);
+      }, 0);
+    });
     document.querySelectorAll('[data-download-target]').forEach(function (button) {
       button.addEventListener('click', function () {
         download(button.dataset.downloadTarget, button.dataset.downloadKind);
@@ -1063,6 +1242,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       });
     });
     document.addEventListener('click', function (event) {
+      if (!themePicker.contains(event.target)) closeThemePicker(false);
       document.querySelectorAll('details.download-menu[open]').forEach(function (menu) {
         if (!menu.contains(event.target)) menu.open = false;
       });
@@ -1076,7 +1256,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
 function cssVars(theme: UsageTheme): string {
   const cells = theme.colors.cells
   return `:root {
-      color-scheme: dark;
+      color-scheme: ${themeColorScheme(theme.colors.bg)};
       --bg: ${theme.colors.bg};
       --panel: ${theme.colors.panel};
       --panel2: ${theme.colors.panel2};
@@ -1095,6 +1275,20 @@ function cssVars(theme: UsageTheme): string {
       --font-ui: ${theme.fonts.ui};
       --font-code: ${theme.fonts.code};
     }`
+}
+
+function themeColorScheme(bg: string): "dark" | "light" {
+  const value = bg.replace(/^#/, "")
+
+  if (!/^[0-9a-f]{6}$/i.test(value)) {
+    return "dark"
+  }
+
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+
+  return (red * 0.299 + green * 0.587 + blue * 0.114) / 255 > 0.58 ? "light" : "dark"
 }
 
 function stat(label: string, value: number, kind: "number" | "money" = "number"): string {

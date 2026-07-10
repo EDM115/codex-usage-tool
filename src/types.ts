@@ -1,3 +1,5 @@
+import type { ThemeChoice } from "./theme"
+
 export type SourceMode = "hybrid" | "backend" | "local"
 export type PricingSource = "bundled" | "models.dev"
 
@@ -22,6 +24,8 @@ export type UsageTheme = {
     code: string
   }
 }
+
+export type UsageThemeOption = { id: ThemeChoice; theme: UsageTheme }
 
 export type TokenBreakdown = {
   totalTokens: number
@@ -258,6 +262,8 @@ export type UsageDataset = {
     warning?: string
   }
   theme: UsageTheme
+  themeChoice: ThemeChoice
+  availableThemes: UsageThemeOption[]
   analytics?: WhamAnalytics
   summary: {
     lifetimeTokens: number
@@ -292,4 +298,5 @@ export type CliOptions = {
   noPng: boolean
   silent: boolean
   analyticsJson?: string
+  theme?: ThemeChoice
 }

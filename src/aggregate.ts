@@ -8,9 +8,11 @@ import type {
   TokenEvent,
   UsageDataset,
   UsageTheme,
+  UsageThemeOption,
   WeeklyUsage,
   WhamAnalytics,
 } from "./types"
+import type { ThemeChoice } from "./theme"
 
 import { estimateBreakdownCost, estimateUnattributedCost, type PricingLoadResult } from "./pricing"
 import { addBreakdown, clampDate, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util"
@@ -37,6 +39,8 @@ export function buildDataset(args: {
   pricing: PricingLoadResult
   estimateModel: string
   theme: UsageTheme
+  themeChoice: ThemeChoice
+  availableThemes: UsageThemeOption[]
   analytics?: WhamAnalytics
 }): UsageDataset {
   const backendByDate = new Map<string, number>()
@@ -184,6 +188,8 @@ export function buildDataset(args: {
       warning: args.pricing.warning,
     },
     theme: args.theme,
+    themeChoice: args.themeChoice,
+    availableThemes: args.availableThemes,
     analytics: args.analytics,
     summary,
     daily,

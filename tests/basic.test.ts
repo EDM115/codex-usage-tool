@@ -8,7 +8,7 @@ import { buildDataset } from "../src/aggregate"
 import { loadPricing } from "../src/pricing"
 import { buildReportModelRows, renderReportHtml, type ReportModelRow } from "../src/report-html"
 import { collectRolloutEvents } from "../src/rollouts"
-import { resolveUsageTheme } from "../src/theme"
+import { resolveUsageThemes } from "../src/theme"
 import { compactNumber, exactNumber, money } from "../src/util"
 
 test("French number formatting uses spaces and decimal commas", () => {
@@ -314,13 +314,18 @@ test("buildDataset keeps backend totals authoritative and local details enriched
     localStats: { rolloutFiles: 1, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
     pricing,
     estimateModel: "gpt-5",
-    theme: await resolveUsageTheme([]),
+    ...resolveUsageThemes([]),
   })
 
   expect(dataset.daily[0].totalTokens).toBe(1000)
   expect(dataset.daily[0].localTokens.totalTokens).toBe(150)
   expect(dataset.daily[0].unattributedTokens).toBe(850)
   expect(dataset.summary.lifetimeTokens).toBe(1000)
+  expect(dataset.themeChoice).toBe("EDM115")
+  expect(dataset.availableThemes.slice(0, 2).map((row) => row.id)).toEqual([
+    "EDM115",
+    "absolutely-dark",
+  ])
 })
 
 test("buildDataset exposes canonical local model usage and exact costs", async () => {
@@ -395,7 +400,7 @@ test("buildDataset exposes canonical local model usage and exact costs", async (
     localStats: { rolloutFiles: 1, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
     pricing,
     estimateModel: "gpt-5.6-sol",
-    theme: await resolveUsageTheme([]),
+    ...resolveUsageThemes([]),
   })
   const model = dataset.local.modelUsage[0]
 
@@ -463,7 +468,7 @@ test("report model rows keep local models authoritative and add cloud enrichment
     localStats: { rolloutFiles: 2, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
     pricing,
     estimateModel: "gpt-5.6-sol",
-    theme: await resolveUsageTheme([]),
+    ...resolveUsageThemes([]),
     analytics: {
       fetched: true,
       endpoints: {},
@@ -522,7 +527,7 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
     localStats: { rolloutFiles: 1, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
     pricing,
     estimateModel: "gpt-5",
-    theme: await resolveUsageTheme([]),
+    ...resolveUsageThemes([]),
   })
 
   const html = renderReportHtml(dataset)
@@ -532,6 +537,13 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
   expect(html).toContain('class="breakdown-sidebar"')
   expect(html).toContain('class="model-details"')
   expect(html).toContain("function serviceTierRows")
+  expect(html).toContain('id="themePickerButton"')
+  expect(html).toContain('id="themeSearch"')
+  expect(html).toContain('role="combobox"')
+  expect(html).toContain('id="themeOptions"')
+  expect(html).toContain('role="listbox"')
+  expect(html).toContain("function applyTheme")
+  expect(html).toContain("function selectTheme")
   const modelRowsScript = html.match(
     /<script id="model-rows" type="application\/json">([\s\S]*?)<\/script>/,
   )

@@ -12,7 +12,7 @@ import { loadPricing } from "./pricing"
 import { loadProfile } from "./profile-api"
 import { CliProgress } from "./progress"
 import { collectRolloutEvents } from "./rollouts"
-import { resolveUsageTheme } from "./theme"
+import { resolveUsageThemes, validateThemeChoice } from "./theme"
 import { compactNumber, money, pluralize } from "./util"
 
 async function main() {
@@ -51,8 +51,8 @@ async function main() {
   })
   progress.step(`Pricing table : ${pricing.source}`)
   progress.status("Resolving report theme")
-  const theme = await resolveUsageTheme(codexHomes)
-  progress.step(`Theme : ${theme.name}`)
+  const themeResolution = resolveUsageThemes(codexHomes, options.theme)
+  progress.step(`Theme : ${themeResolution.themeChoice}`)
   progress.status(
     options.source === "local"
       ? "Skipping profile API for local source"
@@ -151,7 +151,7 @@ async function main() {
     },
     pricing,
     estimateModel: options.estimateModel,
-    theme,
+    ...themeResolution,
     analytics,
   })
   progress.step("Dataset built")
@@ -190,7 +190,7 @@ async function main() {
   }
 }
 
-function parseArgs(args: string[]): CliOptions {
+export function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     command: "help",
     codexHomes: [],
@@ -295,6 +295,10 @@ function parseArgs(args: string[]): CliOptions {
         options.analyticsJson = next()
 
         break
+      case "--theme":
+        options.theme = validateThemeChoice(next())
+
+        break
       case "--silent":
         options.silent = true
 
@@ -387,13 +391,18 @@ Output :
   --analytics-json <path>    Use saved wham analytics JSON instead of calling the dashboard APIs
   --silent                   Hide action lines, file count, and warnings, keep the progress bar and token summary
 
+Theme :
+  --theme <theme>            EDM115 | config | a built-in theme, defaults to config when usable, otherwise EDM115
+
 Examples :
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --out outputs\\codex-usage
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --codex-home D:\\Laptop\\.codex --from 2026-01-01
 `
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exit(1)
-})
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  })
+}
