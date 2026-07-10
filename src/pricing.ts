@@ -467,7 +467,7 @@ export function estimateUnattributedCost(
 
 function pricingTableFromModelsDev(raw: any): Map<string, ModelPricing> {
   const provider = raw?.openai
-  const models = provider?.models ?? { }
+  const models = provider?.models ?? {}
   const table = bundledPricingTable()
 
   for (const [id, model] of Object.entries<any>(models)) {
@@ -505,7 +505,8 @@ function pricingTableFromObject(raw: any, source: string): Map<string, ModelPric
     table.set(model.toLowerCase(), {
       model,
       inputPerMillion: input,
-      cachedInputPerMillion: row.cachedInputPerMillion ?? row.cache_read ?? row.cached_input_per_million,
+      cachedInputPerMillion:
+        row.cachedInputPerMillion ?? row.cache_read ?? row.cached_input_per_million,
       outputPerMillion: output,
       source,
     })

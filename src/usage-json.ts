@@ -1,4 +1,12 @@
-import type { DailyUsage, LocalModelUsage, TokenBreakdown, UsageDataset, UsageTheme, UsageThemeOption, WeeklyUsage } from "./types"
+import type {
+  DailyUsage,
+  LocalModelUsage,
+  TokenBreakdown,
+  UsageDataset,
+  UsageTheme,
+  UsageThemeOption,
+  WeeklyUsage,
+} from "./types"
 import type { ThemeChoice } from "./theme"
 
 import { readFileSync } from "node:fs"
@@ -23,7 +31,9 @@ export function loadUsageDatasets(paths: string[]): UsageDataset[] {
     try {
       value = JSON.parse(readFileSync(path, "utf8"))
     } catch (error) {
-      throw new Error(`Unable to read usage JSON ${path} : ${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(
+        `Unable to read usage JSON ${path} : ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
 
     if (!isUsageDataset(value)) {
@@ -34,25 +44,36 @@ export function loadUsageDatasets(paths: string[]): UsageDataset[] {
   })
 }
 
-export function mergeUsageDatasets(datasets: UsageDataset[], options: MergeUsageOptions): UsageDataset {
+export function mergeUsageDatasets(
+  datasets: UsageDataset[],
+  options: MergeUsageOptions,
+): UsageDataset {
   if (datasets.length === 0) {
     throw new Error("At least one usage dataset is required")
   }
 
   if (options.from || options.to) {
-    throw new Error("Usage JSON inputs cannot be re-filtered by date because per-day reasoning and service-tier detail is not available")
+    throw new Error(
+      "Usage JSON inputs cannot be re-filtered by date because per-day reasoning and service-tier detail is not available",
+    )
   }
 
   const incompatibleTimezone = datasets.find((dataset) => dataset.timezone !== options.timezone)
 
   if (incompatibleTimezone) {
-    throw new Error(`Usage JSON timezone ${incompatibleTimezone.timezone} does not match ${options.timezone}, existing daily buckets cannot be rebucketed`)
+    throw new Error(
+      `Usage JSON timezone ${incompatibleTimezone.timezone} does not match ${options.timezone}, existing daily buckets cannot be rebucketed`,
+    )
   }
 
   const primary = datasets[0]
   const daily = mergeDaily(datasets, options.from, options.to)
-  const profile = datasets.find((dataset) => dataset.profile?.fetched)?.profile ?? datasets.find((dataset) => dataset.profile)?.profile
-  const analytics = datasets.find((dataset) => dataset.analytics?.fetched && !dataset.analytics.error)?.analytics ?? datasets.find((dataset) => dataset.analytics)?.analytics
+  const profile =
+    datasets.find((dataset) => dataset.profile?.fetched)?.profile ??
+    datasets.find((dataset) => dataset.profile)?.profile
+  const analytics =
+    datasets.find((dataset) => dataset.analytics?.fetched && !dataset.analytics.error)?.analytics ??
+    datasets.find((dataset) => dataset.analytics)?.analytics
   const localKnownTokens = daily.reduce((sum, day) => sum + day.localTokens.totalTokens, 0)
   const unattributedTokens = daily.reduce((sum, day) => sum + day.unattributedTokens, 0)
   const knownLocalCostUsd = daily.reduce((sum, day) => sum + day.knownLocalCostUsd, 0)
@@ -62,8 +83,16 @@ export function mergeUsageDatasets(datasets: UsageDataset[], options: MergeUsage
   return {
     generatedAt: new Date().toISOString(),
     timezone: options.timezone,
-    sourceMode: datasets.every((dataset) => dataset.sourceMode === primary.sourceMode) ? primary.sourceMode : "hybrid",
-    dateRange: datasets.every((dataset) => dataset.dateRange.from === primary.dateRange.from && dataset.dateRange.to === primary.dateRange.to) ? primary.dateRange : { from: null, to: null },
+    sourceMode: datasets.every((dataset) => dataset.sourceMode === primary.sourceMode)
+      ? primary.sourceMode
+      : "hybrid",
+    dateRange: datasets.every(
+      (dataset) =>
+        dataset.dateRange.from === primary.dateRange.from &&
+        dataset.dateRange.to === primary.dateRange.to,
+    )
+      ? primary.dateRange
+      : { from: null, to: null },
     codexHomes: uniqueHomes(datasets),
     profile,
     local: {
@@ -81,7 +110,8 @@ export function mergeUsageDatasets(datasets: UsageDataset[], options: MergeUsage
     analytics,
     summary: {
       lifetimeTokens: profile?.summary.lifetimeTokens ?? lifetimeFromDaily,
-      peakDailyTokens: profile?.summary.peakDailyTokens ?? Math.max(0, ...daily.map((day) => day.totalTokens)),
+      peakDailyTokens:
+        profile?.summary.peakDailyTokens ?? Math.max(0, ...daily.map((day) => day.totalTokens)),
       currentStreakDays: profile?.summary.currentStreakDays ?? null,
       longestStreakDays: profile?.summary.longestStreakDays ?? null,
       longestRunningTurnSec: profile?.summary.longestRunningTurnSec ?? null,
@@ -95,7 +125,11 @@ export function mergeUsageDatasets(datasets: UsageDataset[], options: MergeUsage
   }
 }
 
-function mergeDaily(datasets: UsageDataset[], from: string | null, to: string | null): DailyUsage[] {
+function mergeDaily(
+  datasets: UsageDataset[],
+  from: string | null,
+  to: string | null,
+): DailyUsage[] {
   const sourceDays = datasets.map((dataset) => new Map(dataset.daily.map((day) => [day.date, day])))
   const knownDates = [...new Set(sourceDays.flatMap((days) => [...days.keys()]))].sort()
 
@@ -106,13 +140,18 @@ function mergeDaily(datasets: UsageDataset[], from: string | null, to: string | 
   const dates = eachDate(from ?? knownDates[0], to ?? knownDates.at(-1)!)
 
   return dates.map((date) => {
-    const days = sourceDays.map((source) => source.get(date)).filter((day): day is DailyUsage => Boolean(day))
+    const days = sourceDays
+      .map((source) => source.get(date))
+      .filter((day): day is DailyUsage => Boolean(day))
     const cloudDay = days.find((day) => day.backendTokens !== undefined)
     const localTokens = sumBreakdowns(days.map((day) => day.localTokens))
     const backendTokens = cloudDay?.backendTokens
     const totalTokens = backendTokens ?? localTokens.totalTokens
     const unattributedTokens = Math.max(0, totalTokens - localTokens.totalTokens)
-    const cloudRate = cloudDay && cloudDay.unattributedTokens > 0 ? cloudDay.estimatedUnattributedCostUsd / cloudDay.unattributedTokens : 0
+    const cloudRate =
+      cloudDay && cloudDay.unattributedTokens > 0
+        ? cloudDay.estimatedUnattributedCostUsd / cloudDay.unattributedTokens
+        : 0
     const knownLocalCostUsd = days.reduce((sum, day) => sum + day.knownLocalCostUsd, 0)
     const estimatedUnattributedCostUsd = unattributedTokens * cloudRate
 
@@ -137,10 +176,20 @@ function mergeModelUsage(datasets: UsageDataset[]): LocalModelUsage[] {
   const models = new Map<string, LocalModelUsage>()
 
   for (const row of datasets.flatMap((dataset) => dataset.local.modelUsage)) {
-    const current = models.get(row.model) ?? { model: row.model, breakdown: { ...ZERO_BREAKDOWN }, costUsd: 0, reasoningEfforts: [], serviceTiers: [] }
+    const current = models.get(row.model) ?? {
+      model: row.model,
+      breakdown: { ...ZERO_BREAKDOWN },
+      costUsd: 0,
+      reasoningEfforts: [],
+      serviceTiers: [],
+    }
     current.breakdown = addBreakdown(current.breakdown, row.breakdown)
     current.costUsd += row.costUsd
-    current.reasoningEfforts = mergeNamedUsage(current.reasoningEfforts, row.reasoningEfforts, "effort")
+    current.reasoningEfforts = mergeNamedUsage(
+      current.reasoningEfforts,
+      row.reasoningEfforts,
+      "effort",
+    )
     current.serviceTiers = mergeNamedUsage(current.serviceTiers, row.serviceTiers, "serviceTier")
     models.set(row.model, current)
   }
@@ -148,7 +197,11 @@ function mergeModelUsage(datasets: UsageDataset[]): LocalModelUsage[] {
   return [...models.values()].sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens)
 }
 
-function mergeNamedUsage<T extends { breakdown: TokenBreakdown; costUsd: number }>(left: T[], right: T[], key: keyof T): T[] {
+function mergeNamedUsage<T extends { breakdown: TokenBreakdown; costUsd: number }>(
+  left: T[],
+  right: T[],
+  key: keyof T,
+): T[] {
   const rows = new Map<string, T>()
 
   for (const row of [...left, ...right]) {
@@ -171,7 +224,9 @@ function mergeNamedUsage<T extends { breakdown: TokenBreakdown; costUsd: number 
   return [...rows.values()].sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens)
 }
 
-function mergeBreakdownRecords(records: Array<Record<string, TokenBreakdown>>): Record<string, TokenBreakdown> {
+function mergeBreakdownRecords(
+  records: Array<Record<string, TokenBreakdown>>,
+): Record<string, TokenBreakdown> {
   const result: Record<string, TokenBreakdown> = {}
 
   for (const record of records) {
@@ -214,7 +269,13 @@ function buildWeekly(daily: DailyUsage[]): WeeklyUsage[] {
 
   for (const day of daily) {
     const weekStart = isoWeekStart(day.date)
-    const week = weeks.get(weekStart) ?? { weekStart, totalTokens: 0, localTokens: { ...ZERO_BREAKDOWN }, unattributedTokens: 0, estimatedCostUsd: 0 }
+    const week = weeks.get(weekStart) ?? {
+      weekStart,
+      totalTokens: 0,
+      localTokens: { ...ZERO_BREAKDOWN },
+      unattributedTokens: 0,
+      estimatedCostUsd: 0,
+    }
     week.totalTokens += day.totalTokens
     week.backendTokens = (week.backendTokens ?? 0) + (day.backendTokens ?? 0)
     week.localTokens = addBreakdown(week.localTokens, day.localTokens)
@@ -231,7 +292,29 @@ function isUsageDataset(value: unknown): value is UsageDataset {
     return false
   }
 
-  return typeof value.generatedAt === "string" && typeof value.timezone === "string" && (value.sourceMode === "hybrid" || value.sourceMode === "backend" || value.sourceMode === "local") && isDateRange(value.dateRange) && Array.isArray(value.codexHomes) && value.codexHomes.every(isCodexHome) && (value.profile === undefined || isProfile(value.profile)) && isLocalUsage(value.local) && isPricing(value.pricing) && isTheme(value.theme) && typeof value.themeChoice === "string" && Array.isArray(value.availableThemes) && value.availableThemes.every(isThemeOption) && (value.analytics === undefined || isAnalytics(value.analytics)) && isSummary(value.summary) && Array.isArray(value.daily) && value.daily.every(isDailyUsage) && Array.isArray(value.weekly) && value.weekly.every(isWeeklyUsage)
+  return (
+    typeof value.generatedAt === "string" &&
+    typeof value.timezone === "string" &&
+    (value.sourceMode === "hybrid" ||
+      value.sourceMode === "backend" ||
+      value.sourceMode === "local") &&
+    isDateRange(value.dateRange) &&
+    Array.isArray(value.codexHomes) &&
+    value.codexHomes.every(isCodexHome) &&
+    (value.profile === undefined || isProfile(value.profile)) &&
+    isLocalUsage(value.local) &&
+    isPricing(value.pricing) &&
+    isTheme(value.theme) &&
+    typeof value.themeChoice === "string" &&
+    Array.isArray(value.availableThemes) &&
+    value.availableThemes.every(isThemeOption) &&
+    (value.analytics === undefined || isAnalytics(value.analytics)) &&
+    isSummary(value.summary) &&
+    Array.isArray(value.daily) &&
+    value.daily.every(isDailyUsage) &&
+    Array.isArray(value.weekly) &&
+    value.weekly.every(isWeeklyUsage)
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -255,7 +338,11 @@ function isDate(value: unknown): value is string {
 }
 
 function isDateRange(value: unknown): boolean {
-  return isRecord(value) && (value.from === null || isDate(value.from)) && (value.to === null || isDate(value.to))
+  return (
+    isRecord(value) &&
+    (value.from === null || isDate(value.from)) &&
+    (value.to === null || isDate(value.to))
+  )
 }
 
 function isCodexHome(value: unknown): boolean {
@@ -263,7 +350,14 @@ function isCodexHome(value: unknown): boolean {
 }
 
 function isTokenBreakdown(value: unknown): value is TokenBreakdown {
-  return isRecord(value) && isNumber(value.totalTokens) && isNumber(value.inputTokens) && isNumber(value.cachedInputTokens) && isNumber(value.outputTokens) && isNumber(value.reasoningOutputTokens)
+  return (
+    isRecord(value) &&
+    isNumber(value.totalTokens) &&
+    isNumber(value.inputTokens) &&
+    isNumber(value.cachedInputTokens) &&
+    isNumber(value.outputTokens) &&
+    isNumber(value.reasoningOutputTokens)
+  )
 }
 
 function isNumberRecord(value: unknown): value is Record<string, number> {
@@ -275,39 +369,117 @@ function isBreakdownRecord(value: unknown): value is Record<string, TokenBreakdo
 }
 
 function isProfile(value: unknown): boolean {
-  return isRecord(value) && typeof value.fetched === "boolean" && isOptionalString(value.endpoint) && isOptionalString(value.error) && isRecord(value.summary) && isNullableNumber(value.summary.lifetimeTokens) && isNullableNumber(value.summary.peakDailyTokens) && isNullableNumber(value.summary.currentStreakDays) && isNullableNumber(value.summary.longestStreakDays) && isNullableNumber(value.summary.longestRunningTurnSec)
+  return (
+    isRecord(value) &&
+    typeof value.fetched === "boolean" &&
+    isOptionalString(value.endpoint) &&
+    isOptionalString(value.error) &&
+    isRecord(value.summary) &&
+    isNullableNumber(value.summary.lifetimeTokens) &&
+    isNullableNumber(value.summary.peakDailyTokens) &&
+    isNullableNumber(value.summary.currentStreakDays) &&
+    isNullableNumber(value.summary.longestStreakDays) &&
+    isNullableNumber(value.summary.longestRunningTurnSec)
+  )
 }
 
 function isLocalUsage(value: unknown): boolean {
-  return isRecord(value) && isNumber(value.rolloutFiles) && isNumber(value.tokenEvents) && isNumber(value.sqliteDatabases) && isNumber(value.sqliteThreads) && Array.isArray(value.parseErrors) && value.parseErrors.every(isParseError) && Array.isArray(value.modelUsage) && value.modelUsage.every(isLocalModelUsage)
+  return (
+    isRecord(value) &&
+    isNumber(value.rolloutFiles) &&
+    isNumber(value.tokenEvents) &&
+    isNumber(value.sqliteDatabases) &&
+    isNumber(value.sqliteThreads) &&
+    Array.isArray(value.parseErrors) &&
+    value.parseErrors.every(isParseError) &&
+    Array.isArray(value.modelUsage) &&
+    value.modelUsage.every(isLocalModelUsage)
+  )
 }
 
 function isParseError(value: unknown): boolean {
-  return isRecord(value) && typeof value.path === "string" && (value.line === undefined || isNumber(value.line)) && typeof value.error === "string"
+  return (
+    isRecord(value) &&
+    typeof value.path === "string" &&
+    (value.line === undefined || isNumber(value.line)) &&
+    typeof value.error === "string"
+  )
 }
 
-function isUsageSlice(value: unknown): value is Record<string, unknown> & { breakdown: TokenBreakdown; costUsd: number } {
+function isUsageSlice(
+  value: unknown,
+): value is Record<string, unknown> & { breakdown: TokenBreakdown; costUsd: number } {
   return isRecord(value) && isTokenBreakdown(value.breakdown) && isNumber(value.costUsd)
 }
 
 function isLocalModelUsage(value: unknown): boolean {
-  return isRecord(value) && isUsageSlice(value) && typeof value.model === "string" && Array.isArray(value.reasoningEfforts) && value.reasoningEfforts.every((row: unknown) => isRecord(row) && isUsageSlice(row) && typeof row.effort === "string") && Array.isArray(value.serviceTiers) && value.serviceTiers.every((row: unknown) => isRecord(row) && isUsageSlice(row) && typeof row.serviceTier === "string" && isNumber(row.inferredTokens))
+  return (
+    isRecord(value) &&
+    isUsageSlice(value) &&
+    typeof value.model === "string" &&
+    Array.isArray(value.reasoningEfforts) &&
+    value.reasoningEfforts.every(
+      (row: unknown) => isRecord(row) && isUsageSlice(row) && typeof row.effort === "string",
+    ) &&
+    Array.isArray(value.serviceTiers) &&
+    value.serviceTiers.every(
+      (row: unknown) =>
+        isRecord(row) &&
+        isUsageSlice(row) &&
+        typeof row.serviceTier === "string" &&
+        isNumber(row.inferredTokens),
+    )
+  )
 }
 
 function isPricing(value: unknown): boolean {
-  return isRecord(value) && typeof value.source === "string" && typeof value.estimateModel === "string" && isOptionalString(value.fetchedAt) && isOptionalString(value.warning)
+  return (
+    isRecord(value) &&
+    typeof value.source === "string" &&
+    typeof value.estimateModel === "string" &&
+    isOptionalString(value.fetchedAt) &&
+    isOptionalString(value.warning)
+  )
 }
 
 function isTheme(value: unknown): value is UsageTheme {
-  if (!isRecord(value) || typeof value.name !== "string" || typeof value.source !== "string" || !isRecord(value.colors) || !isRecord(value.fonts)) {
+  if (
+    !isRecord(value) ||
+    typeof value.name !== "string" ||
+    typeof value.source !== "string" ||
+    !isRecord(value.colors) ||
+    !isRecord(value.fonts)
+  ) {
     return false
   }
 
   const colors = value.colors
-  const colorKeys = ["bg", "panel", "panel2", "line", "text", "muted", "accent", "accent2", "warning"]
+  const colorKeys = [
+    "bg",
+    "panel",
+    "panel2",
+    "line",
+    "text",
+    "muted",
+    "accent",
+    "accent2",
+    "warning",
+  ]
   const safeFont = /^[\w\s,.'"-]+$/
 
-  return colorKeys.every((key) => isHexColor(colors[key])) && Array.isArray(colors.cells) && colors.cells.length > 0 && colors.cells.every(isHexColor) && Array.isArray(colors.series) && colors.series.length > 0 && colors.series.every(isHexColor) && typeof value.fonts.ui === "string" && safeFont.test(value.fonts.ui) && typeof value.fonts.code === "string" && safeFont.test(value.fonts.code)
+  return (
+    colorKeys.every((key) => isHexColor(colors[key])) &&
+    Array.isArray(colors.cells) &&
+    colors.cells.length > 0 &&
+    colors.cells.every(isHexColor) &&
+    Array.isArray(colors.series) &&
+    colors.series.length > 0 &&
+    colors.series.every(isHexColor) &&
+    typeof value.fonts.ui === "string" &&
+    safeFont.test(value.fonts.ui) &&
+    typeof value.fonts.code === "string" &&
+    safeFont.test(value.fonts.code)
+  )
 }
 
 function isHexColor(value: unknown): value is string {
@@ -319,23 +491,92 @@ function isThemeOption(value: unknown): boolean {
 }
 
 function isSummary(value: unknown): boolean {
-  return isRecord(value) && isNumber(value.lifetimeTokens) && isNumber(value.peakDailyTokens) && isNullableNumber(value.currentStreakDays) && isNullableNumber(value.longestStreakDays) && isNullableNumber(value.longestRunningTurnSec) && isNumber(value.localKnownTokens) && isNumber(value.unattributedTokens) && isNumber(value.knownLocalCostUsd) && isNumber(value.estimatedCostUsd)
+  return (
+    isRecord(value) &&
+    isNumber(value.lifetimeTokens) &&
+    isNumber(value.peakDailyTokens) &&
+    isNullableNumber(value.currentStreakDays) &&
+    isNullableNumber(value.longestStreakDays) &&
+    isNullableNumber(value.longestRunningTurnSec) &&
+    isNumber(value.localKnownTokens) &&
+    isNumber(value.unattributedTokens) &&
+    isNumber(value.knownLocalCostUsd) &&
+    isNumber(value.estimatedCostUsd)
+  )
 }
 
 function isDailyUsage(value: unknown): boolean {
-  return isRecord(value) && isDate(value.date) && isNumber(value.totalTokens) && (value.backendTokens === undefined || isNumber(value.backendTokens)) && isTokenBreakdown(value.localTokens) && isNumber(value.unattributedTokens) && (value.sourceTotal === "backend" || value.sourceTotal === "local") && isBreakdownRecord(value.models) && isNumberRecord(value.reasoningEfforts) && isNumberRecord(value.homes) && isNumber(value.knownLocalCostUsd) && isNumber(value.estimatedUnattributedCostUsd) && isNumber(value.estimatedCostUsd)
+  return (
+    isRecord(value) &&
+    isDate(value.date) &&
+    isNumber(value.totalTokens) &&
+    (value.backendTokens === undefined || isNumber(value.backendTokens)) &&
+    isTokenBreakdown(value.localTokens) &&
+    isNumber(value.unattributedTokens) &&
+    (value.sourceTotal === "backend" || value.sourceTotal === "local") &&
+    isBreakdownRecord(value.models) &&
+    isNumberRecord(value.reasoningEfforts) &&
+    isNumberRecord(value.homes) &&
+    isNumber(value.knownLocalCostUsd) &&
+    isNumber(value.estimatedUnattributedCostUsd) &&
+    isNumber(value.estimatedCostUsd)
+  )
 }
 
 function isWeeklyUsage(value: unknown): boolean {
-  return isRecord(value) && isDate(value.weekStart) && isNumber(value.totalTokens) && (value.backendTokens === undefined || isNumber(value.backendTokens)) && isTokenBreakdown(value.localTokens) && isNumber(value.unattributedTokens) && isNumber(value.estimatedCostUsd)
+  return (
+    isRecord(value) &&
+    isDate(value.weekStart) &&
+    isNumber(value.totalTokens) &&
+    (value.backendTokens === undefined || isNumber(value.backendTokens)) &&
+    isTokenBreakdown(value.localTokens) &&
+    isNumber(value.unattributedTokens) &&
+    isNumber(value.estimatedCostUsd)
+  )
 }
 
 function isAnalytics(value: unknown): boolean {
-  return isRecord(value) && typeof value.fetched === "boolean" && isRecord(value.endpoints) && Object.values(value.endpoints).every((endpoint) => typeof endpoint === "string") && isOptionalString(value.error) && isAnalyticsTotals(value.totals) && Array.isArray(value.byModel) && value.byModel.every((row) => isAnalyticsRow(row, ["model", "credits", "turns", "threads", "users"])) && Array.isArray(value.byModelVariants) && value.byModelVariants.every((row) => isAnalyticsRow(row, ["model", "speed", "credits"])) && Array.isArray(value.bySurface) && value.bySurface.every((row) => isAnalyticsRow(row, ["surface", "credits", "percent", "turns", "threads", "users", "textTotalTokens", "inputTokens", "cachedInputTokens", "outputTokens"])) && Array.isArray(value.bySource) && value.bySource.every((row) => isAnalyticsRow(row, ["source", "credits", "turns", "threads", "users", "textTotalTokens"])) && (value.tasks === undefined || isAnalyticsTasks(value.tasks))
+  return (
+    isRecord(value) &&
+    typeof value.fetched === "boolean" &&
+    isRecord(value.endpoints) &&
+    Object.values(value.endpoints).every((endpoint) => typeof endpoint === "string") &&
+    isOptionalString(value.error) &&
+    isAnalyticsTotals(value.totals) &&
+    Array.isArray(value.byModel) &&
+    value.byModel.every((row) =>
+      isAnalyticsRow(row, ["model", "credits", "turns", "threads", "users"]),
+    ) &&
+    Array.isArray(value.byModelVariants) &&
+    value.byModelVariants.every((row) => isAnalyticsRow(row, ["model", "speed", "credits"])) &&
+    Array.isArray(value.bySurface) &&
+    value.bySurface.every((row) =>
+      isAnalyticsRow(row, [
+        "surface",
+        "credits",
+        "percent",
+        "turns",
+        "threads",
+        "users",
+        "textTotalTokens",
+        "inputTokens",
+        "cachedInputTokens",
+        "outputTokens",
+      ]),
+    ) &&
+    Array.isArray(value.bySource) &&
+    value.bySource.every((row) =>
+      isAnalyticsRow(row, ["source", "credits", "turns", "threads", "users", "textTotalTokens"]),
+    ) &&
+    (value.tasks === undefined || isAnalyticsTasks(value.tasks))
+  )
 }
 
 function isAnalyticsTotals(value: unknown): boolean {
-  return isRecord(value) && ["credits", "turns", "threads", "users", "textTotalTokens"].every((key) => isNumber(value[key]))
+  return (
+    isRecord(value) &&
+    ["credits", "turns", "threads", "users", "textTotalTokens"].every((key) => isNumber(value[key]))
+  )
 }
 
 function isAnalyticsRow(value: unknown, keys: string[]): boolean {
@@ -343,15 +584,34 @@ function isAnalyticsRow(value: unknown, keys: string[]): boolean {
     return false
   }
 
-  return keys.every((key) => key === "model" || key === "speed" || key === "surface" || key === "source" ? typeof value[key] === "string" : isNumber(value[key]))
+  return keys.every((key) =>
+    key === "model" || key === "speed" || key === "surface" || key === "source"
+      ? typeof value[key] === "string"
+      : isNumber(value[key]),
+  )
 }
 
 function isAnalyticsTasks(value: unknown): boolean {
-  return isRecord(value) && isNumber(value.currentCount) && (value.archivedCount === undefined || isNumber(value.archivedCount)) && (value.archivedHasMore === undefined || typeof value.archivedHasMore === "boolean") && isCountRows(value.currentByEnvironment, "environment") && isCountRows(value.currentByStatus, "status") && isCountRows(value.currentByIntent, "intent") && isNumericRecord(value.pullRequests, ["total", "open", "merged", "closed"]) && isNumericRecord(value.diffStats, ["filesModified", "linesAdded", "linesRemoved"]) && Array.isArray(value.recent) && value.recent.every(isRecentTask)
+  return (
+    isRecord(value) &&
+    isNumber(value.currentCount) &&
+    (value.archivedCount === undefined || isNumber(value.archivedCount)) &&
+    (value.archivedHasMore === undefined || typeof value.archivedHasMore === "boolean") &&
+    isCountRows(value.currentByEnvironment, "environment") &&
+    isCountRows(value.currentByStatus, "status") &&
+    isCountRows(value.currentByIntent, "intent") &&
+    isNumericRecord(value.pullRequests, ["total", "open", "merged", "closed"]) &&
+    isNumericRecord(value.diffStats, ["filesModified", "linesAdded", "linesRemoved"]) &&
+    Array.isArray(value.recent) &&
+    value.recent.every(isRecentTask)
+  )
 }
 
 function isCountRows(value: unknown, key: string): boolean {
-  return Array.isArray(value) && value.every((row) => isRecord(row) && typeof row[key] === "string" && isNumber(row.count))
+  return (
+    Array.isArray(value) &&
+    value.every((row) => isRecord(row) && typeof row[key] === "string" && isNumber(row.count))
+  )
 }
 
 function isNumericRecord(value: unknown, keys: string[]): boolean {
@@ -359,5 +619,14 @@ function isNumericRecord(value: unknown, keys: string[]): boolean {
 }
 
 function isRecentTask(value: unknown): boolean {
-  return isRecord(value) && typeof value.title === "string" && typeof value.environment === "string" && typeof value.status === "string" && isOptionalString(value.branch) && (value.updatedAt === undefined || isNumber(value.updatedAt)) && typeof value.archived === "boolean" && isNumber(value.pullRequests)
+  return (
+    isRecord(value) &&
+    typeof value.title === "string" &&
+    typeof value.environment === "string" &&
+    typeof value.status === "string" &&
+    isOptionalString(value.branch) &&
+    (value.updatedAt === undefined || isNumber(value.updatedAt)) &&
+    typeof value.archived === "boolean" &&
+    isNumber(value.pullRequests)
+  )
 }

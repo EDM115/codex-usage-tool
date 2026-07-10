@@ -47,13 +47,15 @@ export async function loadWhamAnalytics(options: {
   }
 
   try {
-    const [usage, tasksCurrent, tasksArchived, dailyBreakdown, workspaceCounts] = await Promise.all([
-      fetchJson(endpoints.usage, headers),
-      fetchJson(endpoints.tasksCurrent, headers),
-      fetchJson(endpoints.tasksArchived, headers),
-      fetchJson(endpoints.dailyTokenUsageBreakdown, headers),
-      fetchJson(endpoints.dailyWorkspaceUsageCounts, headers),
-    ])
+    const [usage, tasksCurrent, tasksArchived, dailyBreakdown, workspaceCounts] = await Promise.all(
+      [
+        fetchJson(endpoints.usage, headers),
+        fetchJson(endpoints.tasksCurrent, headers),
+        fetchJson(endpoints.tasksArchived, headers),
+        fetchJson(endpoints.dailyTokenUsageBreakdown, headers),
+        fetchJson(endpoints.dailyWorkspaceUsageCounts, headers),
+      ],
+    )
     const errors = [usage, tasksCurrent, tasksArchived, dailyBreakdown, workspaceCounts]
       .filter((result) => !result.ok)
       .map((result) => result.error)
@@ -108,8 +110,9 @@ function normalizeBaseUrl(baseUrl: string): string {
   let normalized = baseUrl.replace(/\/+$/, "")
 
   if (
-    (normalized.startsWith("https://chatgpt.com") || normalized.startsWith("https://chat.openai.com"))
-    && !normalized.includes("/backend-api")
+    (normalized.startsWith("https://chatgpt.com") ||
+      normalized.startsWith("https://chat.openai.com")) &&
+    !normalized.includes("/backend-api")
   ) {
     normalized += "/backend-api"
   }
@@ -144,11 +147,13 @@ function normalizeWhamAnalytics(
   fetched: boolean,
 ): WhamAnalytics {
   const usage = normalizeUsage(raw?.usage ?? raw?.whamUsage ?? raw?.usageResponse)
-  const dailyTokenUsageBreakdown = normalizeDailyBreakdown(raw?.dailyTokenUsageBreakdown ?? raw?.daily_token_usage_breakdown)
+  const dailyTokenUsageBreakdown = normalizeDailyBreakdown(
+    raw?.dailyTokenUsageBreakdown ?? raw?.daily_token_usage_breakdown,
+  )
   const workspaceUsageCounts = normalizeWorkspaceCounts(
-    raw?.workspaceUsageCounts
-      ?? raw?.dailyWorkspaceUsageCounts
-        ?? raw?.daily_workspace_usage_counts,
+    raw?.workspaceUsageCounts ??
+      raw?.dailyWorkspaceUsageCounts ??
+      raw?.daily_workspace_usage_counts,
   )
   const tasks = normalizeTasks(raw?.tasks)
   const totals = workspaceUsageCounts?.data.reduce(
@@ -157,7 +162,9 @@ function normalizeWhamAnalytics(
       acc.turns += numberFrom(bucket.totals.turns)
       acc.threads += numberFrom(bucket.totals.threads)
       acc.users = Math.max(acc.users, numberFrom(bucket.totals.users))
-      acc.textTotalTokens += numberFrom(bucket.totals.text_total_tokens ?? bucket.totals.textTotalTokens)
+      acc.textTotalTokens += numberFrom(
+        bucket.totals.text_total_tokens ?? bucket.totals.textTotalTokens,
+      )
 
       return acc
     },
@@ -209,20 +216,24 @@ function normalizeTasks(value: any): WhamAnalytics["tasks"] | undefined {
   const byIntent = new Map<string, number>()
 
   for (const task of current) {
-    const display = task.task_status_display ?? task.taskStatusDisplay ?? { }
-    const latest = display.latest_turn_status_display ?? display.latestTurnStatusDisplay ?? { }
-    const environment = String(display.environment_label ?? display.environmentLabel ?? "Unknown environment")
+    const display = task.task_status_display ?? task.taskStatusDisplay ?? {}
+    const latest = display.latest_turn_status_display ?? display.latestTurnStatusDisplay ?? {}
+    const environment = String(
+      display.environment_label ?? display.environmentLabel ?? "Unknown environment",
+    )
     const status = String(latest.turn_status ?? latest.turnStatus ?? "unknown")
-    const intent = String(latest.intent ?? display.initial_intent ?? display.initialIntent ?? "unknown")
+    const intent = String(
+      latest.intent ?? display.initial_intent ?? display.initialIntent ?? "unknown",
+    )
     increment(byEnvironment, environment)
     increment(byStatus, labelClient(status))
     increment(byIntent, labelClient(intent))
-    const diff = latest.diff_stats ?? latest.diffStats ?? { }
+    const diff = latest.diff_stats ?? latest.diffStats ?? {}
     diffStats.filesModified += numberFrom(diff.files_modified ?? diff.filesModified)
     diffStats.linesAdded += numberFrom(diff.lines_added ?? diff.linesAdded)
     diffStats.linesRemoved += numberFrom(diff.lines_removed ?? diff.linesRemoved)
     const prs = Array.isArray(task.pull_requests) ? task.pull_requests : []
- 
+
     for (const pr of prs) {
       const item = pr.pull_request ?? pr.pullRequest ?? pr
       pullRequests.total += 1
@@ -241,8 +252,8 @@ function normalizeTasks(value: any): WhamAnalytics["tasks"] | undefined {
     currentCount: current.length,
     archivedCount: archived.length,
     archivedHasMore: Boolean(
-      (archivedResponse && typeof archivedResponse === "object" && archivedResponse.cursor)
-      || false,
+      (archivedResponse && typeof archivedResponse === "object" && archivedResponse.cursor) ||
+      false,
     ),
     currentByEnvironment: sortedCounts(byEnvironment, "environment"),
     currentByStatus: sortedCounts(byStatus, "status"),
@@ -251,15 +262,19 @@ function normalizeTasks(value: any): WhamAnalytics["tasks"] | undefined {
     diffStats,
     recent: current
       .slice()
-      .sort((a, b) => numberFrom(b.updated_at ?? b.updatedAt) - numberFrom(a.updated_at ?? a.updatedAt))
+      .sort(
+        (a, b) => numberFrom(b.updated_at ?? b.updatedAt) - numberFrom(a.updated_at ?? a.updatedAt),
+      )
       .slice(0, 5)
       .map((task: any) => {
-        const display = task.task_status_display ?? task.taskStatusDisplay ?? { }
-        const latest = display.latest_turn_status_display ?? display.latestTurnStatusDisplay ?? { }
+        const display = task.task_status_display ?? task.taskStatusDisplay ?? {}
+        const latest = display.latest_turn_status_display ?? display.latestTurnStatusDisplay ?? {}
 
         return {
           title: String(task.title ?? "Untitled task"),
-          environment: String(display.environment_label ?? display.environmentLabel ?? "Unknown environment"),
+          environment: String(
+            display.environment_label ?? display.environmentLabel ?? "Unknown environment",
+          ),
           status: String(latest.turn_status ?? latest.turnStatus ?? "unknown"),
           branch: display.branch_name ?? display.branchName,
           updatedAt: nullableNumber(task.updated_at ?? task.updatedAt) ?? undefined,
@@ -307,17 +322,29 @@ function normalizeUsage(value: any): WhamUsageResponse | undefined {
   return {
     planType: value.plan_type ?? value.planType,
     rateLimit: {
-      primaryUsedPercent: numberFrom(value.rate_limit?.primary_window?.used_percent ?? value.rateLimit?.primaryWindow?.usedPercent),
-      secondaryUsedPercent: numberFrom(value.rate_limit?.secondary_window?.used_percent ?? value.rateLimit?.secondaryWindow?.usedPercent),
-      primaryResetAt: nullableNumber(value.rate_limit?.primary_window?.reset_at ?? value.rateLimit?.primaryWindow?.resetAt),
-      secondaryResetAt: nullableNumber(value.rate_limit?.secondary_window?.reset_at ?? value.rateLimit?.secondaryWindow?.resetAt),
+      primaryUsedPercent: numberFrom(
+        value.rate_limit?.primary_window?.used_percent ??
+          value.rateLimit?.primaryWindow?.usedPercent,
+      ),
+      secondaryUsedPercent: numberFrom(
+        value.rate_limit?.secondary_window?.used_percent ??
+          value.rateLimit?.secondaryWindow?.usedPercent,
+      ),
+      primaryResetAt: nullableNumber(
+        value.rate_limit?.primary_window?.reset_at ?? value.rateLimit?.primaryWindow?.resetAt,
+      ),
+      secondaryResetAt: nullableNumber(
+        value.rate_limit?.secondary_window?.reset_at ?? value.rateLimit?.secondaryWindow?.resetAt,
+      ),
     },
     credits: value.credits
       ? {
           hasCredits: Boolean(value.credits.has_credits ?? value.credits.hasCredits),
           unlimited: Boolean(value.credits.unlimited),
           balance: value.credits.balance == null ? undefined : String(value.credits.balance),
-          overageLimitReached: Boolean(value.credits.overage_limit_reached ?? value.credits.overageLimitReached),
+          overageLimitReached: Boolean(
+            value.credits.overage_limit_reached ?? value.credits.overageLimitReached,
+          ),
           approxLocalMessages: Array.isArray(value.credits.approx_local_messages)
             ? value.credits.approx_local_messages.map(numberFrom)
             : undefined,
@@ -344,7 +371,9 @@ function normalizeDailyBreakdown(
     data: data.map(
       (bucket: any): WhamDailyBreakdownBucket => ({
         date: String(bucket.date ?? bucket.start_date ?? bucket.startDate),
-        productSurfaceUsageValues: normalizeNumberRecord(bucket.product_surface_usage_values ?? bucket.productSurfaceUsageValues),
+        productSurfaceUsageValues: normalizeNumberRecord(
+          bucket.product_surface_usage_values ?? bucket.productSurfaceUsageValues,
+        ),
         models: Array.isArray(bucket.models)
           ? bucket.models.map((model: any) => ({
               model: String(model.model ?? "unknown"),
@@ -458,7 +487,9 @@ function aggregateSurfaces(
 
   for (const bucket of workspace) {
     for (const client of bucket.clients) {
-      const surface = labelClient(String(client.client_id ?? client.clientId ?? client.source ?? "unknown"))
+      const surface = labelClient(
+        String(client.client_id ?? client.clientId ?? client.source ?? "unknown"),
+      )
       const item = clientStats.get(surface) ?? {
         turns: 0,
         threads: 0,
@@ -473,8 +504,12 @@ function aggregateSurfaces(
       item.threads += numberFrom(client.threads)
       item.users = Math.max(item.users, numberFrom(client.users))
       item.credits += numberFrom(client.credits)
-      item.inputTokens += numberFrom(client.uncached_text_input_tokens ?? client.uncachedTextInputTokens)
-      item.cachedInputTokens += numberFrom(client.cached_text_input_tokens ?? client.cachedTextInputTokens)
+      item.inputTokens += numberFrom(
+        client.uncached_text_input_tokens ?? client.uncachedTextInputTokens,
+      )
+      item.cachedInputTokens += numberFrom(
+        client.cached_text_input_tokens ?? client.cachedTextInputTokens,
+      )
       item.outputTokens += numberFrom(client.text_output_tokens ?? client.textOutputTokens)
       item.textTotalTokens += numberFrom(client.text_total_tokens ?? client.textTotalTokens)
       clientStats.set(surface, item)
@@ -528,7 +563,9 @@ function aggregateSources(workspace: WhamWorkspaceUsageBucket[]): WhamAnalytics[
 
   for (const bucket of workspace) {
     for (const client of bucket.clients) {
-      const source = labelClient(String(client.client_id ?? client.clientId ?? client.source ?? "unknown"))
+      const source = labelClient(
+        String(client.client_id ?? client.clientId ?? client.source ?? "unknown"),
+      )
       const item = map.get(source) ?? {
         source,
         credits: 0,
@@ -580,7 +617,7 @@ function labelClient(value: string): string {
 }
 
 function normalizeNumberRecord(value: any): Record<string, number> {
-  const out: Record<string, number> = { }
+  const out: Record<string, number> = {}
 
   if (!value || typeof value !== "object") {
     return out

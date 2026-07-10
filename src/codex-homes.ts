@@ -5,14 +5,18 @@ import { basename, dirname, join, parse, resolve } from "node:path"
 
 import { dirExists } from "./util"
 
-export function resolveCodexHomes(homeInputs: string[], rootInputs: string[], autoDiscover = true): CodexHome[] {
+export function resolveCodexHomes(
+  homeInputs: string[],
+  rootInputs: string[],
+  autoDiscover = true,
+): CodexHome[] {
   const candidates: string[] = []
   candidates.push(...homeInputs)
   candidates.push(...(rootInputs.map(resolveRootToCodexHome).filter(Boolean) as string[]))
 
   if (candidates.length === 0 && autoDiscover) {
     const envHome = process.env.CODEX_HOME
- 
+
     if (envHome) {
       candidates.push(envHome)
     }
@@ -69,10 +73,10 @@ function resolveRootToCodexHome(input: string): string | null {
 
 function looksLikeCodexHome(dir: string): boolean {
   return (
-    existsSync(join(dir, "sessions"))
-    || existsSync(join(dir, "archived_sessions"))
-    || existsSync(join(dir, "auth.json"))
-    || hasStateSqlite(dir)
+    existsSync(join(dir, "sessions")) ||
+    existsSync(join(dir, "archived_sessions")) ||
+    existsSync(join(dir, "auth.json")) ||
+    hasStateSqlite(dir)
   )
 }
 

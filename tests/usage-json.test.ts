@@ -81,12 +81,16 @@ test("mergeUsageDatasets adds local sources without duplicating cloud enrichment
 test("mergeUsageDatasets rejects unsupported date filtering and incompatible timezones", async () => {
   const dataset = await createDataset({ home: "desktop", model: "gpt-5", tokens: 100 })
 
-  expect(() => mergeUsageDatasets([dataset], { from: "2026-07-10", to: null, timezone: "Europe/Paris" })).toThrow(
-    "Usage JSON inputs cannot be re-filtered by date",
-  )
-  expect(() => mergeUsageDatasets([{ ...dataset, timezone: "America/New_York" }], { from: null, to: null, timezone: "Europe/Paris" })).toThrow(
-    "Usage JSON timezone America/New_York does not match Europe/Paris",
-  )
+  expect(() =>
+    mergeUsageDatasets([dataset], { from: "2026-07-10", to: null, timezone: "Europe/Paris" }),
+  ).toThrow("Usage JSON inputs cannot be re-filtered by date")
+  expect(() =>
+    mergeUsageDatasets([{ ...dataset, timezone: "America/New_York" }], {
+      from: null,
+      to: null,
+      timezone: "Europe/Paris",
+    }),
+  ).toThrow("Usage JSON timezone America/New_York does not match Europe/Paris")
 })
 
 test("generate rebuilds every report artifact from usage JSON without a Codex home", async () => {
@@ -99,7 +103,16 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
   writeFileSync(inputPath, JSON.stringify(shared))
 
   const child = Bun.spawnSync({
-    cmd: [process.execPath, "src/cli.ts", "generate", "--usage-json", inputPath, "--out", outDir, "--silent"],
+    cmd: [
+      process.execPath,
+      "src/cli.ts",
+      "generate",
+      "--usage-json",
+      inputPath,
+      "--out",
+      outDir,
+      "--silent",
+    ],
     cwd: resolve(import.meta.dir, ".."),
     stdout: "pipe",
     stderr: "pipe",
@@ -107,7 +120,15 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
 
   expect(child.exitCode, `${child.stdout.toString()}\n${child.stderr.toString()}`).toBe(0)
 
-  for (const file of ["usage-data.json", "cost-estimate.csv", "usage-report.html", "heatmap-daily.svg", "heatmap-daily.png", "chart-daily.svg", "chart-daily.png"]) {
+  for (const file of [
+    "usage-data.json",
+    "cost-estimate.csv",
+    "usage-report.html",
+    "heatmap-daily.svg",
+    "heatmap-daily.png",
+    "chart-daily.svg",
+    "chart-daily.png",
+  ]) {
     expect(existsSync(join(outDir, file))).toBe(true)
   }
 

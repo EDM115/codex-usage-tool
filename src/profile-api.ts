@@ -70,8 +70,9 @@ function profileEndpoint(baseUrl: string): string {
   let normalized = baseUrl.replace(/\/+$/, "")
 
   if (
-    (normalized.startsWith("https://chatgpt.com") || normalized.startsWith("https://chat.openai.com"))
-    && !normalized.includes("/backend-api")
+    (normalized.startsWith("https://chatgpt.com") ||
+      normalized.startsWith("https://chat.openai.com")) &&
+    !normalized.includes("/backend-api")
   ) {
     normalized += "/backend-api"
   }
@@ -97,7 +98,9 @@ function normalizeProfile(value: any): AccountProfileResponse {
     summary: {
       lifetimeTokens: nullableNumber(summary?.lifetimeTokens ?? summary?.lifetime_tokens),
       peakDailyTokens: nullableNumber(summary?.peakDailyTokens ?? summary?.peak_daily_tokens),
-      longestRunningTurnSec: nullableNumber(summary?.longestRunningTurnSec ?? summary?.longest_running_turn_sec),
+      longestRunningTurnSec: nullableNumber(
+        summary?.longestRunningTurnSec ?? summary?.longest_running_turn_sec,
+      ),
       currentStreakDays: nullableNumber(summary?.currentStreakDays ?? summary?.current_streak_days),
       longestStreakDays: nullableNumber(summary?.longestStreakDays ?? summary?.longest_streak_days),
     },

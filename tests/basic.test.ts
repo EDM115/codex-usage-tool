@@ -252,10 +252,15 @@ test("collectRolloutEvents does not let SQLite metadata overwrite rollout state"
   database.run(
     "create table threads (id text, rollout_path text, source text, tokens_used integer, archived integer, model text, reasoning_effort text)",
   )
-  database.run(
-    "insert into threads values (?, ?, ?, ?, ?, ?, ?)",
-    [threadId, rollout, "vscode", 100, 0, "gpt-5.6-terra", "high"],
-  )
+  database.run("insert into threads values (?, ?, ?, ?, ?, ?, ?)", [
+    threadId,
+    rollout,
+    "vscode",
+    100,
+    0,
+    "gpt-5.6-terra",
+    "high",
+  ])
   database.close()
 
   const result = collectRolloutEvents({
@@ -414,7 +419,9 @@ test("buildDataset exposes canonical local model usage and exact costs", async (
     ["priority", 50],
   ])
   expect(model.serviceTiers[0].inferredTokens).toBe(50)
-  expect(model.reasoningEfforts.reduce((sum, row) => sum + row.costUsd, 0)).toBeCloseTo(model.costUsd)
+  expect(model.reasoningEfforts.reduce((sum, row) => sum + row.costUsd, 0)).toBeCloseTo(
+    model.costUsd,
+  )
   expect(dataset.local.modelUsage.reduce((sum, row) => sum + row.costUsd, 0)).toBeCloseTo(
     dataset.summary.knownLocalCostUsd,
   )
@@ -490,10 +497,9 @@ test("report model rows keep local models authoritative and add cloud enrichment
   ])
   expect(rows[0].turns).toBe(12)
   expect(rows[0].localTokens).toBe(200)
-  expect(buildReportModelRows({ ...dataset, analytics: undefined }).map((row) => row.model)).toEqual([
-    "gpt-5.5",
-    "gpt-5.6-terra",
-  ])
+  expect(
+    buildReportModelRows({ ...dataset, analytics: undefined }).map((row) => row.model),
+  ).toEqual(["gpt-5.5", "gpt-5.6-terra"])
 })
 
 test("renderHtmlReport emits parseable runtime scripts", async () => {
@@ -535,7 +541,9 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
   expect(html).toContain("Generated at 2026-07-10 15:33:11.042 UTC+02:00 (Europe/Paris)")
   expect(html).not.toContain("Generated at 2026-07-10T13:33:11.042Z")
   dataset.generatedAt = "2026-01-10T13:33:11.042Z"
-  expect(renderReportHtml(dataset)).toContain("Generated at 2026-01-10 14:33:11.042 UTC+01:00 (Europe/Paris)")
+  expect(renderReportHtml(dataset)).toContain(
+    "Generated at 2026-01-10 14:33:11.042 UTC+01:00 (Europe/Paris)",
+  )
   expect(html).toContain('id="rawCounts"')
   expect(html).toContain('data-stat-value="120"')
   expect(html).toContain('class="report-title"')
@@ -553,24 +561,28 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
   expect(html).toContain('class="select-control"')
   expect(html).toContain('class="control-chevron"')
   expect(html).toContain('class="theme-picker-label"')
-  expect(html).toContain('.theme-picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }')
+  expect(html).toContain(
+    ".theme-picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+  )
   expect(html).toContain('class="toolbar-meta"')
   expect(html).toContain('class="github-link"')
   expect(html).toContain('class="section-actions breakdown-actions"')
-  expect(html).toContain('.model-group.last-model')
-  expect(html).not.toContain('.theme-picker-button::after')
-  expect(html).toContain("const reasoningEffortOrder = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']")
-  expect(html).toContain('function modelColor')
-  expect(html).toContain('function surfaceColor')
-  expect(html).toContain('function reasoningColor')
-  expect(html).toContain('function modeColor')
-  expect(html).toContain('function meterWidth')
-  expect(html).toContain('Math.max(2,')
+  expect(html).toContain(".model-group.last-model")
+  expect(html).not.toContain(".theme-picker-button::after")
+  expect(html).toContain(
+    "const reasoningEffortOrder = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']",
+  )
+  expect(html).toContain("function modelColor")
+  expect(html).toContain("function surfaceColor")
+  expect(html).toContain("function reasoningColor")
+  expect(html).toContain("function modeColor")
+  expect(html).toContain("function meterWidth")
+  expect(html).toContain("Math.max(2,")
   const bundledColorCatalog = html.match(/const modelProgressColors = (\{[^;]+\});/)
   expect(bundledColorCatalog).not.toBeNull()
-  expect(Object.keys(JSON.parse(bundledColorCatalog?.[1] ?? "{}") as Record<string, unknown>).sort()).toEqual(
-    [...pricing.table.keys()].sort(),
-  )
+  expect(
+    Object.keys(JSON.parse(bundledColorCatalog?.[1] ?? "{}") as Record<string, unknown>).sort(),
+  ).toEqual([...pricing.table.keys()].sort())
   const modelRowsScript = html.match(
     /<script id="model-rows" type="application\/json">([\s\S]*?)<\/script>/,
   )

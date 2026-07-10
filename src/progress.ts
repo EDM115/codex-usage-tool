@@ -14,7 +14,7 @@ export class CliProgress implements ProgressSink {
   private statusLine = ""
   private renderedLines = 0
 
-  constructor(private readonly options: { silent: boolean }) { }
+  constructor(private readonly options: { silent: boolean }) {}
 
   setTotal(total: number): void {
     this.total = Math.max(1, total)
@@ -106,9 +106,9 @@ function markFor(state: ProgressState): string {
 }
 
 export const noopProgress: ProgressSink = {
-  setTotal() { },
-  step() { },
-  status() { },
-  statusDone() { },
-  finish() { },
+  setTotal() {},
+  step() {},
+  status() {},
+  statusDone() {},
+  finish() {},
 }

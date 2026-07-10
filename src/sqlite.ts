@@ -19,7 +19,9 @@ export function discoverFromSqlite(homes: CodexHome[], progress?: ProgressSink):
   const metadataByThreadId = new Map<string, ThreadMetadata>()
   let sqliteDatabases = 0
   let sqliteThreads = 0
-  const dbPaths = homes.flatMap((home) => stateDatabasePaths(home.path).map((dbPath) => ({ home, dbPath })))
+  const dbPaths = homes.flatMap((home) =>
+    stateDatabasePaths(home.path).map((dbPath) => ({ home, dbPath })),
+  )
 
   if (dbPaths.length === 0) {
     progress?.statusDone(`SQLite metadata : 0 ${pluralize("database", 0)}`)
@@ -62,7 +64,9 @@ export function discoverFromSqlite(homes: CodexHome[], progress?: ProgressSink):
   }
 
   if (dbPaths.length > 0) {
-    progress?.statusDone(`SQLite metadata : ${sqliteDatabases} ${pluralize("database", sqliteDatabases)}, ${sqliteThreads} ${pluralize("thread row", sqliteThreads)}`)
+    progress?.statusDone(
+      `SQLite metadata : ${sqliteDatabases} ${pluralize("database", sqliteDatabases)}, ${sqliteThreads} ${pluralize("thread row", sqliteThreads)}`,
+    )
   }
 
   return {
@@ -110,7 +114,9 @@ function readThreads(dbPath: string): Array<Record<string, unknown>> | null {
     }
 
     return db
-      .query("select id, rollout_path, source, tokens_used, archived, model, reasoning_effort from threads")
+      .query(
+        "select id, rollout_path, source, tokens_used, archived, model, reasoning_effort from threads",
+      )
       .all() as Array<Record<string, unknown>>
   } catch {
     return null

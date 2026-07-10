@@ -93,9 +93,7 @@ function createConfig(text: string): string {
 test("CLI parses canonical theme choices and rejects unknown names", () => {
   expect(parseArgs(["generate", "--theme", "dracula"]).theme).toBe("dracula")
   expect(parseArgs(["collect", "--theme", "EDM115"]).theme).toBe("EDM115")
-  expect(() => parseArgs(["generate", "--theme", "missing-theme"])).toThrow(
-    "Unknown theme",
-  )
+  expect(() => parseArgs(["generate", "--theme", "missing-theme"])).toThrow("Unknown theme")
 })
 
 test("CLI accepts repeated usage JSON inputs alongside Codex homes", () => {
@@ -109,17 +107,14 @@ test("CLI accepts repeated usage JSON inputs alongside Codex homes", () => {
     "archive/usage-data.json",
   ])
 
-  expect(options.usageJsons).toEqual([
-    "laptop/usage-data.json",
-    "archive/usage-data.json",
-  ])
+  expect(options.usageJsons).toEqual(["laptop/usage-data.json", "archive/usage-data.json"])
   expect(options.codexHomes).toEqual(["desktop/.codex"])
 })
 
 test("CLI rejects date filters that cannot be applied faithfully to usage JSON", () => {
-  expect(() => parseArgs(["generate", "--usage-json", "usage-data.json", "--from", "2026-07-01"])).toThrow(
-    "--from and --to cannot be applied to --usage-json inputs",
-  )
+  expect(() =>
+    parseArgs(["generate", "--usage-json", "usage-data.json", "--from", "2026-07-01"]),
+  ).toThrow("--from and --to cannot be applied to --usage-json inputs")
 })
 
 test("batch SVG renderers use the CLI-selected dataset theme", async () => {

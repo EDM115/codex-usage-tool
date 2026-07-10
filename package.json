@@ -1,25 +1,18 @@
 {
-  "author": "EDM115 <github@edm115.dev> (https://edm115.dev)",
   "name": "codex-usage-tool",
   "version": "1.3.0",
   "private": true,
-  "bugs": {
-    "email": "github@edm115.dev",
-    "url": "https://github.com/EDM115/codex-usage-tool/issues"
-  },
   "description": "Generate self-contained Codex usage reports from local .codex files and dashboard APIs",
-  "type": "module",
-  "scripts": {
-    "test": "bun test",
-    "typecheck": "tsc --noEmit",
-    "usage": "bun src/cli.ts"
+  "homepage": "https://github.com/EDM115/codex-usage-tool#readme",
+  "bugs": {
+    "url": "https://github.com/EDM115/codex-usage-tool/issues",
+    "email": "github@edm115.dev"
   },
-  "dependencies": {
-    "@resvg/resvg-js": "^2.6.2"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.3.14",
-    "typescript": "^7.0.2"
+  "license": "MIT",
+  "author": "EDM115 <github@edm115.dev> (https://edm115.dev)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EDM115/codex-usage-tool.git"
   },
   "funding": [
     {
@@ -39,10 +32,17 @@
       "url": "https://t.me/EDM115bots/698"
     }
   ],
-  "homepage": "https://github.com/EDM115/codex-usage-tool#readme",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/EDM115/codex-usage-tool.git"
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "usage": "bun src/cli.ts"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^7.0.2"
   }
 }

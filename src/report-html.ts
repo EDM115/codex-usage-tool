@@ -84,22 +84,22 @@ export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
   const cloudRows = dataset.analytics?.byModel ?? []
   const cloudByModel = new Map(cloudRows.map((row) => [row.model, row]))
   const localRows = dataset.local.modelUsage.map((usage): ReportModelRow => {
-      const cloud = cloudByModel.get(usage.model)
+    const cloud = cloudByModel.get(usage.model)
 
-      return {
-        model: usage.model,
-        credits: cloud?.credits ?? 0,
-        turns: cloud?.turns ?? 0,
-        threads: cloud?.threads ?? 0,
-        users: cloud?.users ?? 0,
-        localTokens: usage.breakdown.totalTokens,
-        localBreakdown: usage.breakdown,
-        localCostUsd: usage.costUsd,
-        reasoningEfforts: usage.reasoningEfforts,
-        serviceTiers: usage.serviceTiers,
-        source: cloud ? "local+cloud" : "local",
-      }
-    })
+    return {
+      model: usage.model,
+      credits: cloud?.credits ?? 0,
+      turns: cloud?.turns ?? 0,
+      threads: cloud?.threads ?? 0,
+      users: cloud?.users ?? 0,
+      localTokens: usage.breakdown.totalTokens,
+      localBreakdown: usage.breakdown,
+      localCostUsd: usage.costUsd,
+      reasoningEfforts: usage.reasoningEfforts,
+      serviceTiers: usage.serviceTiers,
+      source: cloud ? "local+cloud" : "local",
+    }
+  })
   const localModels = new Set(dataset.local.modelUsage.map((row) => row.model))
   const cloudOnlyRows = cloudRows
     .filter((row) => !localModels.has(row.model))

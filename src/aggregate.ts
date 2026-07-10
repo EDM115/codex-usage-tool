@@ -73,7 +73,8 @@ export function buildDataset(args: {
     day.homes[event.homeLabel] = (day.homes[event.homeLabel] ?? 0) + event.breakdown.totalTokens
 
     if (event.reasoningEffort) {
-      day.reasoningEfforts[event.reasoningEffort] = (day.reasoningEfforts[event.reasoningEffort] ?? 0) + event.breakdown.totalTokens
+      day.reasoningEfforts[event.reasoningEffort] =
+        (day.reasoningEfforts[event.reasoningEffort] ?? 0) + event.breakdown.totalTokens
     }
 
     const modelUsage = localModelUsage.get(event.model) ?? {
@@ -146,11 +147,7 @@ export function buildDataset(args: {
 
   const weekly = buildWeekly(daily)
   const summary = buildSummary(daily, args.profileResult.profile)
-  const modelUsage = buildLocalModelUsage(
-    localModelUsage,
-    args.pricing,
-    args.estimateModel,
-  )
+  const modelUsage = buildLocalModelUsage(localModelUsage, args.pricing, args.estimateModel)
 
   return {
     generatedAt: new Date().toISOString(),
@@ -210,26 +207,33 @@ function buildLocalModelUsage(
   estimateModel: string,
 ): LocalModelUsage[] {
   return [...map.entries()]
-    .map(([model, usage]): LocalModelUsage => ({
-      model,
-      breakdown: usage.breakdown,
-      costUsd: estimateBreakdownCost(usage.breakdown, model, pricing.table, estimateModel),
-      reasoningEfforts: [...usage.reasoningEfforts.entries()]
-        .map(([effort, breakdown]) => ({
-          effort,
-          breakdown,
-          costUsd: estimateBreakdownCost(breakdown, model, pricing.table, estimateModel),
-        }))
-        .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
-      serviceTiers: [...usage.serviceTiers.entries()]
-        .map(([serviceTier, tierUsage]) => ({
-          serviceTier,
-          breakdown: tierUsage.breakdown,
-          inferredTokens: tierUsage.inferredTokens,
-          costUsd: estimateBreakdownCost(tierUsage.breakdown, model, pricing.table, estimateModel),
-        }))
-        .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
-    }))
+    .map(
+      ([model, usage]): LocalModelUsage => ({
+        model,
+        breakdown: usage.breakdown,
+        costUsd: estimateBreakdownCost(usage.breakdown, model, pricing.table, estimateModel),
+        reasoningEfforts: [...usage.reasoningEfforts.entries()]
+          .map(([effort, breakdown]) => ({
+            effort,
+            breakdown,
+            costUsd: estimateBreakdownCost(breakdown, model, pricing.table, estimateModel),
+          }))
+          .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
+        serviceTiers: [...usage.serviceTiers.entries()]
+          .map(([serviceTier, tierUsage]) => ({
+            serviceTier,
+            breakdown: tierUsage.breakdown,
+            inferredTokens: tierUsage.inferredTokens,
+            costUsd: estimateBreakdownCost(
+              tierUsage.breakdown,
+              model,
+              pricing.table,
+              estimateModel,
+            ),
+          }))
+          .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
+      }),
+    )
     .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens)
 }
 
@@ -246,9 +250,9 @@ function getOrCreateDay(map: Map<string, DailyUsage>, date: string): DailyUsage 
     localTokens: { ...ZERO_BREAKDOWN },
     unattributedTokens: 0,
     sourceTotal: "local",
-    models: { },
-    reasoningEfforts: { },
-    homes: { },
+    models: {},
+    reasoningEfforts: {},
+    homes: {},
     knownLocalCostUsd: 0,
     estimatedUnattributedCostUsd: 0,
     estimatedCostUsd: 0,
@@ -313,7 +317,8 @@ function buildSummary(
 
   return {
     lifetimeTokens: profile?.summary.lifetimeTokens ?? lifetimeFromDaily,
-    peakDailyTokens: profile?.summary.peakDailyTokens ?? Math.max(0, ...daily.map((day) => day.totalTokens)),
+    peakDailyTokens:
+      profile?.summary.peakDailyTokens ?? Math.max(0, ...daily.map((day) => day.totalTokens)),
     currentStreakDays: profile?.summary.currentStreakDays ?? null,
     longestStreakDays: profile?.summary.longestStreakDays ?? null,
     longestRunningTurnSec: profile?.summary.longestRunningTurnSec ?? null,

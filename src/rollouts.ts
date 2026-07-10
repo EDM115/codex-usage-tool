@@ -44,7 +44,9 @@ export function collectRolloutEvents(options: {
         continue
       }
 
-      for (const file of walkFiles(root, (candidate) => /^rollout-.*\.jsonl$/i.test(basename(candidate)))) {
+      for (const file of walkFiles(root, (candidate) =>
+        /^rollout-.*\.jsonl$/i.test(basename(candidate)),
+      )) {
         paths.add(resolve(file))
       }
     }
@@ -63,7 +65,9 @@ export function collectRolloutEvents(options: {
 
   for (const rolloutPath of paths) {
     rolloutIndex += 1
-    options.progress?.status(`Processing source ${rolloutIndex}/${paths.size} : ${basename(rolloutPath)}`)
+    options.progress?.status(
+      `Processing source ${rolloutIndex}/${paths.size} : ${basename(rolloutPath)}`,
+    )
 
     if (!fileExists(rolloutPath)) {
       continue
@@ -89,7 +93,9 @@ export function collectRolloutEvents(options: {
   }
 
   if (paths.size > 0) {
-    options.progress?.statusDone(`Processed ${paths.size}/${paths.size} ${pluralize("source", paths.size)}`)
+    options.progress?.statusDone(
+      `Processed ${paths.size}/${paths.size} ${pluralize("source", paths.size)}`,
+    )
   }
 
   return {
@@ -153,11 +159,7 @@ function parseRolloutFile(args: {
     if (type === "session_meta") {
       threadId = payload.id ?? payload.session_id ?? threadId
       setCurrentModel(
-        firstString(
-          payload.model,
-          currentModel,
-          args.metadataByThreadId.get(threadId)?.model,
-        ),
+        firstString(payload.model, currentModel, args.metadataByThreadId.get(threadId)?.model),
       )
       currentReasoningEffort = firstString(
         payload.reasoning_effort,

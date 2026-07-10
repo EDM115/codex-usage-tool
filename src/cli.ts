@@ -28,7 +28,11 @@ async function main() {
   const progress = new CliProgress({ silent: options.silent })
   progress.setTotal(globalStepCount(options))
 
-  const codexHomes = resolveCodexHomes(options.codexHomes, options.codexRoots, options.usageJsons.length === 0)
+  const codexHomes = resolveCodexHomes(
+    options.codexHomes,
+    options.codexRoots,
+    options.usageJsons.length === 0,
+  )
   progress.step(
     `Resolved ${codexHomes.length} ${pluralize("Codex home", codexHomes.length)}`,
     codexHomes.length > 0 ? "success" : options.usageJsons.length > 0 ? "neutral" : "failure",
@@ -180,19 +184,24 @@ async function main() {
     ...themeResolution,
     analytics,
   })
-  const dataset = importedDatasets.length > 0
-    ? mergeUsageDatasets([currentDataset, ...importedDatasets], {
-        from: options.from,
-        to: options.to,
-        timezone,
-      })
-    : currentDataset
+  const dataset =
+    importedDatasets.length > 0
+      ? mergeUsageDatasets([currentDataset, ...importedDatasets], {
+          from: options.from,
+          to: options.to,
+          timezone,
+        })
+      : currentDataset
   progress.step("Dataset built")
 
   await writeDataset(dataset, options, progress)
 }
 
-async function writeDataset(dataset: UsageDataset, options: CliOptions, progress: CliProgress): Promise<void> {
+async function writeDataset(
+  dataset: UsageDataset,
+  options: CliOptions,
+  progress: CliProgress,
+): Promise<void> {
   const result = await writeOutputs(dataset, resolve(options.outDir), {
     includePng: !options.noPng,
     reportOnly: options.command === "collect",
@@ -203,10 +212,14 @@ async function writeDataset(dataset: UsageDataset, options: CliOptions, progress
   console.log("")
 
   if (!options.silent) {
-    console.log(`Wrote ${result.files.length} ${pluralize("file", result.files.length)} to ${resolve(options.outDir)}`)
+    console.log(
+      `Wrote ${result.files.length} ${pluralize("file", result.files.length)} to ${resolve(options.outDir)}`,
+    )
   }
 
-  console.log(`Total tokens : ${compactNumber(dataset.summary.lifetimeTokens)}, local enriched : ${compactNumber(dataset.summary.localKnownTokens)}, estimated cost : ${money(dataset.summary.estimatedCostUsd)}`)
+  console.log(
+    `Total tokens : ${compactNumber(dataset.summary.lifetimeTokens)}, local enriched : ${compactNumber(dataset.summary.localKnownTokens)}, estimated cost : ${money(dataset.summary.estimatedCostUsd)}`,
+  )
 
   if (!options.silent) {
     if (dataset.profile?.error) {
@@ -251,12 +264,19 @@ function resolveImportedTheme(datasets: UsageDataset[], choice: CliOptions["them
   throw new Error("--theme config requires a usable Codex config theme")
 }
 
-function resolveUsageTimezone(hasCodexHomes: boolean, datasets: UsageDataset[], requested?: string): string {
-  const timezone = requested ?? (hasCodexHomes ? "Europe/Paris" : datasets[0]?.timezone ?? "Europe/Paris")
+function resolveUsageTimezone(
+  hasCodexHomes: boolean,
+  datasets: UsageDataset[],
+  requested?: string,
+): string {
+  const timezone =
+    requested ?? (hasCodexHomes ? "Europe/Paris" : (datasets[0]?.timezone ?? "Europe/Paris"))
   const incompatible = datasets.find((dataset) => dataset.timezone !== timezone)
 
   if (incompatible) {
-    throw new Error(`Usage JSON timezone ${incompatible.timezone} does not match ${timezone}, existing daily buckets cannot be rebucketed`)
+    throw new Error(
+      `Usage JSON timezone ${incompatible.timezone} does not match ${timezone}, existing daily buckets cannot be rebucketed`,
+    )
   }
 
   return timezone
@@ -390,15 +410,23 @@ export function parseArgs(args: string[]): CliOptions {
   }
 
   if (options.usageJsons.length > 0 && (options.from || options.to)) {
-    throw new Error("--from and --to cannot be applied to --usage-json inputs because per-day reasoning and service-tier detail is not available")
+    throw new Error(
+      "--from and --to cannot be applied to --usage-json inputs because per-day reasoning and service-tier detail is not available",
+    )
   }
 
   return options
 }
 
 function globalStepCount(options: CliOptions): number {
-  if (options.usageJsons.length > 0 && options.codexHomes.length === 0 && options.codexRoots.length === 0) {
-    return 4 + outputStepCount({ includePng: !options.noPng, reportOnly: options.command === "collect" })
+  if (
+    options.usageJsons.length > 0 &&
+    options.codexHomes.length === 0 &&
+    options.codexRoots.length === 0
+  ) {
+    return (
+      4 + outputStepCount({ includePng: !options.noPng, reportOnly: options.command === "collect" })
+    )
   }
 
   const inputSteps = 5
