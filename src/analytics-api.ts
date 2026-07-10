@@ -38,7 +38,7 @@ export async function loadWhamAnalytics(options: {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${options.auth.accessToken}`,
     Accept: "application/json",
-    "User-Agent": "codex-usage-tool/1.1",
+    "User-Agent": "codex-usage-tool/1.2",
     Referer: "https://chatgpt.com/codex/cloud/settings/analytics",
   }
 

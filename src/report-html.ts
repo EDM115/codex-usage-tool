@@ -1,42 +1,63 @@
-import type { UsageDataset, UsageTheme, WhamAnalytics } from "./types"
+import type {
+  LocalReasoningUsage,
+  LocalServiceTierUsage,
+  TokenBreakdown,
+  UsageDataset,
+  UsageTheme,
+  WhamAnalytics,
+} from "./types"
 
 import { compactNumber, escapeHtml, money, pluralize } from "./util"
 
 export type ReportModelRow = WhamAnalytics["byModel"][number] & {
   localTokens: number
+  localBreakdown: TokenBreakdown
+  localCostUsd: number
+  reasoningEfforts: LocalReasoningUsage[]
+  serviceTiers: LocalServiceTierUsage[]
   source: "local" | "local+cloud" | "cloud"
 }
 
 export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
-  const localTokens = new Map<string, number>()
-
-  for (const day of dataset.daily) {
-    for (const [model, breakdown] of Object.entries(day.models)) {
-      localTokens.set(model, (localTokens.get(model) ?? 0) + breakdown.totalTokens)
-    }
-  }
-
   const cloudRows = dataset.analytics?.byModel ?? []
   const cloudByModel = new Map(cloudRows.map((row) => [row.model, row]))
-  const localRows = [...localTokens.entries()]
-    .sort(([modelA, tokensA], [modelB, tokensB]) => tokensB - tokensA || modelA.localeCompare(modelB))
-    .map(([model, tokens]): ReportModelRow => {
-      const cloud = cloudByModel.get(model)
+  const localRows = dataset.local.modelUsage.map((usage): ReportModelRow => {
+      const cloud = cloudByModel.get(usage.model)
 
       return {
-        model,
+        model: usage.model,
         credits: cloud?.credits ?? 0,
         turns: cloud?.turns ?? 0,
         threads: cloud?.threads ?? 0,
         users: cloud?.users ?? 0,
-        localTokens: tokens,
+        localTokens: usage.breakdown.totalTokens,
+        localBreakdown: usage.breakdown,
+        localCostUsd: usage.costUsd,
+        reasoningEfforts: usage.reasoningEfforts,
+        serviceTiers: usage.serviceTiers,
         source: cloud ? "local+cloud" : "local",
       }
     })
-  const localModels = new Set(localTokens.keys())
+  const localModels = new Set(dataset.local.modelUsage.map((row) => row.model))
   const cloudOnlyRows = cloudRows
     .filter((row) => !localModels.has(row.model))
-    .map((row): ReportModelRow => ({ ...row, localTokens: 0, source: "cloud" }))
+    .map(
+      (row): ReportModelRow => ({
+        ...row,
+        localTokens: 0,
+        localBreakdown: {
+          totalTokens: 0,
+          inputTokens: 0,
+          cachedInputTokens: 0,
+          outputTokens: 0,
+          reasoningOutputTokens: 0,
+        },
+        localCostUsd: 0,
+        reasoningEfforts: [],
+        serviceTiers: [],
+        source: "cloud",
+      }),
+    )
 
   return [...localRows, ...cloudOnlyRows]
 }
@@ -63,6 +84,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
     }
     main { max-width: 1220px; margin: 0 auto; padding: 28px 24px 42px; }
     header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
+    .report-title { display: flex; align-items: flex-start; gap: 10px; }
+    .github-link { display: grid; place-items: center; width: 30px; height: 30px; margin-top: 2px; color: var(--muted); border-radius: 6px; }
+    .github-link:hover { color: var(--text); background: var(--panel2); }
+    .github-link svg { width: 20px; height: 20px; }
     h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
     h2 { margin: 0; font-size: 16px; letter-spacing: 0; }
     h3 { margin: 0; font-size: 13px; letter-spacing: 0; color: var(--muted); font-weight: 600; }
@@ -79,6 +104,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
     button, summary { cursor: pointer; }
     button:hover, summary:hover { border-color: var(--accent2); }
     button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .toggle-control { display: inline-flex; align-items: center; gap: 7px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--text); cursor: pointer; user-select: none; }
+    .toggle-control input { width: auto; margin: 0; padding: 0; accent-color: var(--accent); }
     .stats { display: grid; grid-template-columns: repeat(6, minmax(135px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 22px; }
     .stat { background: var(--panel); padding: 16px; min-width: 0; }
     .stat strong { display: block; font-size: 22px; margin-bottom: 4px; white-space: nowrap; }
@@ -107,11 +134,17 @@ export function renderReportHtml(dataset: UsageDataset): string {
       box-shadow: 0 10px 30px rgba(0,0,0,.35);
     }
     .download-panel button { width: 100%; text-align: left; }
-    .subrows { grid-column: 1 / -1; display: grid; gap: 6px; margin: -3px 0 3px 12px; padding-left: 10px; border-left: 1px solid var(--line); }
-    .subrow { display: grid; grid-template-columns: minmax(100px, 1fr) auto; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; cursor: help; }
+    .subrows { display: grid; gap: 7px; padding-left: 12px; border-left: 1px solid var(--line); }
+    .subrow { display: grid; grid-template-columns: minmax(100px, 1fr) auto; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; cursor: help; min-width: 0; }
     .subrow .meter { height: 5px; }
-    .mini-section { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
-    .mini-section h4 { margin: 0; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 0; text-transform: uppercase; }
+    .model-group { display: grid; gap: 9px; padding-bottom: 12px; border-bottom: 1px solid var(--line); min-width: 0; }
+    .model-group:last-child { padding-bottom: 0; border-bottom: 0; }
+    .model-details { display: grid; gap: 9px; margin-left: 12px; padding-left: 11px; border-left: 1px solid var(--line); }
+    .model-section { display: grid; gap: 7px; }
+    .model-section + .model-section { padding-top: 9px; border-top: 1px solid var(--line); }
+    .model-section h4 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    .overall-sections { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .overall-sections .row { font-size: 12px; }
     .dashboard-export { width: 1100px; min-height: 520px; padding: 18px; background: var(--panel); color: var(--text); font: 14px/1.45 var(--font-ui); }
     .heatmap { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 14px); gap: 4px; width: max-content; min-height: 122px; }
     .cell { width: 14px; height: 14px; border-radius: 3px; background: var(--cell0); }
@@ -130,20 +163,22 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .area { fill: var(--accent); opacity: 0.22; }
     .hit { fill: transparent; pointer-events: all; }
     .chart-dot { fill: var(--accent); }
-    .breakdown-grid { display: grid; grid-template-columns: repeat(3, minmax(240px, 1fr)); gap: 14px; min-width: 900px; }
-    .breakdown-panel { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--bg); }
+    .breakdown-grid { display: grid; grid-template-columns: minmax(0, 2.15fr) minmax(280px, .85fr); gap: 14px; min-width: 0; align-items: start; }
+    .breakdown-sidebar { display: grid; gap: 14px; min-width: 0; }
+    .breakdown-panel { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--bg); min-width: 0; overflow: hidden; }
     .rows { display: grid; gap: 10px; margin-top: 12px; }
     .row { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 12px; align-items: center; }
     .row[data-tip] { cursor: help; }
-    .row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .row-value { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .row-label { min-width: 0; overflow-wrap: anywhere; }
+    .row-value { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
     .meter { grid-column: 1 / -1; height: 7px; border-radius: 999px; background: var(--panel2); overflow: hidden; }
     .meter span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
     .task-list { display: grid; gap: 9px; margin-top: 12px; }
     .task-item { border-top: 1px solid var(--line); padding-top: 9px; display: grid; gap: 2px; }
     .task-item:first-child { border-top: 0; padding-top: 0; }
-    .task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .task-meta { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task-title { overflow-wrap: anywhere; }
+    .task-meta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .environment-list { display: flex; flex-wrap: wrap; gap: 4px 10px; }
     .tooltip {
       position: fixed;
       z-index: 10;
@@ -174,9 +209,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
 <body>
   <main>
     <header>
-      <div>
-        <h1>Codex usage report</h1>
-        <p>Generated at ${escapeHtml(dataset.generatedAt)} (${escapeHtml(dataset.timezone)})</p>
+      <div class="report-title">
+        <div>
+          <h1>Codex usage report</h1>
+          <p>Generated at ${escapeHtml(dataset.generatedAt)} (${escapeHtml(dataset.timezone)})</p>
+        </div>
+        <a class="github-link" href="https://github.com/EDM115/codex-usage-tool" target="_blank" rel="noreferrer" aria-label="Open codex-usage-tool on GitHub" title="GitHub repository"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z" fill="none"/><path fill="currentColor" d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656c0-.781.281-1.625.75-2.188c-.203-.515-.172-1.609.063-2.062c.625-.078 1.468.25 1.968.703c.594-.187 1.219-.281 1.985-.281c.765 0 1.39.094 1.953.265c.484-.437 1.344-.765 1.969-.687c.218.422.25 1.515.046 2.047c.5.593.766 1.39.766 2.203c0 1.922-1.453 3.375-3.547 3.64c.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03C16 3.61 12.406 0 7.984 0C3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156c-1.031 0-1.64-.562-2.078-1.609c-.172-.422-.36-.672-.719-.719c-.187-.015-.25-.093-.25-.187c0-.188.313-.328.625-.328c.453 0 .844.281 1.25.86c.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"/></svg></a>
       </div>
       <div class="toolbar">
         <select id="mode" aria-label="Chart time mode">
@@ -191,16 +229,17 @@ export function renderReportHtml(dataset: UsageDataset): string {
         </select>
         <input id="from" type="date" value="${escapeHtml(dataset.dateRange.from ?? dataset.daily[0]?.date ?? "")}" aria-label="Start date">
         <input id="to" type="date" value="${escapeHtml(dataset.dateRange.to ?? dataset.daily.at(-1)?.date ?? "")}" aria-label="End date">
+        <label class="toggle-control"><input id="rawCounts" type="checkbox">Exact counts</label>
       </div>
     </header>
 
     <section class="stats">
-      ${stat("lifetime tokens", compactNumber(dataset.summary.lifetimeTokens))}
-      ${stat("peak day", compactNumber(dataset.summary.peakDailyTokens))}
-      ${stat("local enriched tokens", compactNumber(dataset.summary.localKnownTokens))}
-      ${stat("backend-only tokens", compactNumber(dataset.summary.unattributedTokens))}
-      ${stat("estimated API cost", money(dataset.summary.estimatedCostUsd))}
-      ${stat("dashboard turns", compactNumber(dataset.analytics?.totals?.turns ?? 0))}
+      ${stat("lifetime tokens", dataset.summary.lifetimeTokens)}
+      ${stat("peak day", dataset.summary.peakDailyTokens)}
+      ${stat("local enriched tokens", dataset.summary.localKnownTokens)}
+      ${stat("backend-only tokens", dataset.summary.unattributedTokens)}
+      ${stat("estimated API cost", dataset.summary.estimatedCostUsd, "money")}
+      ${stat("dashboard turns", dataset.analytics?.totals?.turns ?? 0)}
     </section>
 
     <section class="section">
@@ -260,44 +299,61 @@ export function renderReportHtml(dataset: UsageDataset): string {
     const chartStyleEl = document.getElementById('chartStyle');
     const fromEl = document.getElementById('from');
     const toEl = document.getElementById('to');
+    const rawCountsEl = document.getElementById('rawCounts');
     const tooltip = document.getElementById('tooltip');
     const heatmap = document.getElementById('heatmap');
     const chart = document.getElementById('chart');
     const analyticsBreakdown = document.getElementById('analyticsBreakdown');
     const theme = dataset.theme;
 
-    function trimFixed(value) {
-      return value.toFixed(1).replace(/\\.0$/, '');
+    function exact(value, maximumFractionDigits, minimumFractionDigits) {
+      if (!Number.isFinite(value)) {
+        return '0';
+      }
+
+      return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: maximumFractionDigits == null ? 0 : maximumFractionDigits, minimumFractionDigits: minimumFractionDigits == null ? 0 : minimumFractionDigits, useGrouping: true }).format(value).replace(/[\\u00a0\\u202f]/g, ' ');
     }
 
     function compact(value) {
+      if (rawCountsEl && rawCountsEl.checked) {
+        return exact(value, 0);
+      }
+
       const abs = Math.abs(value || 0);
 
       if (abs >= 1000000000) {
-        return trimFixed(value / 1000000000) + 'B';
+        return exact(value / 1000000000, 1) + ' B';
       }
 
       if (abs >= 1000000) {
-        return trimFixed(value / 1000000) + 'M';
+        return exact(value / 1000000, 1) + ' M';
       }
 
       if (abs >= 1000) {
-        return trimFixed(value / 1000) + 'K';
+        return exact(value / 1000, 1) + ' K';
       }
 
-      return String(Math.round(value || 0));
+      return exact(value || 0, 0);
+    }
+
+    function trimFixed(value) {
+      return exact(value, 1);
     }
 
     function money(value) {
       if (!Number.isFinite(value)) {
-        return '$0.00';
+        return '$ 0,00';
       }
 
-      if (Math.abs(value) < 0.01 && value !== 0) {
-        return '$' + value.toFixed(4);
-      }
+      const digits = Math.abs(value) < 0.01 && value !== 0 ? 4 : 2;
+      return '$ ' + exact(value, digits, digits);
+    }
 
-      return '$' + value.toFixed(2);
+    function renderStats() {
+      document.querySelectorAll('[data-stat-value]').forEach(function (el) {
+        const value = Number(el.dataset.statValue);
+        el.textContent = el.dataset.statKind === 'money' ? money(value) : compact(value);
+      });
     }
 
     function escapeText(value) {
@@ -334,7 +390,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     }
 
     function tipFor(day) {
-      return day.date + '\\nTotal : ' + compact(day.displayValue) + ' tokens\\nLocal : ' + compact(day.localTokens.totalTokens) + '\\nBackend-only : ' + compact(day.unattributedTokens) + '\\nCost : ' + money(day.estimatedCostUsd);
+      return day.date + '\\nTotal : ' + exact(day.displayValue, 0) + ' tokens\\nLocal : ' + exact(day.localTokens.totalTokens, 0) + '\\nBackend-only : ' + exact(day.unattributedTokens, 0) + '\\nCost : ' + money(day.estimatedCostUsd);
     }
 
     function renderHeatmap() {
@@ -408,91 +464,76 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
       const modelHtml = reportModels.length ? modelPanel(reportModels, analytics && analytics.byModelVariants ? analytics.byModelVariants : []) : '<div class="breakdown-panel"><h3>Models</h3><div class="rows"><p>No local model usage was recorded</p></div></div>';
       const cloudHtml = analytics ? surfacePanel(surfaces) + taskPanel(analytics.tasks) : '<div class="breakdown-panel"><h3>Cloud enrichment unavailable</h3><div class="rows"><p>No WHAM analytics response was available for this run</p></div></div>';
-      analyticsBreakdown.innerHTML = modelHtml + cloudHtml;
+      analyticsBreakdown.innerHTML = modelHtml + '<div class="breakdown-sidebar">' + cloudHtml + '</div>';
       analyticsBreakdown.querySelectorAll('[data-tip]').forEach(bindTip);
     }
 
-    function modelTokenRows() {
-      const map = new Map();
-
-      for (const day of dataset.daily) {
-        for (const model of Object.keys(day.models || { })) {
-          const item = map.get(model) || { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
-          const usage = day.models[model];
-          item.totalTokens += usage.totalTokens || 0;
-          item.inputTokens += usage.inputTokens || 0;
-          item.cachedInputTokens += usage.cachedInputTokens || 0;
-          item.outputTokens += usage.outputTokens || 0;
-          map.set(model, item);
-        }
-      }
-
-      return map;
-    }
-
-    function estimatedCostForTokens(tokens) {
-      const total = dataset.analytics && dataset.analytics.totals ? dataset.analytics.totals.textTotalTokens : 0;
-
-      if (!total || !dataset.summary.estimatedCostUsd) {
-        return 0;
-      }
-
-      return tokens / total * dataset.summary.estimatedCostUsd;
-    }
-
-    function estimatedVariantRows(model, variants, localTokens) {
+    function estimatedVariantRows(row, variants) {
       const totalCredits = variants.reduce(function (sum, variant) { return sum + variant.credits; }, 0);
-      const modelCost = estimatedCostForTokens(localTokens);
 
       return variants.map(function (variant) {
         const share = totalCredits > 0 ? variant.credits / totalCredits : 0;
         return Object.assign({ }, variant, {
-          estimatedTokens: localTokens && share ? localTokens * share : 0,
-          estimatedCostUsd: modelCost && share ? modelCost * share : 0,
-          estimateSource: localTokens && share ? 'Estimated from local model tokens allocated by WHAM variant credit share' : 'WHAM exposes credits for this model version, but no token count was available to allocate'
+          label: variant.speed + (variant.speed === 'fast' ? ' mode' : ''),
+          totalTokens: row.localTokens && share ? row.localTokens * share : 0,
+          costUsd: row.localCostUsd && share ? row.localCostUsd * share : 0,
+          source: row.localTokens && share ? 'cloud-estimate' : 'cloud-only',
+          inferredTokens: 0,
+          estimateSource: row.localTokens && share ? 'Estimated by allocating this model local total across WHAM speed credits' : 'WHAM exposes credits for this model version, but no local token count was available'
         });
       });
     }
 
-    function modeRowsFromVariants(variants) {
-      const local = modelTokenRows();
-      const variantsByModel = modelVariantsByName(variants || []);
-      const speeds = new Map();
-
-      for (const entry of variantsByModel.entries()) {
-        const model = entry[0];
-        const list = entry[1];
-        const localTokens = (local.get(model) || { }).totalTokens || 0;
-
-        for (const variant of estimatedVariantRows(model, list, localTokens)) {
-          const item = speeds.get(variant.speed) || { speed: variant.speed, credits: 0, estimatedTokens: 0, estimatedCostUsd: 0 };
-          item.credits += variant.credits;
-          item.estimatedTokens += variant.estimatedTokens;
-          item.estimatedCostUsd += variant.estimatedCostUsd;
-          speeds.set(variant.speed, item);
-        }
+    function serviceTierLabel(tier) {
+      if (tier === 'default') {
+        return 'standard';
       }
 
-      return [...speeds.values()].filter(function (row) { return row.credits > 0 || row.estimatedTokens > 0; }).sort(function (a, b) { return (b.estimatedTokens || b.credits) - (a.estimatedTokens || a.credits); });
+      if (tier === 'priority') {
+        return 'fast mode';
+      }
+
+      return String(tier || 'unknown').replace(/_/g, ' ');
+    }
+
+    function serviceTierRows(row, variants) {
+      if (row.serviceTiers && row.serviceTiers.length) {
+        return row.serviceTiers.map(function (tier) {
+          const speed = tier.serviceTier === 'priority' ? 'fast' : tier.serviceTier === 'default' ? 'standard' : tier.serviceTier;
+          const cloudVariant = (variants || []).find(function (variant) { return variant.speed === speed; });
+          return {
+            label: serviceTierLabel(tier.serviceTier),
+            speed: tier.serviceTier,
+            credits: cloudVariant ? cloudVariant.credits : 0,
+            totalTokens: tier.breakdown.totalTokens,
+            breakdown: tier.breakdown,
+            costUsd: tier.costUsd,
+            inferredTokens: tier.inferredTokens || 0,
+            source: 'local'
+          };
+        }).sort(function (a, b) { return b.totalTokens - a.totalTokens; });
+      }
+
+      return estimatedVariantRows(row, variants || []).filter(function (variant) { return variant.totalTokens > 0 || variant.credits > 0; }).sort(function (a, b) { return (b.totalTokens || b.credits) - (a.totalTokens || a.credits); });
     }
 
     function modelPanel(rows, variants) {
       const variantsByModel = modelVariantsByName(variants || []);
-      const max = Math.max(1, ...rows.map(function (row) { return row.localTokens || row.turns || row.credits || 0; }));
+      const totalLocalTokens = Math.max(1, rows.reduce(function (sum, row) { return sum + row.localTokens; }, 0));
       const modelRows = rows.map(function (row, index) {
-        const value = row.localTokens || row.turns || row.credits || 0;
         const color = theme.colors.series[index % theme.colors.series.length];
-        const text = modelValueText(row);
-        const tip = modelTip(row);
-        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label" title="'+escapeText(row.model)+'">'+escapeText(row.model)+'</div><div class="row-value">'+escapeText(text)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div>'+variantRows(row, variantsByModel.get(row.model) || [], row, row.localTokens, color)+'</div>';
+        const meter = row.localTokens ? '<div class="meter" aria-label="'+escapeText(row.model)+' share of local tokens"><span style="width:'+(row.localTokens / totalLocalTokens * 100)+'%; background:'+color+'"></span></div>' : '';
+        const details = modelDetails(row, variantsByModel.get(row.model) || [], color);
+        return '<div class="model-group"><div class="row model-summary" data-tip="'+escapeText(modelTip(row))+'"><div class="row-label">'+escapeText(row.model)+'</div><div class="row-value">'+escapeText(modelValueText(row))+'</div>'+meter+'</div>'+details+'</div>';
       }).join('');
+      const overall = overallPanels(rows, variantsByModel);
 
-      return '<div class="breakdown-panel"><h3>Models</h3><div class="rows">' + modelRows + reasoningPanel() + fastModePanel(variants || []) + '</div></div>';
+      return '<div class="breakdown-panel model-panel"><h3>Models</h3><div class="rows">' + modelRows + overall + '</div></div>';
     }
 
     function modelValueText(row) {
       if (row.localTokens) {
-        return compact(row.localTokens) + ' local tokens' + (row.source === 'local+cloud' && row.turns ? ' - ' + compact(row.turns) + ' cloud turns' : '');
+        return compact(row.localTokens) + ' local tokens · ' + money(row.localCostUsd) + (row.source === 'local+cloud' && row.turns ? ' · ' + compact(row.turns) + ' cloud turns' : '');
       }
 
       return row.turns ? compact(row.turns) + ' cloud turns' : compact(row.credits) + ' cloud credits';
@@ -503,14 +544,22 @@ export function renderReportHtml(dataset: UsageDataset): string {
       let tip = row.model + '\\nSource : ' + source;
 
       if (row.localTokens) {
-        tip += '\\nLocal tokens : ' + compact(row.localTokens) + '\\nEstimated local cost share : ' + money(estimatedCostForTokens(row.localTokens));
+        tip += breakdownTip(row.localBreakdown) + '\\nEstimated local cost : ' + money(row.localCostUsd);
       }
 
       if (row.source !== 'local') {
-        tip += '\\nDashboard turns : ' + compact(row.turns) + '\\nThreads : ' + compact(row.threads) + '\\nCredits : ' + compact(row.credits);
+        tip += '\\nDashboard turns : ' + exact(row.turns, 0) + '\\nThreads : ' + exact(row.threads, 0) + '\\nCredits : ' + exact(row.credits, 2);
       }
 
       return tip;
+    }
+
+    function breakdownTip(breakdown) {
+      if (!breakdown) {
+        return '';
+      }
+
+      return '\\nTotal tokens : ' + exact(breakdown.totalTokens, 0) + '\\nInput : ' + exact(breakdown.inputTokens, 0) + '\\nCached input : ' + exact(breakdown.cachedInputTokens, 0) + '\\nOutput : ' + exact(breakdown.outputTokens, 0) + '\\nReasoning output : ' + exact(breakdown.reasoningOutputTokens, 0);
     }
 
     function modelVariantsByName(variants) {
@@ -531,86 +580,123 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return map;
     }
 
-    function variantRows(row, variants, modelRow, localTokens, color) {
-      if (!variants.length) {
+    function modelDetails(row, variants, color) {
+      const reasoning = reasoningSection(row, color);
+      const tiers = serviceTierSection(row, variants, color);
+
+      if (!reasoning && !tiers) {
         return '';
       }
 
-      const estimates = estimatedVariantRows(row.model, variants, localTokens);
-      const max = Math.max(1, ...estimates.map(function (variant) { return variant.estimatedTokens || variant.credits; }));
-
-      return '<div class="subrows">' + estimates.map(function (variant) {
-        const label = variant.speed + (variant.speed === 'fast' ? ' mode' : '');
-        const multiplier = speedMultiplier(variant.speed);
-        const value = variant.estimatedTokens || variant.credits;
-        const valueText = variant.estimatedTokens ? compact(variant.estimatedTokens) + ' tokens - ' + money(variant.estimatedCostUsd) : compact(variant.credits) + ' credits';
-        const tip = variant.model + ' / ' + variant.speed + '\\nEstimated tokens : ' + compact(variant.estimatedTokens) + '\\nEstimated cost : ' + money(variant.estimatedCostUsd) + '\\nVariant credits : ' + compact(variant.credits) + '\\nModel dashboard turns : ' + compact(modelRow.turns) + '\\nModel local tokens : ' + compact(localTokens) + '\\nCost multiplier : ' + multiplier + 'x' + (variant.speed === 'fast' ? '\\nFast mode is cost-weighted at 1.5x' : '') + '\\n' + variant.estimateSource;
-
-        return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(label)+'</div><div>'+escapeText(valueText)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
-      }).join('') + '</div>';
+      return '<div class="model-details">' + reasoning + tiers + '</div>';
     }
 
-    function speedMultiplier(speed) {
-      return speed === 'fast' ? 1.5 : 1;
+    function reasoningSection(row, color) {
+      const efforts = (row.reasoningEfforts || []).slice().sort(function (a, b) { return b.breakdown.totalTokens - a.breakdown.totalTokens; });
+
+      if (!efforts.length) {
+        return '';
+      }
+
+      return '<div class="model-section"><h4>Thinking effort</h4><div class="subrows">' + efforts.map(function (effort) {
+        const tokens = effort.breakdown.totalTokens;
+        const tip = row.model + ' / ' + effort.effort + '\\nSource : local rollout turn context' + breakdownTip(effort.breakdown) + '\\nEstimated cost : ' + money(effort.costUsd);
+        return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(effort.effort)+'</div><div>'+escapeText(compact(tokens) + ' tokens · ' + money(effort.costUsd))+'</div><div class="meter"><span style="width:'+(tokens / Math.max(1, row.localTokens) * 100)+'%; background:'+color+'"></span></div></div>';
+      }).join('') + '</div></div>';
     }
 
-    function reasoningRows() {
-      const map = new Map();
+    function serviceTierSection(row, variants, color) {
+      const tiers = serviceTierRows(row, variants);
 
-      for (const day of dataset.daily) {
-        for (const effort of Object.keys(day.reasoningEfforts || { })) {
-          map.set(effort, (map.get(effort) || 0) + (day.reasoningEfforts[effort] || 0));
+      if (!tiers.length) {
+        return '';
+      }
+
+      const denominator = row.localTokens || tiers.reduce(function (sum, tier) { return sum + tier.credits; }, 0) || 1;
+      return '<div class="model-section"><h4>Mode mix</h4><div class="subrows">' + tiers.map(function (tier) {
+        const value = tier.totalTokens || tier.credits;
+        const valueText = tier.totalTokens ? compact(tier.totalTokens) + ' tokens · ' + money(tier.costUsd) : compact(tier.credits) + ' credits';
+        let tip = row.model + ' / ' + tier.label;
+
+        if (tier.source === 'local') {
+          tip += '\\nSource : local rollout service tier' + breakdownTip(tier.breakdown) + '\\nEstimated cost : ' + money(tier.costUsd);
+          if (tier.credits) tip += '\\nMatching WHAM credits : ' + exact(tier.credits, 2);
+
+          if (tier.inferredTokens) {
+            tip += '\\nInferred tier tokens : ' + exact(tier.inferredTokens, 0) + '\\nEarlier same-model events were backfilled from the first subsequently recorded tier';
+          }
+        } else {
+          tip += '\\nSource : WHAM speed enrichment';
+          if (tier.totalTokens) tip += '\\nEstimated tokens : ' + exact(tier.totalTokens, 0) + '\\nEstimated cost : ' + money(tier.costUsd);
+          tip += '\\nVariant credits : ' + exact(tier.credits, 2) + '\\n' + tier.estimateSource;
         }
-      }
 
-      return [...map.entries()].map(function (entry) { return { effort: entry[0], tokens: entry[1] }; }).filter(function (row) { return row.tokens > 0; }).sort(function (a, b) { return b.tokens - a.tokens; });
+        return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(tier.label)+'</div><div>'+escapeText(valueText)+'</div><div class="meter"><span style="width:'+(value / denominator * 100)+'%; background:'+color+'"></span></div></div>';
+      }).join('') + '</div></div>';
     }
 
-    function reasoningPanel() {
-      const rows = reasoningRows();
+    function overallUsageRows(rows, variantsByModel) {
+      const reasoning = new Map();
+      const modes = new Map();
 
+      rows.forEach(function (row) {
+        (row.reasoningEfforts || []).forEach(function (effort) {
+          const item = reasoning.get(effort.effort) || { label: effort.effort, totalTokens: 0, costUsd: 0 };
+          item.totalTokens += effort.breakdown.totalTokens;
+          item.costUsd += effort.costUsd;
+          reasoning.set(effort.effort, item);
+        });
+        serviceTierRows(row, variantsByModel.get(row.model) || []).forEach(function (tier) {
+          if (!tier.totalTokens) return;
+          const item = modes.get(tier.label) || { label: tier.label, totalTokens: 0, costUsd: 0, estimated: false };
+          item.totalTokens += tier.totalTokens;
+          item.costUsd += tier.costUsd;
+          item.estimated = item.estimated || tier.source !== 'local';
+          modes.set(tier.label, item);
+        });
+      });
+
+      const reasoningRows = [...reasoning.values()].sort(function (a, b) { return b.totalTokens - a.totalTokens; });
+      const modeRows = [...modes.values()].sort(function (a, b) { return b.totalTokens - a.totalTokens; });
+
+      return { reasoningRows: reasoningRows, modeRows: modeRows };
+    }
+
+    function overallPanels(rows, variantsByModel) {
+      const overall = overallUsageRows(rows, variantsByModel);
+      const reasoningRows = overall.reasoningRows;
+      const modeRows = overall.modeRows;
+
+      if (!reasoningRows.length && !modeRows.length) {
+        return '';
+      }
+
+      return '<div class="overall-sections">' + overallSection('Overall thinking effort', reasoningRows, 2, 'Exact local totals across models') + overallSection('Overall mode mix', modeRows, 4, 'Local tiers, with WHAM estimates only for models without local tier evidence') + '</div>';
+    }
+
+    function overallSection(titleText, rows, colorOffset, sourceText) {
       if (!rows.length) {
         return '';
       }
 
-      const max = Math.max(1, ...rows.map(function (row) { return row.tokens; }));
-
-      return '<div class="mini-section"><h4>Thinking effort</h4>' + rows.map(function (row, index) {
-        const color = theme.colors.series[(index + 2) % theme.colors.series.length];
-        const tip = row.effort + '\\nLocal reasoning-effort tokens : ' + compact(row.tokens) + '\\nEstimated cost : ' + money(estimatedCostForTokens(row.tokens)) + '\\nSource : rollout turn context, not exposed by WHAM dashboard totals';
-
-        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.effort)+'</div><div class="row-value">'+compact(row.tokens)+' tokens - '+money(estimatedCostForTokens(row.tokens))+'</div><div class="meter"><span style="width:'+Math.max(2, row.tokens / max * 100)+'%; background:'+color+'"></span></div></div>';
-      }).join('') + '</div>';
-    }
-
-    function fastModePanel(variants) {
-      const rows = modeRowsFromVariants(variants || []);
-
-      if (!rows.length) {
-        return '';
-      }
-
-      const max = Math.max(1, ...rows.map(function (row) { return row.estimatedTokens || row.credits; }));
-
-      return '<div class="mini-section"><h4>Mode mix</h4>' + rows.map(function (row, index) {
-        const color = theme.colors.series[(index + 4) % theme.colors.series.length];
-        const value = row.estimatedTokens || row.credits;
-        const valueText = row.estimatedTokens ? compact(row.estimatedTokens) + ' tokens - ' + money(row.estimatedCostUsd) : compact(row.credits) + ' credits';
-        const tip = row.speed + '\\nEstimated tokens : ' + compact(row.estimatedTokens) + '\\nEstimated cost : ' + money(row.estimatedCostUsd) + '\\nCredits : ' + compact(row.credits) + '\\nCost multiplier : ' + speedMultiplier(row.speed) + 'x' + (row.speed === 'fast' ? '\\nFast mode is the 1.5x mode' : '') + '\\nEstimated by allocating each model local token total across WHAM speed credits';
-
-        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.speed)+'</div><div class="row-value">'+escapeText(valueText)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
+      const total = rows.reduce(function (sum, row) { return sum + row.totalTokens; }, 0) || 1;
+      return '<div class="model-section"><h4>'+escapeText(titleText)+'</h4>' + rows.map(function (row, index) {
+        const color = theme.colors.series[(index + colorOffset) % theme.colors.series.length];
+        const tip = titleText + ' / ' + row.label + '\\nSource : ' + sourceText + '\\nTokens : ' + exact(row.totalTokens, 0) + '\\nEstimated cost : ' + money(row.costUsd) + (row.estimated ? '\\nContains WHAM-estimated mode allocation' : '');
+        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.label)+'</div><div class="row-value">'+escapeText(compact(row.totalTokens) + ' tokens · ' + money(row.costUsd))+'</div><div class="meter"><span style="width:'+(row.totalTokens / total * 100)+'%; background:'+color+'"></span></div></div>';
       }).join('') + '</div>';
     }
 
     function surfacePanel(rows) {
-      const max = Math.max(1, ...rows.map(function (row) { return row.textTotalTokens || row.turns || row.credits || row.percent || 0; }));
+      const totalSurfaceTokens = rows.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0);
 
       return '<div class="breakdown-panel"><h3>Surfaces</h3><div class="rows">' + rows.map(function (row, index) {
-        const value = row.textTotalTokens || row.turns || row.credits || row.percent || 0;
         const color = theme.colors.series[index % theme.colors.series.length];
         const text = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : trimFixed(row.percent) + '%') + ' - ' + compact(row.turns) + ' turns';
-        const tip = row.surface + '\\nTokens : ' + compact(row.textTotalTokens) + '\\nInput : ' + compact(row.inputTokens) + '\\nCached input : ' + compact(row.cachedInputTokens) + '\\nOutput : ' + compact(row.outputTokens) + '\\nTurns : ' + compact(row.turns) + '\\nThreads : ' + compact(row.threads) + '\\nCredits : ' + compact(row.credits) + '\\nEstimated cost share : ' + money(estimatedCostForTokens(row.textTotalTokens));
-        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label" title="'+escapeText(row.surface)+'">'+escapeText(row.surface)+'</div><div class="row-value">'+escapeText(text)+'</div><div class="meter"><span style="width:'+Math.max(2, value / max * 100)+'%; background:'+color+'"></span></div></div>';
+        const surfaceCost = totalSurfaceTokens ? dataset.summary.estimatedCostUsd * row.textTotalTokens / totalSurfaceTokens : 0;
+        const tip = row.surface + '\\nTokens : ' + exact(row.textTotalTokens, 0) + '\\nInput : ' + exact(row.inputTokens, 0) + '\\nCached input : ' + exact(row.cachedInputTokens, 0) + '\\nOutput : ' + exact(row.outputTokens, 0) + '\\nTurns : ' + exact(row.turns, 0) + '\\nThreads : ' + exact(row.threads, 0) + '\\nCredits : ' + exact(row.credits, 2) + (row.textTotalTokens ? '\\nEstimated overall cost share : ' + money(surfaceCost) : '');
+        const meter = row.textTotalTokens && totalSurfaceTokens ? '<div class="meter"><span style="width:'+(row.textTotalTokens / totalSurfaceTokens * 100)+'%; background:'+color+'"></span></div>' : '';
+        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.surface)+'</div><div class="row-value">'+escapeText(text)+'</div>'+meter+'</div>';
       }).join('') + '</div></div>';
     }
 
@@ -622,13 +708,13 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const archived = tasks.archivedCount == null ? '' : ' - ' + compact(tasks.archivedCount) + ' archived sample' + (tasks.archivedHasMore ? '+' : '');
       const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
       const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
-      const envs = (tasks.currentByEnvironment || []).map(function (row) { return row.environment + ' (' + row.count + ')'; }).join(', ') || 'none';
+      const envs = (tasks.currentByEnvironment || []).map(function (row) { return '<span>'+escapeText(row.environment)+' ('+exact(row.count, 0)+')</span>'; }).join('') || '<span>none</span>';
       const recent = (tasks.recent || []).map(function (task) {
         const meta = task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : '') + (task.pullRequests ? ' - ' + task.pullRequests + ' PR' : '');
         return '<div class="task-item" data-tip="'+escapeText(task.title + '\\n' + meta)+'"><div class="task-title">'+escapeText(task.title)+'</div><div class="task-meta">'+escapeText(meta)+'</div></div>';
       }).join('');
 
-      return '<div class="breakdown-panel"><h3>Cloud tasks</h3><div class="rows"><div class="row" data-tip="Current task endpoint defaults to current tasks, limit is capped at 20. Archived tasks use task_filter=archived and may paginate."><div class="row-label">Current tasks</div><div class="row-value">'+compact(tasks.currentCount)+archived+'</div><div class="meter"><span style="width:100%; background:'+theme.colors.accent+'"></span></div></div><div class="task-meta">Environments : '+escapeText(envs)+'</div><div class="task-meta">PRs : '+compact(pr.total)+' total, '+compact(pr.merged)+' merged, '+compact(pr.open)+' open<br>Diff : +'+compact(diff.linesAdded)+' / -'+compact(diff.linesRemoved)+' across '+compact(diff.filesModified)+' files</div></div><div class="task-list">'+recent+'</div></div>';
+      return '<div class="breakdown-panel"><h3>Cloud tasks</h3><div class="rows"><div class="row" data-tip="Current task endpoint defaults to current tasks, limit is capped at 20. Archived tasks use task_filter=archived and may paginate."><div class="row-label">Current tasks</div><div class="row-value">'+compact(tasks.currentCount)+archived+'</div></div><div class="task-meta"><strong>Environments :</strong><div class="environment-list">'+envs+'</div></div><div class="task-meta">PRs : '+compact(pr.total)+' total, '+compact(pr.merged)+' merged, '+compact(pr.open)+' open<br>Diff : +'+compact(diff.linesAdded)+' / -'+compact(diff.linesRemoved)+' across '+compact(diff.filesModified)+' files</div></div><div class="task-list">'+recent+'</div></div>';
     }
 
     function bindTip(el) {
@@ -648,6 +734,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     }
 
     function render() {
+      renderStats();
       renderHeatmap(); renderChart();
       renderAnalytics();
     }
@@ -699,7 +786,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const width = 1100;
       const height = Math.max(560, analyticsBreakdown.scrollHeight + 72);
       const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export"><h2 style="margin:0 0 12px;font-size:18px;color:'+theme.colors.text+'">Usage Breakdown</h2>' + clone.outerHTML + '</div>';
-      const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:14px}.breakdown-panel{border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows{display:grid;gap:10px;margin-top:12px}.row{display:grid;grid-template-columns:minmax(120px,1fr) auto;gap:12px;align-items:center}.row-label,.task-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row-value{font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrows{grid-column:1/-1;display:grid;gap:6px;margin:-3px 0 3px 12px;padding-left:10px;border-left:1px solid '+theme.colors.line+'}.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.mini-section{display:grid;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid '+theme.colors.line+'}.mini-section h4{margin:0;color:'+theme.colors.muted+';font-size:12px;text-transform:uppercase}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
+      const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;min-width:0}.row-label,.task-title,.task-meta{overflow-wrap:anywhere}.row-value{text-align:right;font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
 
       return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
     }
@@ -711,16 +798,17 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const surfaces = analytics.bySurface || [];
       const tasks = analytics.tasks;
       const variantsByModel = modelVariantsByName(variants);
-      const reasoning = reasoningRows();
-      const speedRows = modeRowsFromVariants(variants);
-      const modelLineCount = models.length + variants.reduce(function (sum, variant) { return sum + (variant.credits > 0 ? 1 : 0); }, 0) + (reasoning.length ? reasoning.length + 2 : 0) + (speedRows.length ? speedRows.length + 2 : 0);
-      const taskLineCount = tasks ? 7 + Math.min(8, (tasks.recent || []).length) : 3;
-      const panelLines = Math.max(modelLineCount, surfaces.length, taskLineCount, 6);
+      const overall = overallUsageRows(models, variantsByModel);
+      const modelLineCount = models.reduce(function (sum, row) { return sum + 1 + (row.reasoningEfforts || []).length + serviceTierRows(row, variantsByModel.get(row.model) || []).length + ((row.reasoningEfforts || []).length ? 1 : 0) + (serviceTierRows(row, variantsByModel.get(row.model) || []).length ? 1 : 0); }, 0) + overall.reasoningRows.length + overall.modeRows.length + 4;
       const width = 1400;
       const margin = 28;
       const gap = 18;
-      const panelWidth = Math.floor((width - margin * 2 - gap * 2) / 3);
-      const panelHeight = Math.max(540, 112 + panelLines * 42);
+      const mainWidth = 900;
+      const sideWidth = width - margin * 2 - gap - mainWidth;
+      const surfaceHeight = Math.max(220, 82 + surfaces.length * 42);
+      const taskLineCount = tasks ? 4 + (tasks.currentByEnvironment || []).length + Math.min(8, (tasks.recent || []).length) : 2;
+      const taskHeight = Math.max(300, 100 + taskLineCount * 44);
+      const panelHeight = Math.max(620, 112 + modelLineCount * 36, surfaceHeight + gap + taskHeight);
       const height = panelHeight + 96;
       const canvas = document.createElement('canvas');
       canvas.width = width;
@@ -782,10 +870,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
         ctx.fillStyle = theme.colors.text;
         ctx.fillText(fit(valueText, 140), x + w, y);
         ctx.textAlign = 'left';
+        if (options && options.noMeter) return rowH;
         const barY = y + (options && options.small ? 9 : 12);
         roundRect(x + indent, barY, w - indent, options && options.small ? 5 : 7, 4, theme.colors.panel2, '');
-        const fillWidth = Math.max(2, Math.min(w - indent, (w - indent) * value / Math.max(1, max)));
-        roundRect(x + indent, barY, fillWidth, options && options.small ? 5 : 7, 4, color, '');
+        const fillWidth = Math.min(w - indent, (w - indent) * value / Math.max(1, max));
+        if (fillWidth > 0) roundRect(x + indent, barY, fillWidth, options && options.small ? 5 : 7, 4, color, '');
         return rowH;
       }
 
@@ -808,82 +897,97 @@ export function renderReportHtml(dataset: UsageDataset): string {
       ctx.fillStyle = theme.colors.muted;
       ctx.fillText('PNG export rendered directly from report data', margin, 64);
       const panelY = 78;
-      const xs = [margin, margin + panelWidth + gap, margin + (panelWidth + gap) * 2];
-      xs.forEach(function (x) { roundRect(x, panelY, panelWidth, panelHeight, 8, theme.colors.bg, theme.colors.line); });
+      const modelX = margin;
+      const sideX = margin + mainWidth + gap;
+      roundRect(modelX, panelY, mainWidth, panelHeight, 8, theme.colors.bg, theme.colors.line);
+      roundRect(sideX, panelY, sideWidth, surfaceHeight, 8, theme.colors.bg, theme.colors.line);
+      roundRect(sideX, panelY + surfaceHeight + gap, sideWidth, taskHeight, 8, theme.colors.bg, theme.colors.line);
       let y = panelY + 34;
-      title(xs[0] + 16, y, 'Models');
+      title(modelX + 16, y, 'Models');
       y += 34;
-      const modelRows = models;
-      const maxModel = Math.max(1, ...modelRows.map(function (row) { return row.localTokens || row.turns || row.credits || 0; }));
-      modelRows.forEach(function (row, index) {
+      const totalModelTokens = Math.max(1, models.reduce(function (sum, row) { return sum + row.localTokens; }, 0));
+      models.forEach(function (row, index) {
         const color = theme.colors.series[index % theme.colors.series.length];
-        const value = row.localTokens || row.turns || row.credits || 0;
+        const value = row.localTokens || row.turns || row.credits;
         const valueText = modelValueText(row);
-        y += barRow(xs[0] + 16, y, panelWidth - 32, row.model, valueText, value, maxModel, color);
-        const modelVariants = estimatedVariantRows(row.model, variantsByModel.get(row.model) || [], row.localTokens);
-        const maxVariant = Math.max(1, ...modelVariants.map(function (variant) { return variant.estimatedTokens || variant.credits; }));
-        modelVariants.forEach(function (variant) {
-          const variantValue = variant.estimatedTokens || variant.credits;
-          const variantText = variant.estimatedTokens ? compact(variant.estimatedTokens) + ' tokens - ' + money(variant.estimatedCostUsd) : compact(variant.credits) + ' credits';
-          y += barRow(xs[0] + 16, y - 8, panelWidth - 32, variant.speed + (variant.speed === 'fast' ? ' mode' : ''), variantText, variantValue, maxVariant, color, { indent: 18, small: true, muted: true });
-        });
+        y += barRow(modelX + 16, y, mainWidth - 32, row.model, valueText, value, totalModelTokens, color, { noMeter: !row.localTokens });
+        const efforts = (row.reasoningEfforts || []).slice().sort(function (a, b) { return b.breakdown.totalTokens - a.breakdown.totalTokens; });
+
+        if (efforts.length) {
+          y -= 4;
+          section(modelX + 34, y, 'Thinking effort');
+          y += 22;
+          efforts.forEach(function (effort) {
+            y += barRow(modelX + 16, y, mainWidth - 32, effort.effort, compact(effort.breakdown.totalTokens) + ' tokens · ' + money(effort.costUsd), effort.breakdown.totalTokens, row.localTokens, color, { indent: 18, small: true, muted: true });
+          });
+        }
+
+        const tiers = serviceTierRows(row, variantsByModel.get(row.model) || []);
+        if (tiers.length) {
+          y -= 4;
+          section(modelX + 34, y, 'Mode mix');
+          y += 22;
+          const denominator = row.localTokens || tiers.reduce(function (sum, tier) { return sum + tier.credits; }, 0) || 1;
+          tiers.forEach(function (tier) {
+            const tierValue = tier.totalTokens || tier.credits;
+            const tierText = tier.totalTokens ? compact(tier.totalTokens) + ' tokens · ' + money(tier.costUsd) : compact(tier.credits) + ' credits';
+            y += barRow(modelX + 16, y, mainWidth - 32, tier.label, tierText, tierValue, denominator, color, { indent: 18, small: true, muted: true });
+          });
+        }
       });
 
-      if (reasoning.length) {
-        y += 8;
-        section(xs[0] + 16, y, 'Thinking effort');
-        y += 24;
-        const maxReasoning = Math.max(1, ...reasoning.map(function (row) { return row.tokens; }));
-        reasoning.forEach(function (row, index) {
-          y += barRow(xs[0] + 16, y, panelWidth - 32, row.effort, compact(row.tokens) + ' tokens - ' + money(estimatedCostForTokens(row.tokens)), row.tokens, maxReasoning, theme.colors.series[(index + 2) % theme.colors.series.length], { small: true });
+      function drawOverallRows(titleText, rows, colorOffset) {
+        if (!rows.length) return;
+        y += 4;
+        section(modelX + 16, y, titleText);
+        y += 22;
+        const total = rows.reduce(function (sum, row) { return sum + row.totalTokens; }, 0) || 1;
+        rows.forEach(function (row, index) {
+          y += barRow(modelX + 16, y, mainWidth - 32, row.label, compact(row.totalTokens) + ' tokens · ' + money(row.costUsd), row.totalTokens, total, theme.colors.series[(index + colorOffset) % theme.colors.series.length], { small: true });
         });
       }
 
-      if (speedRows.length) {
-        y += 8;
-        section(xs[0] + 16, y, 'Mode mix');
-        y += 24;
-        const maxSpeed = Math.max(1, ...speedRows.map(function (row) { return row.estimatedTokens || row.credits; }));
-        speedRows.forEach(function (row, index) {
-          const speedValue = row.estimatedTokens || row.credits;
-          const speedText = row.estimatedTokens ? compact(row.estimatedTokens) + ' tokens - ' + money(row.estimatedCostUsd) : compact(row.credits) + ' credits - ' + speedMultiplier(row.speed) + 'x';
-          y += barRow(xs[0] + 16, y, panelWidth - 32, row.speed, speedText, speedValue, maxSpeed, theme.colors.series[(index + 4) % theme.colors.series.length], { small: true });
-        });
-      }
+      drawOverallRows('Overall thinking effort', overall.reasoningRows, 2);
+      drawOverallRows('Overall mode mix', overall.modeRows, 4);
 
       y = panelY + 34;
-      title(xs[1] + 16, y, 'Surfaces');
+      title(sideX + 16, y, 'Surfaces');
       y += 34;
-      const maxSurface = Math.max(1, ...surfaces.map(function (row) { return row.textTotalTokens || row.turns || row.credits || row.percent || 0; }));
+      const totalSurfaceTokens = surfaces.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0) || 1;
       surfaces.forEach(function (row, index) {
-        const value = row.textTotalTokens || row.turns || row.credits || row.percent || 0;
         const valueText = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : trimFixed(row.percent) + '%') + ' - ' + compact(row.turns) + ' turns';
-        y += barRow(xs[1] + 16, y, panelWidth - 32, row.surface, valueText, value, maxSurface, theme.colors.series[index % theme.colors.series.length]);
+        y += barRow(sideX + 16, y, sideWidth - 32, row.surface, valueText, row.textTotalTokens, totalSurfaceTokens, theme.colors.series[index % theme.colors.series.length], { noMeter: !row.textTotalTokens });
       });
-      y = panelY + 34;
-      title(xs[2] + 16, y, 'Cloud tasks');
+      y = panelY + surfaceHeight + gap + 34;
+      title(sideX + 16, y, 'Cloud tasks');
       y += 34;
       if (!tasks) {
         ctx.font = font('500', 13);
         ctx.fillStyle = theme.colors.muted;
-        ctx.fillText('No task list response was available', xs[2] + 16, y);
+        ctx.fillText('No task list response was available', sideX + 16, y);
       } else {
         const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
         const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
         const archived = tasks.archivedCount == null ? 'not fetched' : compact(tasks.archivedCount) + (tasks.archivedHasMore ? '+' : '');
-        y += taskText(xs[2] + 16, y, panelWidth - 32, 'Current tasks', compact(tasks.currentCount) + ' current - ' + archived + ' archived sample');
-        y += taskText(xs[2] + 16, y, panelWidth - 32, 'Pull requests', compact(pr.total) + ' total, ' + compact(pr.merged) + ' merged, ' + compact(pr.open) + ' open');
-        y += taskText(xs[2] + 16, y, panelWidth - 32, 'Diff sample', '+' + compact(diff.linesAdded) + ' / -' + compact(diff.linesRemoved) + ' across ' + compact(diff.filesModified) + ' files');
-        const environments = (tasks.currentByEnvironment || []).map(function (row) { return row.environment + ' (' + row.count + ')'; }).join(', ') || 'none';
-        y += taskText(xs[2] + 16, y, panelWidth - 32, 'Environments', environments);
+        y += taskText(sideX + 16, y, sideWidth - 32, 'Current tasks', compact(tasks.currentCount) + ' current - ' + archived + ' archived sample');
+        y += taskText(sideX + 16, y, sideWidth - 32, 'Pull requests', compact(pr.total) + ' total, ' + compact(pr.merged) + ' merged, ' + compact(pr.open) + ' open');
+        y += taskText(sideX + 16, y, sideWidth - 32, 'Diff sample', '+' + compact(diff.linesAdded) + ' / -' + compact(diff.linesRemoved) + ' across ' + compact(diff.filesModified) + ' files');
+        const environments = tasks.currentByEnvironment || [];
+        if (!environments.length) {
+          y += taskText(sideX + 16, y, sideWidth - 32, 'Environments', 'none');
+        } else {
+          environments.forEach(function (environment, index) {
+            y += taskText(sideX + 16, y, sideWidth - 32, index === 0 ? 'Environments' : '', environment.environment + ' (' + compact(environment.count) + ')');
+          });
+        }
         const recent = (tasks.recent || []).slice(0, 8);
 
         if (recent.length) {
           y += 8;
-          section(xs[2] + 16, y, 'Recent tasks');
+          section(sideX + 16, y, 'Recent tasks');
           y += 24;
           recent.forEach(function (task) {
-            y += taskText(xs[2] + 16, y, panelWidth - 32, task.title, task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : ''));
+            y += taskText(sideX + 16, y, sideWidth - 32, task.title, task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : ''));
           });
         }
       }
@@ -950,6 +1054,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     chartStyleEl.addEventListener('change', render);
     fromEl.addEventListener('input', render);
     toEl.addEventListener('input', render);
+    rawCountsEl.addEventListener('change', render);
     document.querySelectorAll('[data-download-target]').forEach(function (button) {
       button.addEventListener('click', function () {
         download(button.dataset.downloadTarget, button.dataset.downloadKind);
@@ -992,8 +1097,9 @@ function cssVars(theme: UsageTheme): string {
     }`
 }
 
-function stat(label: string, value: string): string {
-  return `<div class="stat"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`
+function stat(label: string, value: number, kind: "number" | "money" = "number"): string {
+  const display = kind === "money" ? money(value) : compactNumber(value)
+  return `<div class="stat"><strong data-stat-value="${value}" data-stat-kind="${kind}">${escapeHtml(display)}</strong><span>${escapeHtml(label)}</span></div>`
 }
 
 function downloadMenu(target: "heatmap" | "chart" | "dashboard"): string {

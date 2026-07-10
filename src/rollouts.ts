@@ -114,7 +114,17 @@ function parseRolloutFile(args: {
   let threadId = threadIdFromFilename(args.rolloutPath)
   let currentModel: string | undefined
   let currentReasoningEffort: string | undefined
+  let currentServiceTier: string | undefined
+  const pendingTierEvents = new Map<string, TokenEvent[]>()
   let previousTotal = ZERO_BREAKDOWN
+
+  function setCurrentModel(nextModel: string | undefined): void {
+    if (nextModel && nextModel !== currentModel) {
+      currentServiceTier = undefined
+    }
+
+    currentModel = nextModel
+  }
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index].trim()
@@ -142,10 +152,12 @@ function parseRolloutFile(args: {
 
     if (type === "session_meta") {
       threadId = payload.id ?? payload.session_id ?? threadId
-      currentModel = firstString(
-        payload.model,
-        currentModel,
-        args.metadataByThreadId.get(threadId)?.model,
+      setCurrentModel(
+        firstString(
+          payload.model,
+          currentModel,
+          args.metadataByThreadId.get(threadId)?.model,
+        ),
       )
       currentReasoningEffort = firstString(
         payload.reasoning_effort,
@@ -158,7 +170,7 @@ function parseRolloutFile(args: {
     }
 
     if (type === "turn_context") {
-      currentModel = firstString(payload.model, currentModel)
+      setCurrentModel(firstString(payload.model, currentModel))
       currentReasoningEffort = firstString(
         payload.reasoning_effort,
         payload.reasoningEffort,
@@ -173,7 +185,7 @@ function parseRolloutFile(args: {
       const settings = payload.thread_settings ?? payload.threadSettings ?? {}
       const collaborationSettings =
         settings.collaboration_mode?.settings ?? settings.collaborationMode?.settings ?? {}
-      currentModel = firstString(settings.model, collaborationSettings.model, currentModel)
+      setCurrentModel(firstString(settings.model, collaborationSettings.model, currentModel))
       currentReasoningEffort = firstString(
         settings.reasoning_effort,
         settings.reasoningEffort,
@@ -181,6 +193,22 @@ function parseRolloutFile(args: {
         collaborationSettings.reasoningEffort,
         currentReasoningEffort,
       )
+      const nextServiceTier = firstString(
+        settings.service_tier,
+        settings.serviceTier,
+        collaborationSettings.service_tier,
+        collaborationSettings.serviceTier,
+      )
+
+      if (nextServiceTier && currentModel) {
+        for (const event of pendingTierEvents.get(currentModel) ?? []) {
+          event.serviceTier = nextServiceTier
+          event.serviceTierInferred = true
+        }
+
+        pendingTierEvents.delete(currentModel)
+        currentServiceTier = nextServiceTier
+      }
 
       continue
     }
@@ -212,7 +240,7 @@ function parseRolloutFile(args: {
     const model = firstString(currentModel, metadata?.model, "unknown") ?? "unknown"
     const reasoningEffort = firstString(currentReasoningEffort, metadata?.reasoningEffort)
     const eventId = `${threadId}|${timestamp}|${index}|${last.totalTokens}|${last.inputTokens}|${last.outputTokens}`
-    out.push({
+    const event: TokenEvent = {
       eventId,
       homePath: args.home.path,
       homeLabel: args.home.label,
@@ -222,10 +250,18 @@ function parseRolloutFile(args: {
       date: eventDate,
       model,
       reasoningEffort,
+      serviceTier: currentServiceTier,
       planType: firstString(payload.rate_limits?.plan_type, payload.rateLimits?.planType),
       breakdown: last,
       modelContextWindow: numberOrUndefined(info.model_context_window ?? info.modelContextWindow),
-    })
+    }
+    out.push(event)
+
+    if (!event.serviceTier) {
+      const pending = pendingTierEvents.get(model) ?? []
+      pending.push(event)
+      pendingTierEvents.set(model, pending)
+    }
   }
 
   return out

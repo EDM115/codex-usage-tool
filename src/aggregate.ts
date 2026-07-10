@@ -2,7 +2,9 @@ import type {
   AccountProfileResponse,
   CodexHome,
   DailyUsage,
+  LocalModelUsage,
   SourceMode,
+  TokenBreakdown,
   TokenEvent,
   UsageDataset,
   UsageTheme,
@@ -48,6 +50,14 @@ export function buildDataset(args: {
   }
 
   const localByDate = new Map<string, DailyUsage>()
+  const localModelUsage = new Map<
+    string,
+    {
+      breakdown: TokenBreakdown
+      reasoningEfforts: Map<string, TokenBreakdown>
+      serviceTiers: Map<string, { breakdown: TokenBreakdown; inferredTokens: number }>
+    }
+  >()
 
   for (const event of args.events) {
     const day = getOrCreateDay(localByDate, event.date)
@@ -61,6 +71,35 @@ export function buildDataset(args: {
     if (event.reasoningEffort) {
       day.reasoningEfforts[event.reasoningEffort] = (day.reasoningEfforts[event.reasoningEffort] ?? 0) + event.breakdown.totalTokens
     }
+
+    const modelUsage = localModelUsage.get(event.model) ?? {
+      breakdown: { ...ZERO_BREAKDOWN },
+      reasoningEfforts: new Map<string, TokenBreakdown>(),
+      serviceTiers: new Map<string, { breakdown: TokenBreakdown; inferredTokens: number }>(),
+    }
+    modelUsage.breakdown = addBreakdown(modelUsage.breakdown, event.breakdown)
+
+    if (event.reasoningEffort) {
+      modelUsage.reasoningEfforts.set(
+        event.reasoningEffort,
+        addBreakdown(
+          modelUsage.reasoningEfforts.get(event.reasoningEffort) ?? ZERO_BREAKDOWN,
+          event.breakdown,
+        ),
+      )
+    }
+
+    if (event.serviceTier) {
+      const tierUsage = modelUsage.serviceTiers.get(event.serviceTier) ?? {
+        breakdown: { ...ZERO_BREAKDOWN },
+        inferredTokens: 0,
+      }
+      tierUsage.breakdown = addBreakdown(tierUsage.breakdown, event.breakdown)
+      tierUsage.inferredTokens += event.serviceTierInferred ? event.breakdown.totalTokens : 0
+      modelUsage.serviceTiers.set(event.serviceTier, tierUsage)
+    }
+
+    localModelUsage.set(event.model, modelUsage)
   }
 
   const dates = completeDateRange(backendByDate, localByDate, args.from, args.to)
@@ -103,6 +142,11 @@ export function buildDataset(args: {
 
   const weekly = buildWeekly(daily)
   const summary = buildSummary(daily, args.profileResult.profile)
+  const modelUsage = buildLocalModelUsage(
+    localModelUsage,
+    args.pricing,
+    args.estimateModel,
+  )
 
   return {
     generatedAt: new Date().toISOString(),
@@ -131,6 +175,7 @@ export function buildDataset(args: {
       sqliteDatabases: args.localStats.sqliteDatabases,
       sqliteThreads: args.localStats.sqliteThreads,
       parseErrors: args.localStats.parseErrors.slice(0, 100),
+      modelUsage,
     },
     pricing: {
       source: args.pricing.source,
@@ -144,6 +189,42 @@ export function buildDataset(args: {
     daily,
     weekly,
   }
+}
+
+function buildLocalModelUsage(
+  map: Map<
+    string,
+    {
+      breakdown: TokenBreakdown
+      reasoningEfforts: Map<string, TokenBreakdown>
+      serviceTiers: Map<string, { breakdown: TokenBreakdown; inferredTokens: number }>
+    }
+  >,
+  pricing: PricingLoadResult,
+  estimateModel: string,
+): LocalModelUsage[] {
+  return [...map.entries()]
+    .map(([model, usage]): LocalModelUsage => ({
+      model,
+      breakdown: usage.breakdown,
+      costUsd: estimateBreakdownCost(usage.breakdown, model, pricing.table, estimateModel),
+      reasoningEfforts: [...usage.reasoningEfforts.entries()]
+        .map(([effort, breakdown]) => ({
+          effort,
+          breakdown,
+          costUsd: estimateBreakdownCost(breakdown, model, pricing.table, estimateModel),
+        }))
+        .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
+      serviceTiers: [...usage.serviceTiers.entries()]
+        .map(([serviceTier, tierUsage]) => ({
+          serviceTier,
+          breakdown: tierUsage.breakdown,
+          inferredTokens: tierUsage.inferredTokens,
+          costUsd: estimateBreakdownCost(tierUsage.breakdown, model, pricing.table, estimateModel),
+        }))
+        .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
+    }))
+    .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens)
 }
 
 function getOrCreateDay(map: Map<string, DailyUsage>, date: string): DailyUsage {

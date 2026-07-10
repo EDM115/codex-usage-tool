@@ -9,6 +9,15 @@ import { loadPricing } from "../src/pricing"
 import { buildReportModelRows, renderReportHtml, type ReportModelRow } from "../src/report-html"
 import { collectRolloutEvents } from "../src/rollouts"
 import { resolveUsageTheme } from "../src/theme"
+import { compactNumber, exactNumber, money } from "../src/util"
+
+test("French number formatting uses spaces and decimal commas", () => {
+  expect(compactNumber(1_234_567_890)).toBe("1,2 B")
+  expect(compactNumber(24_900_000)).toBe("24,9 M")
+  expect(exactNumber(1_373_622)).toBe("1 373 622")
+  expect(money(1373.6223)).toBe("$ 1 373,62")
+  expect(money(8)).toBe("$ 8,00")
+})
 
 test("collectRolloutEvents parses token_count breakdowns", () => {
   const root = join(tmpdir(), `codex-usage-test-${Date.now()}`)
@@ -79,7 +88,7 @@ test("collectRolloutEvents parses token_count breakdowns", () => {
   expect(result.events[0].reasoningEffort).toBe("high")
 })
 
-test("collectRolloutEvents follows thread settings model changes", () => {
+test("collectRolloutEvents follows thread settings model and service tier changes", () => {
   const root = join(tmpdir(), `codex-usage-switch-test-${Date.now()}`)
   const codexHome = join(root, ".codex")
   const sessions = join(codexHome, "sessions", "2026", "07", "10")
@@ -131,6 +140,52 @@ test("collectRolloutEvents follows thread settings model changes", () => {
           },
         },
       }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:05:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "thread_settings_applied",
+          thread_settings: {
+            model: "gpt-5.6-sol",
+            reasoning_effort: "high",
+            service_tier: "default",
+          },
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:06:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: { input_tokens: 140, output_tokens: 35, total_tokens: 175 },
+            last_token_usage: { input_tokens: 20, output_tokens: 5, total_tokens: 25 },
+          },
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:07:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "thread_settings_applied",
+          thread_settings: {
+            model: "gpt-5.6-sol",
+            reasoning_effort: "high",
+            service_tier: "priority",
+          },
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:08:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: { input_tokens: 148, output_tokens: 37, total_tokens: 185 },
+            last_token_usage: { input_tokens: 8, output_tokens: 2, total_tokens: 10 },
+          },
+        },
+      }),
     ].join("\n"),
   )
 
@@ -144,6 +199,14 @@ test("collectRolloutEvents follows thread settings model changes", () => {
   expect(result.events.map((event) => [event.model, event.reasoningEffort])).toEqual([
     ["gpt-5.5", "xhigh"],
     ["gpt-5.6-sol", "high"],
+    ["gpt-5.6-sol", "high"],
+    ["gpt-5.6-sol", "high"],
+  ])
+  expect(result.events.map((event) => [event.serviceTier, event.serviceTierInferred])).toEqual([
+    [undefined, undefined],
+    ["default", true],
+    ["default", undefined],
+    ["priority", undefined],
   ])
 })
 
@@ -260,6 +323,98 @@ test("buildDataset keeps backend totals authoritative and local details enriched
   expect(dataset.summary.lifetimeTokens).toBe(1000)
 })
 
+test("buildDataset exposes canonical local model usage and exact costs", async () => {
+  const pricing = await loadPricing({ source: "bundled" })
+  const dataset = buildDataset({
+    profileResult: { fetched: false, error: "offline" },
+    events: [
+      {
+        eventId: "high-default",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-07-10T08:00:00.000Z",
+        date: "2026-07-10",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+        serviceTier: "default",
+        breakdown: {
+          inputTokens: 80,
+          cachedInputTokens: 0,
+          outputTokens: 20,
+          reasoningOutputTokens: 5,
+          totalTokens: 100,
+        },
+      },
+      {
+        eventId: "high-default-inferred",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-07-10T08:01:00.000Z",
+        date: "2026-07-10",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+        serviceTier: "default",
+        serviceTierInferred: true,
+        breakdown: {
+          inputTokens: 40,
+          cachedInputTokens: 0,
+          outputTokens: 10,
+          reasoningOutputTokens: 2,
+          totalTokens: 50,
+        },
+      },
+      {
+        eventId: "medium-priority",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-07-10T08:02:00.000Z",
+        date: "2026-07-10",
+        model: "gpt-5.5",
+        reasoningEffort: "medium",
+        serviceTier: "priority",
+        breakdown: {
+          inputTokens: 40,
+          cachedInputTokens: 0,
+          outputTokens: 10,
+          reasoningOutputTokens: 2,
+          totalTokens: 50,
+        },
+      },
+    ],
+    codexHomes: [{ path: "home", label: "home" }],
+    sourceMode: "local",
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    localStats: { rolloutFiles: 1, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
+    pricing,
+    estimateModel: "gpt-5.6-sol",
+    theme: await resolveUsageTheme([]),
+  })
+  const model = dataset.local.modelUsage[0]
+
+  expect(model.breakdown.totalTokens).toBe(200)
+  expect(model.reasoningEfforts.map((row) => [row.effort, row.breakdown.totalTokens])).toEqual([
+    ["high", 150],
+    ["medium", 50],
+  ])
+  expect(model.serviceTiers.map((row) => [row.serviceTier, row.breakdown.totalTokens])).toEqual([
+    ["default", 150],
+    ["priority", 50],
+  ])
+  expect(model.serviceTiers[0].inferredTokens).toBe(50)
+  expect(model.reasoningEfforts.reduce((sum, row) => sum + row.costUsd, 0)).toBeCloseTo(model.costUsd)
+  expect(dataset.local.modelUsage.reduce((sum, row) => sum + row.costUsd, 0)).toBeCloseTo(
+    dataset.summary.knownLocalCostUsd,
+  )
+})
+
 test("report model rows keep local models authoritative and add cloud enrichment", async () => {
   const pricing = await loadPricing({ source: "bundled" })
   const dataset = buildDataset({
@@ -371,6 +526,12 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
   })
 
   const html = renderReportHtml(dataset)
+  expect(html).toContain('id="rawCounts"')
+  expect(html).toContain('data-stat-value="120"')
+  expect(html).toContain('class="report-title"')
+  expect(html).toContain('class="breakdown-sidebar"')
+  expect(html).toContain('class="model-details"')
+  expect(html).toContain("function serviceTierRows")
   const modelRowsScript = html.match(
     /<script id="model-rows" type="application\/json">([\s\S]*?)<\/script>/,
   )

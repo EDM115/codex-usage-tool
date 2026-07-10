@@ -129,18 +129,31 @@ export function compactNumber(value: number): string {
   const abs = Math.abs(value)
 
   if (abs >= 1_000_000_000) {
-    return `${trimFixed(value / 1_000_000_000)}B`
+    return `${exactNumber(value / 1_000_000_000, 1)} B`
   }
 
   if (abs >= 1_000_000) {
-    return `${trimFixed(value / 1_000_000)}M`
+    return `${exactNumber(value / 1_000_000, 1)} M`
   }
 
   if (abs >= 1_000) {
-    return `${trimFixed(value / 1_000)}K`
+    return `${exactNumber(value / 1_000, 1)} K`
   }
 
-  return `${Math.round(value)}`
+  return exactNumber(value)
+}
+
+export function exactNumber(value: number, maximumFractionDigits = 0): string {
+  if (!Number.isFinite(value)) {
+    return "0"
+  }
+
+  return normalizeFrenchSpaces(
+    new Intl.NumberFormat("fr-FR", {
+      maximumFractionDigits,
+      useGrouping: true,
+    }).format(value),
+  )
 }
 
 export function pluralize(value: string, count: number): string {
@@ -149,18 +162,22 @@ export function pluralize(value: string, count: number): string {
 
 export function money(value: number): string {
   if (!Number.isFinite(value)) {
-    return "$0.00"
+    return "$ 0,00"
   }
 
-  if (Math.abs(value) < 0.01 && value !== 0) {
-    return `$${value.toFixed(4)}`
-  }
+  const digits = Math.abs(value) < 0.01 && value !== 0 ? 4 : 2
 
-  return `$${value.toFixed(2)}`
+  return `$ ${normalizeFrenchSpaces(
+    new Intl.NumberFormat("fr-FR", {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+      useGrouping: true,
+    }).format(value),
+  )}`
 }
 
-function trimFixed(value: number): string {
-  return value.toFixed(1).replace(/\.0$/, "")
+function normalizeFrenchSpaces(value: string): string {
+  return value.replace(/[\u00a0\u202f]/g, " ")
 }
 
 export function ensureDir(dir: string): void {

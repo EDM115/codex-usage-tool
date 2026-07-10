@@ -56,6 +56,8 @@ export type TokenEvent = {
   date: string
   model: string
   reasoningEffort?: string
+  serviceTier?: string
+  serviceTierInferred?: boolean
   planType?: string
   breakdown: TokenBreakdown
   modelContextWindow?: number
@@ -182,6 +184,26 @@ export type ModelPricing = {
   source: string
 }
 
+export type LocalUsageSlice = {
+  breakdown: TokenBreakdown
+  costUsd: number
+}
+
+export type LocalReasoningUsage = LocalUsageSlice & {
+  effort: string
+}
+
+export type LocalServiceTierUsage = LocalUsageSlice & {
+  serviceTier: string
+  inferredTokens: number
+}
+
+export type LocalModelUsage = LocalUsageSlice & {
+  model: string
+  reasoningEfforts: LocalReasoningUsage[]
+  serviceTiers: LocalServiceTierUsage[]
+}
+
 export type DailyUsage = {
   date: string
   totalTokens: number
@@ -227,6 +249,7 @@ export type UsageDataset = {
     sqliteDatabases: number
     sqliteThreads: number
     parseErrors: Array<{ path: string; line?: number; error: string }>
+    modelUsage: LocalModelUsage[]
   }
   pricing: {
     source: string
