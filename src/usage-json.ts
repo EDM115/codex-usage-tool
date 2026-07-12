@@ -163,6 +163,7 @@ function mergeDaily(
       unattributedTokens,
       sourceTotal: backendTokens === undefined ? "local" : "backend",
       models: mergeBreakdownRecords(days.map((day) => day.models)),
+      modelUsage: mergeModelUsageRows(days.flatMap(dailyModelUsage)),
       reasoningEfforts: mergeNumberRecords(days.map((day) => day.reasoningEfforts)),
       homes: mergeNumberRecords(days.map((day) => day.homes)),
       knownLocalCostUsd,
@@ -173,9 +174,13 @@ function mergeDaily(
 }
 
 function mergeModelUsage(datasets: UsageDataset[]): LocalModelUsage[] {
+  return mergeModelUsageRows(datasets.flatMap((dataset) => dataset.local.modelUsage))
+}
+
+function mergeModelUsageRows(rows: LocalModelUsage[]): LocalModelUsage[] {
   const models = new Map<string, LocalModelUsage>()
 
-  for (const row of datasets.flatMap((dataset) => dataset.local.modelUsage)) {
+  for (const row of rows) {
     const current = models.get(row.model) ?? {
       model: row.model,
       breakdown: { ...ZERO_BREAKDOWN },
@@ -195,6 +200,22 @@ function mergeModelUsage(datasets: UsageDataset[]): LocalModelUsage[] {
   }
 
   return [...models.values()].sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens)
+}
+
+function dailyModelUsage(day: DailyUsage): LocalModelUsage[] {
+  if (Array.isArray(day.modelUsage)) {
+    return day.modelUsage
+  }
+
+  const totalTokens = Math.max(1, day.localTokens.totalTokens)
+
+  return Object.entries(day.models).map(([model, breakdown]) => ({
+    model,
+    breakdown,
+    costUsd: day.knownLocalCostUsd * (breakdown.totalTokens / totalTokens),
+    reasoningEfforts: [],
+    serviceTiers: [],
+  }))
 }
 
 function mergeNamedUsage<T extends { breakdown: TokenBreakdown; costUsd: number }>(
@@ -515,6 +536,8 @@ function isDailyUsage(value: unknown): boolean {
     isNumber(value.unattributedTokens) &&
     (value.sourceTotal === "backend" || value.sourceTotal === "local") &&
     isBreakdownRecord(value.models) &&
+    (value.modelUsage === undefined ||
+      (Array.isArray(value.modelUsage) && value.modelUsage.every(isLocalModelUsage))) &&
     isNumberRecord(value.reasoningEfforts) &&
     isNumberRecord(value.homes) &&
     isNumber(value.knownLocalCostUsd) &&

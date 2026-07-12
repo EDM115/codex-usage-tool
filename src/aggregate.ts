@@ -17,6 +17,15 @@ import type { ThemeChoice } from "./theme"
 import { estimateBreakdownCost, estimateUnattributedCost, type PricingLoadResult } from "./pricing"
 import { addBreakdown, clampDate, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util"
 
+type LocalModelUsageAccumulator = Map<
+  string,
+  {
+    breakdown: TokenBreakdown
+    reasoningEfforts: Map<string, TokenBreakdown>
+    serviceTiers: Map<string, { breakdown: TokenBreakdown; inferredTokens: number }>
+  }
+>
+
 export function buildDataset(args: {
   profileResult: {
     profile?: AccountProfileResponse
@@ -54,14 +63,8 @@ export function buildDataset(args: {
   }
 
   const localByDate = new Map<string, DailyUsage>()
-  const localModelUsage = new Map<
-    string,
-    {
-      breakdown: TokenBreakdown
-      reasoningEfforts: Map<string, TokenBreakdown>
-      serviceTiers: Map<string, { breakdown: TokenBreakdown; inferredTokens: number }>
-    }
-  >()
+  const localModelUsage: LocalModelUsageAccumulator = new Map()
+  const localModelUsageByDate = new Map<string, LocalModelUsageAccumulator>()
 
   for (const event of args.events) {
     const day = getOrCreateDay(localByDate, event.date)
@@ -77,34 +80,10 @@ export function buildDataset(args: {
         (day.reasoningEfforts[event.reasoningEffort] ?? 0) + event.breakdown.totalTokens
     }
 
-    const modelUsage = localModelUsage.get(event.model) ?? {
-      breakdown: { ...ZERO_BREAKDOWN },
-      reasoningEfforts: new Map<string, TokenBreakdown>(),
-      serviceTiers: new Map<string, { breakdown: TokenBreakdown; inferredTokens: number }>(),
-    }
-    modelUsage.breakdown = addBreakdown(modelUsage.breakdown, event.breakdown)
-
-    if (event.reasoningEffort) {
-      modelUsage.reasoningEfforts.set(
-        event.reasoningEffort,
-        addBreakdown(
-          modelUsage.reasoningEfforts.get(event.reasoningEffort) ?? ZERO_BREAKDOWN,
-          event.breakdown,
-        ),
-      )
-    }
-
-    if (event.serviceTier) {
-      const tierUsage = modelUsage.serviceTiers.get(event.serviceTier) ?? {
-        breakdown: { ...ZERO_BREAKDOWN },
-        inferredTokens: 0,
-      }
-      tierUsage.breakdown = addBreakdown(tierUsage.breakdown, event.breakdown)
-      tierUsage.inferredTokens += event.serviceTierInferred ? event.breakdown.totalTokens : 0
-      modelUsage.serviceTiers.set(event.serviceTier, tierUsage)
-    }
-
-    localModelUsage.set(event.model, modelUsage)
+    addEventToModelUsage(localModelUsage, event)
+    const dailyModelUsage = localModelUsageByDate.get(event.date) ?? new Map()
+    addEventToModelUsage(dailyModelUsage, event)
+    localModelUsageByDate.set(event.date, dailyModelUsage)
   }
 
   const dates = completeDateRange(backendByDate, localByDate, args.from, args.to)
@@ -139,6 +118,11 @@ export function buildDataset(args: {
       backendTokens,
       unattributedTokens,
       sourceTotal: backendTokens === undefined ? ("local" as const) : ("backend" as const),
+      modelUsage: buildLocalModelUsage(
+        localModelUsageByDate.get(date) ?? new Map(),
+        args.pricing,
+        args.estimateModel,
+      ),
       knownLocalCostUsd,
       estimatedUnattributedCostUsd,
       estimatedCostUsd: knownLocalCostUsd + estimatedUnattributedCostUsd,
@@ -195,14 +179,7 @@ export function buildDataset(args: {
 }
 
 function buildLocalModelUsage(
-  map: Map<
-    string,
-    {
-      breakdown: TokenBreakdown
-      reasoningEfforts: Map<string, TokenBreakdown>
-      serviceTiers: Map<string, { breakdown: TokenBreakdown; inferredTokens: number }>
-    }
-  >,
+  map: LocalModelUsageAccumulator,
   pricing: PricingLoadResult,
   estimateModel: string,
 ): LocalModelUsage[] {
@@ -237,6 +214,37 @@ function buildLocalModelUsage(
     .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens)
 }
 
+function addEventToModelUsage(map: LocalModelUsageAccumulator, event: TokenEvent): void {
+  const modelUsage = map.get(event.model) ?? {
+    breakdown: { ...ZERO_BREAKDOWN },
+    reasoningEfforts: new Map<string, TokenBreakdown>(),
+    serviceTiers: new Map<string, { breakdown: TokenBreakdown; inferredTokens: number }>(),
+  }
+  modelUsage.breakdown = addBreakdown(modelUsage.breakdown, event.breakdown)
+
+  if (event.reasoningEffort) {
+    modelUsage.reasoningEfforts.set(
+      event.reasoningEffort,
+      addBreakdown(
+        modelUsage.reasoningEfforts.get(event.reasoningEffort) ?? ZERO_BREAKDOWN,
+        event.breakdown,
+      ),
+    )
+  }
+
+  if (event.serviceTier) {
+    const tierUsage = modelUsage.serviceTiers.get(event.serviceTier) ?? {
+      breakdown: { ...ZERO_BREAKDOWN },
+      inferredTokens: 0,
+    }
+    tierUsage.breakdown = addBreakdown(tierUsage.breakdown, event.breakdown)
+    tierUsage.inferredTokens += event.serviceTierInferred ? event.breakdown.totalTokens : 0
+    modelUsage.serviceTiers.set(event.serviceTier, tierUsage)
+  }
+
+  map.set(event.model, modelUsage)
+}
+
 function getOrCreateDay(map: Map<string, DailyUsage>, date: string): DailyUsage {
   const existing = map.get(date)
 
@@ -251,6 +259,7 @@ function getOrCreateDay(map: Map<string, DailyUsage>, date: string): DailyUsage 
     unattributedTokens: 0,
     sourceTotal: "local",
     models: {},
+    modelUsage: [],
     reasoningEfforts: {},
     homes: {},
     knownLocalCostUsd: 0,

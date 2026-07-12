@@ -425,6 +425,30 @@ test("buildDataset exposes canonical local model usage and exact costs", async (
   expect(dataset.local.modelUsage.reduce((sum, row) => sum + row.costUsd, 0)).toBeCloseTo(
     dataset.summary.knownLocalCostUsd,
   )
+
+  const dailyModelUsage = (dataset.daily[0] as any).modelUsage
+  expect(dailyModelUsage).toHaveLength(1)
+  expect(dailyModelUsage[0].model).toBe("gpt-5.5")
+  expect(dailyModelUsage[0].breakdown.totalTokens).toBe(200)
+  expect(
+    dailyModelUsage[0].reasoningEfforts.map((row: any) => [
+      row.effort,
+      row.breakdown.totalTokens,
+    ]),
+  ).toEqual([
+    ["high", 150],
+    ["medium", 50],
+  ])
+  expect(
+    dailyModelUsage[0].serviceTiers.map((row: any) => [
+      row.serviceTier,
+      row.breakdown.totalTokens,
+    ]),
+  ).toEqual([
+    ["default", 150],
+    ["priority", 50],
+  ])
+  expect(dailyModelUsage[0].costUsd).toBeCloseTo(model.costUsd)
 })
 
 test("report model rows keep local models authoritative and add cloud enrichment", async () => {
@@ -545,6 +569,17 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
     "Generated at 2026-01-10 14:33:11.042 UTC+01:00 (Europe/Paris)",
   )
   expect(html).toContain('id="rawCounts"')
+  expect(html).toContain('id="from" type="text" value="27/06/2026"')
+  expect(html).toContain('id="fromPicker" type="date" value="2026-06-27"')
+  expect(html).toContain('id="to" type="text" value="27/06/2026"')
+  expect(html).toContain('id="toPicker" type="date" value="2026-06-27"')
+  expect(html).toContain('placeholder="DD/MM/YYYY"')
+  expect(html).toContain("function parseDisplayDate")
+  expect(html).toContain("function filteredReportModels")
+  expect(html).toContain("function filteredAnalytics")
+  expect(html).toContain("const models = filteredReportModels()")
+  expect(html).toContain("const analytics = filteredAnalytics() || { }")
+  expect(html).toContain("Cloud tasks (current snapshot)")
   expect(html).toContain('data-stat-value="120"')
   expect(html).toContain('class="report-title"')
   expect(html).toContain('class="breakdown-sidebar"')

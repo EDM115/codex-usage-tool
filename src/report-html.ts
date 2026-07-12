@@ -164,7 +164,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .select-control { position: relative; min-width: 0; }
     .select-control select { width: 100%; height: 38px; appearance: none; padding-right: 30px; }
     .control-chevron { position: absolute; right: 10px; top: 50%; width: 12px; height: 12px; color: var(--muted); pointer-events: none; transform: translateY(-50%); }
-    .toolbar > input { width: 100%; height: 38px; }
+    .date-control { position: relative; min-width: 0; }
+    .date-control > input[type="text"] { width: 100%; height: 38px; padding-right: 38px; font-variant-numeric: tabular-nums; }
+    .date-control > input[type="date"] { position: absolute; z-index: 2; top: 0; right: 0; width: 38px; height: 38px; margin: 0; padding: 0; opacity: 0; cursor: pointer; }
+    .date-calendar-icon { position: absolute; top: 50%; right: 11px; width: 16px; height: 16px; color: var(--muted); pointer-events: none; transform: translateY(-50%); }
+    .date-control > input[aria-invalid="true"] { border-color: var(--warning); }
     .toolbar-meta { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 8px; }
     .theme-picker-popover { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: min(320px, calc(100vw - 32px)); padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 34px rgba(0,0,0,.4); }
     .theme-picker-popover[hidden] { display: none; }
@@ -312,8 +316,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
         </div>
         <label class="select-control"><select id="mode" aria-label="Chart time mode"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="cumulative">Cumulative</option></select>${controlChevron()}</label>
         <label class="select-control"><select id="chartStyle" aria-label="Chart style"><option value="auto">Auto chart</option><option value="bar">Bar</option><option value="area">Line/area</option></select>${controlChevron()}</label>
-        <input id="from" type="date" value="${escapeHtml(dataset.dateRange.from ?? dataset.daily[0]?.date ?? "")}" aria-label="Start date">
-        <input id="to" type="date" value="${escapeHtml(dataset.dateRange.to ?? dataset.daily.at(-1)?.date ?? "")}" aria-label="End date">
+        ${dateControl("from", "Start date", dataset.dateRange.from ?? dataset.daily[0]?.date ?? "")}
+        ${dateControl("to", "End date", dataset.dateRange.to ?? dataset.daily.at(-1)?.date ?? "")}
         <div class="toolbar-meta"><label class="toggle-control"><input id="rawCounts" type="checkbox">Exact counts</label>${githubLink()}</div>
       </div>
     </header>
@@ -384,11 +388,15 @@ export function renderReportHtml(dataset: UsageDataset): string {
     const chartStyleEl = document.getElementById('chartStyle');
     const fromEl = document.getElementById('from');
     const toEl = document.getElementById('to');
+    const fromPickerEl = document.getElementById('fromPicker');
+    const toPickerEl = document.getElementById('toPicker');
     const rawCountsEl = document.getElementById('rawCounts');
     const tooltip = document.getElementById('tooltip');
     const heatmap = document.getElementById('heatmap');
     const chart = document.getElementById('chart');
     const analyticsBreakdown = document.getElementById('analyticsBreakdown');
+    let fromDateValue = fromPickerEl.value;
+    let toDateValue = toPickerEl.value;
     const themePicker = document.getElementById('themePicker');
     const themePickerButton = document.getElementById('themePickerButton');
     const themePickerLabel = document.getElementById('themePickerLabel');
@@ -641,8 +649,70 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return String(value).replace(/[&<>\"]/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]; });
     }
 
+    function formatDisplayDate(value) {
+      if (!value) return '';
+      const parts = value.split('-');
+      return parts.length === 3 ? parts[2] + '/' + parts[1] + '/' + parts[0] : '';
+    }
+
+    function parseDisplayDate(value) {
+      const trimmed = String(value || '').trim();
+      if (!trimmed) return '';
+      const match = new RegExp('^([0-9]{2})/([0-9]{2})/([0-9]{4})$').exec(trimmed);
+      if (!match) return null;
+      const day = Number(match[1]);
+      const month = Number(match[2]);
+      const year = Number(match[3]);
+      const date = new Date(Date.UTC(year, month - 1, day));
+      if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+      return match[3] + '-' + match[2] + '-' + match[1];
+    }
+
+    function clearDateErrors() {
+      [fromEl, toEl].forEach(function (el) {
+        el.setCustomValidity('');
+        el.removeAttribute('aria-invalid');
+      });
+    }
+
+    function commitDateValue(kind, value, source) {
+      const nextFrom = kind === 'from' ? value : fromDateValue;
+      const nextTo = kind === 'to' ? value : toDateValue;
+      clearDateErrors();
+
+      if (nextFrom && nextTo && nextFrom > nextTo) {
+        source.setCustomValidity('Start date must be on or before end date');
+        source.setAttribute('aria-invalid', 'true');
+        return;
+      }
+
+      if (kind === 'from') {
+        fromDateValue = value;
+        fromPickerEl.value = value;
+        fromEl.value = formatDisplayDate(value);
+      } else {
+        toDateValue = value;
+        toPickerEl.value = value;
+        toEl.value = formatDisplayDate(value);
+      }
+
+      render();
+    }
+
+    function readDisplayDate(kind, input) {
+      const value = parseDisplayDate(input.value);
+
+      if (value === null) {
+        input.setCustomValidity('Use DD/MM/YYYY');
+        input.setAttribute('aria-invalid', 'true');
+        return;
+      }
+
+      commitDateValue(kind, value, input);
+    }
+
     function filteredDaily() {
-      return dataset.daily.filter(function (day) { return (!fromEl.value || day.date >= fromEl.value) && (!toEl.value || day.date <= toEl.value); });
+      return dataset.daily.filter(function (day) { return (!fromDateValue || day.date >= fromDateValue) && (!toDateValue || day.date <= toDateValue); });
     }
 
     function values() {
@@ -733,17 +803,183 @@ export function renderReportHtml(dataset: UsageDataset): string {
       chart.querySelectorAll('.hit').forEach(bindTip);
     }
 
+    function emptyBreakdown() {
+      return { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 };
+    }
+
+    function addTokenBreakdown(left, right) {
+      return {
+        totalTokens: (left.totalTokens || 0) + (right.totalTokens || 0),
+        inputTokens: (left.inputTokens || 0) + (right.inputTokens || 0),
+        cachedInputTokens: (left.cachedInputTokens || 0) + (right.cachedInputTokens || 0),
+        outputTokens: (left.outputTokens || 0) + (right.outputTokens || 0),
+        reasoningOutputTokens: (left.reasoningOutputTokens || 0) + (right.reasoningOutputTokens || 0)
+      };
+    }
+
+    function mergeNamedLocalUsage(left, right, key) {
+      const rows = new Map(left.map(function (row) { return [row[key], Object.assign({}, row, { breakdown: Object.assign({}, row.breakdown) })]; }));
+      (right || []).forEach(function (row) {
+        const current = rows.get(row[key]) || Object.assign({}, row, { breakdown: emptyBreakdown(), costUsd: 0, inferredTokens: 0 });
+        current.breakdown = addTokenBreakdown(current.breakdown, row.breakdown);
+        current.costUsd += row.costUsd || 0;
+        if (key === 'serviceTier') current.inferredTokens += row.inferredTokens || 0;
+        rows.set(row[key], current);
+      });
+      return [...rows.values()].sort(function (a, b) { return b.breakdown.totalTokens - a.breakdown.totalTokens; });
+    }
+
+    function filteredLocalModels() {
+      const models = new Map();
+
+      filteredDaily().forEach(function (day) {
+        const fallbackCostDenominator = Math.max(1, day.localTokens.totalTokens || 0);
+        const rows = Array.isArray(day.modelUsage) ? day.modelUsage : Object.entries(day.models || {}).map(function (entry) {
+          return { model: entry[0], breakdown: entry[1], costUsd: (day.knownLocalCostUsd || 0) * entry[1].totalTokens / fallbackCostDenominator, reasoningEfforts: [], serviceTiers: [] };
+        });
+        rows.forEach(function (row) {
+          const current = models.get(row.model) || { model: row.model, breakdown: emptyBreakdown(), costUsd: 0, reasoningEfforts: [], serviceTiers: [] };
+          current.breakdown = addTokenBreakdown(current.breakdown, row.breakdown);
+          current.costUsd += row.costUsd || 0;
+          current.reasoningEfforts = mergeNamedLocalUsage(current.reasoningEfforts, row.reasoningEfforts, 'effort');
+          current.serviceTiers = mergeNamedLocalUsage(current.serviceTiers, row.serviceTiers, 'serviceTier');
+          models.set(row.model, current);
+        });
+      });
+
+      return [...models.values()].sort(function (a, b) { return b.breakdown.totalTokens - a.breakdown.totalTokens; });
+    }
+
+    function analyticsDateMatches(date) {
+      const value = String(date || '').slice(0, 10);
+      return (!fromDateValue || value >= fromDateValue) && (!toDateValue || value <= toDateValue);
+    }
+
+    function numeric(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : 0;
+    }
+
+    function labelClient(value) {
+      const normalized = String(value || 'unknown').toLowerCase().replace(/^codex_/, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      const known = { cli: 'CLI', desktop_app: 'Desktop app', ide_vscode: 'VS Code', vscode: 'VS Code', service_exec: 'Service exec', exec: 'Service exec', github_code_review: 'GitHub code review', pr: 'PR', qa: 'QA' };
+      if (known[normalized]) return known[normalized];
+      return normalized.split('_').map(function (word) { return word ? word[0].toUpperCase() + word.slice(1) : ''; }).join(' ');
+    }
+
+    function aggregateFilteredModels(workspace, daily) {
+      const models = new Map();
+      workspace.forEach(function (bucket) {
+        (bucket.models || []).forEach(function (row) {
+          const model = String(row.model || 'unknown');
+          const current = models.get(model) || { model: model, credits: 0, turns: 0, threads: 0, users: 0 };
+          current.credits += numeric(row.credits);
+          current.turns += numeric(row.turns);
+          current.threads += numeric(row.threads);
+          current.users = Math.max(current.users, numeric(row.users));
+          models.set(model, current);
+        });
+      });
+      daily.forEach(function (bucket) {
+        (bucket.models || []).forEach(function (row) {
+          const model = String(row.model || 'unknown');
+          const current = models.get(model) || { model: model, credits: 0, turns: 0, threads: 0, users: 0 };
+          current.credits += numeric(row.credits);
+          models.set(model, current);
+        });
+      });
+      return [...models.values()].sort(function (a, b) { return (b.turns || b.credits) - (a.turns || a.credits); }).slice(0, 12);
+    }
+
+    function aggregateFilteredVariants(daily) {
+      const variants = new Map();
+      daily.forEach(function (bucket) {
+        (bucket.models || []).forEach(function (row) {
+          const speed = row.speed || 'standard';
+          const key = row.model + '\\u0000' + speed;
+          const current = variants.get(key) || { model: row.model, speed: speed, credits: 0 };
+          current.credits += numeric(row.credits);
+          variants.set(key, current);
+        });
+      });
+      return [...variants.values()].filter(function (row) { return row.credits > 0; }).sort(function (a, b) { return b.credits - a.credits; });
+    }
+
+    function aggregateFilteredSurfaces(daily, workspace) {
+      const percentages = new Map();
+      daily.forEach(function (bucket) {
+        Object.entries(bucket.productSurfaceUsageValues || {}).forEach(function (entry) {
+          percentages.set(entry[0], (percentages.get(entry[0]) || 0) + numeric(entry[1]));
+        });
+      });
+      const stats = new Map();
+      workspace.forEach(function (bucket) {
+        (bucket.clients || []).forEach(function (client) {
+          const surface = labelClient(client.client_id || client.clientId || client.source || 'unknown');
+          const current = stats.get(surface) || { turns: 0, threads: 0, users: 0, credits: 0, textTotalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
+          current.turns += numeric(client.turns);
+          current.threads += numeric(client.threads);
+          current.users = Math.max(current.users, numeric(client.users));
+          current.credits += numeric(client.credits);
+          current.inputTokens += numeric(client.uncached_text_input_tokens || client.uncachedTextInputTokens);
+          current.cachedInputTokens += numeric(client.cached_text_input_tokens || client.cachedTextInputTokens);
+          current.outputTokens += numeric(client.text_output_tokens || client.textOutputTokens);
+          current.textTotalTokens += numeric(client.text_total_tokens || client.textTotalTokens);
+          stats.set(surface, current);
+        });
+      });
+      const totalPercent = Math.max(1, [...percentages.values()].reduce(function (sum, value) { return sum + value; }, 0));
+      const surfaces = new Set([...percentages.keys()].map(labelClient).concat([...stats.keys()]));
+      return [...surfaces].map(function (surface) {
+        const rawKey = [...percentages.keys()].find(function (key) { return labelClient(key) === surface; });
+        const row = stats.get(surface) || {};
+        return { surface: surface, credits: row.credits || 0, percent: rawKey ? (percentages.get(rawKey) || 0) / totalPercent * 100 : 0, turns: row.turns || 0, threads: row.threads || 0, users: row.users || 0, textTotalTokens: row.textTotalTokens || 0, inputTokens: row.inputTokens || 0, cachedInputTokens: row.cachedInputTokens || 0, outputTokens: row.outputTokens || 0 };
+      }).filter(function (row) { return row.credits > 0 || row.percent > 0 || row.turns > 0 || row.textTotalTokens > 0; }).sort(function (a, b) { return (b.textTotalTokens || b.turns || b.credits || b.percent) - (a.textTotalTokens || a.turns || a.credits || a.percent); }).slice(0, 12);
+    }
+
+    function filteredAnalytics() {
+      const analytics = dataset.analytics;
+      if (!analytics) return null;
+      const dailySource = analytics.dailyTokenUsageBreakdown && analytics.dailyTokenUsageBreakdown.data;
+      const workspaceSource = analytics.workspaceUsageCounts && analytics.workspaceUsageCounts.data;
+      if (!Array.isArray(dailySource) && !Array.isArray(workspaceSource)) return analytics;
+      const daily = Array.isArray(dailySource) ? dailySource.filter(function (bucket) { return analyticsDateMatches(bucket.date); }) : [];
+      const workspace = Array.isArray(workspaceSource) ? workspaceSource.filter(function (bucket) { return analyticsDateMatches(bucket.date); }) : [];
+      return Object.assign({}, analytics, {
+        byModel: aggregateFilteredModels(workspace, daily),
+        byModelVariants: aggregateFilteredVariants(daily),
+        bySurface: aggregateFilteredSurfaces(daily, workspace)
+      });
+    }
+
+    function filteredReportModels() {
+      const analytics = filteredAnalytics();
+      const cloudRows = analytics && analytics.byModel ? analytics.byModel : [];
+      const cloudByModel = new Map(cloudRows.map(function (row) { return [row.model, row]; }));
+      const localRows = filteredLocalModels().map(function (usage) {
+        const cloud = cloudByModel.get(usage.model);
+        return { model: usage.model, credits: cloud ? cloud.credits : 0, turns: cloud ? cloud.turns : 0, threads: cloud ? cloud.threads : 0, users: cloud ? cloud.users : 0, localTokens: usage.breakdown.totalTokens, localBreakdown: usage.breakdown, localCostUsd: usage.costUsd, reasoningEfforts: usage.reasoningEfforts, serviceTiers: usage.serviceTiers, source: cloud ? 'local+cloud' : 'local' };
+      });
+      const localNames = new Set(localRows.map(function (row) { return row.model; }));
+      const cloudOnlyRows = cloudRows.filter(function (row) { return !localNames.has(row.model); }).map(function (row) {
+        return Object.assign({}, row, { localTokens: 0, localBreakdown: emptyBreakdown(), localCostUsd: 0, reasoningEfforts: [], serviceTiers: [], source: 'cloud' });
+      });
+      return localRows.concat(cloudOnlyRows);
+    }
+
     function renderAnalytics() {
       const analytics = dataset.analytics;
-      const surfaces = analytics && analytics.bySurface ? analytics.bySurface : [];
+      const filtered = filteredAnalytics();
+      const models = filteredReportModels();
+      const surfaces = filtered && filtered.bySurface ? filtered.bySurface : [];
 
-      if (reportModels.length === 0 && surfaces.length === 0 && !(analytics && analytics.tasks)) {
+      if (models.length === 0 && surfaces.length === 0 && !(analytics && analytics.tasks)) {
         analyticsBreakdown.innerHTML = '<div class="breakdown-panel"><h3>Dashboard data unavailable</h3><div class="rows"><p>' + escapeText(analytics && analytics.error ? analytics.error : 'No wham analytics response was available for this run') + '</p></div></div>';
 
         return;
       }
 
-      const modelHtml = reportModels.length ? modelPanel(reportModels, analytics && analytics.byModelVariants ? analytics.byModelVariants : []) : '<div class="breakdown-panel"><h3>Models</h3><div class="rows"><p>No local model usage was recorded</p></div></div>';
+      const modelHtml = models.length ? modelPanel(models, filtered && filtered.byModelVariants ? filtered.byModelVariants : []) : '<div class="breakdown-panel"><h3>Models</h3><div class="rows"><p>No usage was recorded in this date range</p></div></div>';
       const cloudHtml = analytics ? surfacePanel(surfaces) + taskPanel(analytics.tasks) : '<div class="breakdown-panel"><h3>Cloud enrichment unavailable</h3><div class="rows"><p>No WHAM analytics response was available for this run</p></div></div>';
       analyticsBreakdown.innerHTML = modelHtml + '<div class="breakdown-sidebar">' + cloudHtml + '</div>';
       analyticsBreakdown.querySelectorAll('[data-tip]').forEach(bindTip);
@@ -983,7 +1219,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
     function taskPanel(tasks) {
       if (!tasks) {
-        return '<div class="breakdown-panel"><h3>Cloud tasks</h3><div class="rows"><p>No task list response was available</p></div></div>';
+        return '<div class="breakdown-panel"><h3>Cloud tasks (current snapshot)</h3><div class="rows"><p>No task list response was available</p></div></div>';
       }
 
       const archived = tasks.archivedCount == null ? '' : ' - ' + compact(tasks.archivedCount) + ' archived sample' + (tasks.archivedHasMore ? '+' : '');
@@ -995,7 +1231,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         return '<div class="task-item" data-tip="'+escapeText(task.title + '\\n' + meta)+'"><div class="task-title">'+escapeText(task.title)+'</div><div class="task-meta">'+escapeText(meta)+'</div></div>';
       }).join('');
 
-      return '<div class="breakdown-panel"><h3>Cloud tasks</h3><div class="rows"><div class="row" data-tip="Current task endpoint defaults to current tasks, limit is capped at 20. Archived tasks use task_filter=archived and may paginate."><div class="row-label">Current tasks</div><div class="row-value">'+compact(tasks.currentCount)+archived+'</div></div><div class="task-meta"><strong>Environments :</strong><div class="environment-list">'+envs+'</div></div><div class="task-meta">PRs : '+compact(pr.total)+' total, '+compact(pr.merged)+' merged, '+compact(pr.open)+' open<br>Diff : +'+compact(diff.linesAdded)+' / -'+compact(diff.linesRemoved)+' across '+compact(diff.filesModified)+' files</div></div><div class="task-list">'+recent+'</div></div>';
+      return '<div class="breakdown-panel"><h3>Cloud tasks (current snapshot)</h3><div class="rows"><div class="row" data-tip="Current task endpoint defaults to current tasks, limit is capped at 20. Archived tasks use task_filter=archived and may paginate."><div class="row-label">Current tasks</div><div class="row-value">'+compact(tasks.currentCount)+archived+'</div></div><div class="task-meta"><strong>Environments :</strong><div class="environment-list">'+envs+'</div></div><div class="task-meta">PRs : '+compact(pr.total)+' total, '+compact(pr.merged)+' merged, '+compact(pr.open)+' open<br>Diff : +'+compact(diff.linesAdded)+' / -'+compact(diff.linesRemoved)+' across '+compact(diff.filesModified)+' files</div></div><div class="task-list">'+recent+'</div></div>';
     }
 
     function bindTip(el) {
@@ -1073,8 +1309,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
     }
 
     function renderDashboardCanvas() {
-      const analytics = dataset.analytics || { };
-      const models = reportModels;
+      const analytics = filteredAnalytics() || { };
+      const models = filteredReportModels();
       const variants = analytics.byModelVariants || [];
       const surfaces = analytics.bySurface || [];
       const tasks = analytics.tasks;
@@ -1242,7 +1478,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         y += barRow(sideX + 16, y, sideWidth - 32, row.surface, valueText, row.textTotalTokens, totalSurfaceTokens, surfaceColor(row.surface), { noMeter: !row.textTotalTokens });
       });
       y = panelY + surfaceHeight + gap + 34;
-      title(sideX + 16, y, 'Cloud tasks');
+      title(sideX + 16, y, 'Cloud tasks (current snapshot)');
       y += 34;
       if (!tasks) {
         ctx.font = font('500', 13);
@@ -1335,8 +1571,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
     modeEl.addEventListener('change', render);
     chartStyleEl.addEventListener('change', render);
-    fromEl.addEventListener('input', render);
-    toEl.addEventListener('input', render);
+    fromEl.addEventListener('input', function () { readDisplayDate('from', fromEl); });
+    toEl.addEventListener('input', function () { readDisplayDate('to', toEl); });
+    fromPickerEl.addEventListener('input', function () { commitDateValue('from', fromPickerEl.value, fromEl); });
+    toPickerEl.addEventListener('input', function () { commitDateValue('to', toPickerEl.value, toEl); });
     rawCountsEl.addEventListener('change', render);
     themePickerButton.addEventListener('click', function () {
       if (themePickerPopover.hidden) openThemePicker(); else closeThemePicker(false);
@@ -1414,6 +1652,13 @@ export function formatGeneratedAt(timestamp: string, timezone: string): string {
   } catch {
     return timestamp
   }
+}
+
+function dateControl(id: "from" | "to", label: string, value: string): string {
+  const displayValue = value ? value.split("-").reverse().join("/") : ""
+  const pickerLabel = `Choose ${label.toLowerCase()}`
+
+  return `<div class="date-control"><input id="${id}" type="text" value="${escapeHtml(displayValue)}" aria-label="${escapeHtml(label)}" placeholder="DD/MM/YYYY" inputmode="numeric" autocomplete="off"><svg class="date-calendar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/></svg><input id="${id}Picker" type="date" value="${escapeHtml(value)}" aria-label="${escapeHtml(pickerLabel)}"></div>`
 }
 
 function cssVars(theme: UsageTheme): string {

@@ -216,6 +216,7 @@ export type DailyUsage = {
   unattributedTokens: number
   sourceTotal: "backend" | "local"
   models: Record<string, TokenBreakdown>
+  modelUsage: LocalModelUsage[]
   reasoningEfforts: Record<string, number>
   homes: Record<string, number>
   knownLocalCostUsd: number
