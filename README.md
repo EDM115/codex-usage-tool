@@ -107,25 +107,25 @@ help       Show CLI help (default)
 ## Options
 
 ```text
---codex-home <path>                 Add a .codex directory, repeatable
---codex-root <path>                 Add a parent directory containing .codex, repeatable
---usage-json <path>                 Add a generated usage-data.json, repeatable
---out <path>                        Output directory (default : outputs/codex-usage)
---from YYYY-MM-DD                   Inclusive date filter, unavailable with --usage-json
---to YYYY-MM-DD                     Inclusive date filter, unavailable with --usage-json
---timezone <tz>                     IANA timezone for local rollouts (default : Europe/Paris), JSON keeps its timezone
---source hybrid|backend|local       Default : hybrid, backend totals plus local enrichment
---profile-json <path>               Use a saved /profiles/me JSON response instead of calling the API
---analytics-json <path>             Use saved WHAM analytics JSON instead of calling the dashboard APIs
---no-api                            Do not call Profile or WHAM APIs
---base-url <url>                    Backend base URL (default : https://chatgpt.com/backend-api)
---pricing-source bundled|models.dev Default : models.dev with bundled fallback
---pricing-json <path>               Use a custom pricing JSON file
---estimate-model <model>            Model used for unattributed backend-only token cost estimates
---no-png                            Skip static PNG export and write SVG/HTML/JSON/CSV only
---silent                            Hide action lines, file count, and warnings, keep the progress bar and token summary
---theme <theme>                     Default : EDM115, can also be "config" for your `config.toml` one or a any of the built-in Codex themes
---help                              Show help
+--codex-home <path>                        Add a .codex directory, repeatable
+--codex-root <path>                        Add a parent directory containing .codex, repeatable
+--usage-json <path>                        Add a generated usage-data.json, repeatable
+--out <path>                               Output directory (default : outputs/codex-usage)
+--from YYYY-MM-DD                          Inclusive date filter, unavailable with --usage-json
+--to YYYY-MM-DD                            Inclusive date filter, unavailable with --usage-json
+--timezone <tz>                            IANA timezone for local rollouts (default : Europe/Paris), JSON keeps its timezone
+--source hybrid|backend|local              Default : hybrid, backend totals plus local enrichment
+--profile-json <path>                      Use a saved /profiles/me JSON response instead of calling the API
+--analytics-json <path>                    Use saved WHAM analytics JSON instead of calling the dashboard APIs
+--no-api                                   Do not call Profile or WHAM APIs
+--base-url <url>                           Backend base URL (default : https://chatgpt.com/backend-api)
+--pricing-source openai|bundled|models.dev Default : models.dev with bundled fallback
+--pricing-json <path>                      Use a custom pricing JSON file
+--estimate-model <model>                   Model used for unattributed backend-only token cost estimates
+--no-png                                   Skip static PNG export and write SVG/HTML/JSON/CSV only
+--silent                                   Hide action lines, file count, and warnings, keep the progress bar and token summary
+--theme <theme>                            Default : EDM115, can also be "config" for your `config.toml` one or a any of the built-in Codex themes
+--help                                     Show help
 ```
 
 ## Output files

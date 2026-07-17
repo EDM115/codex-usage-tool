@@ -78,6 +78,43 @@ test("mergeUsageDatasets adds local sources without duplicating cloud enrichment
   expect(merged.summary.lifetimeTokens).toBe(300)
 })
 
+test("mergeUsageDatasets reprices imported service-tier breakdowns with the active catalog", async () => {
+  const imported = await createDataset({
+    home: "laptop",
+    model: "gpt-5.5",
+    tokens: 100,
+    serviceTier: "priority",
+  })
+  const staleModel = imported.local.modelUsage[0]
+  const staleDailyModel = imported.daily[0].modelUsage[0]
+  staleModel.costUsd = 999
+  staleModel.reasoningEfforts[0].costUsd = 999
+  staleModel.serviceTiers[0].costUsd = 999
+  staleDailyModel.costUsd = 999
+  staleDailyModel.reasoningEfforts[0].costUsd = 999
+  staleDailyModel.serviceTiers[0].costUsd = 999
+  imported.daily[0].knownLocalCostUsd = 999
+  imported.daily[0].estimatedCostUsd = 999
+  imported.summary.knownLocalCostUsd = 999
+  imported.summary.estimatedCostUsd = 999
+  const pricing = await loadPricing({ source: "bundled" })
+
+  const merged = mergeUsageDatasets([imported], {
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    pricing,
+    estimateModel: "gpt-5.6-sol",
+  })
+
+  expect(merged.local.modelUsage[0].costUsd).toBeCloseTo(0.001875, 8)
+  expect(merged.local.modelUsage[0].serviceTiers[0].costUsd).toBeCloseTo(0.001875, 8)
+  expect(merged.local.modelUsage[0].reasoningEfforts[0].costUsd).toBeCloseTo(0.001875, 8)
+  expect(merged.daily[0].knownLocalCostUsd).toBeCloseTo(0.001875, 8)
+  expect(merged.summary.knownLocalCostUsd).toBeCloseTo(0.001875, 8)
+  expect(merged.pricing.source).toBe(pricing.source)
+})
+
 test("mergeUsageDatasets rejects unsupported date filtering and incompatible timezones", async () => {
   const dataset = await createDataset({ home: "desktop", model: "gpt-5", tokens: 100 })
 
@@ -111,6 +148,8 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
       inputPath,
       "--out",
       outDir,
+      "--pricing-source",
+      "bundled",
       "--silent",
     ],
     cwd: resolve(import.meta.dir, ".."),

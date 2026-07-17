@@ -53,6 +53,13 @@ async function main() {
     throw new Error("No usage sources found, pass --codex-home, --codex-root, or --usage-json")
   }
 
+  progress.status("Loading pricing table")
+  const pricing = await loadPricing({
+    source: options.pricingSource,
+    pricingJson: options.pricingJson,
+  })
+  progress.step(`Pricing table : ${pricing.source}`)
+
   if (codexHomes.length === 0) {
     const themeResolution = resolveImportedTheme(importedDatasets, options.theme)
     progress.step(`Theme : ${themeResolution?.themeChoice ?? importedDatasets[0].themeChoice}`)
@@ -62,6 +69,8 @@ async function main() {
       to: options.to,
       timezone,
       ...themeResolution,
+      pricing,
+      estimateModel: options.estimateModel,
     })
     progress.step("Dataset built from usage JSON")
     await writeDataset(dataset, options, progress)
@@ -74,12 +83,6 @@ async function main() {
     auth ? "Auth material found" : "No auth material found",
     auth ? "success" : "neutral",
   )
-  progress.status("Loading pricing table")
-  const pricing = await loadPricing({
-    source: options.pricingSource,
-    pricingJson: options.pricingJson,
-  })
-  progress.step(`Pricing table : ${pricing.source}`)
   progress.status("Resolving report theme")
   const themeResolution = resolveUsageThemes(codexHomes, options.theme)
   progress.step(`Theme : ${themeResolution.themeChoice}`)
@@ -190,6 +193,8 @@ async function main() {
           from: options.from,
           to: options.to,
           timezone,
+          pricing,
+          estimateModel: options.estimateModel,
         })
       : currentDataset
   progress.step("Dataset built")
@@ -294,7 +299,7 @@ export function parseArgs(args: string[]): CliOptions {
     source: "hybrid",
     noApi: false,
     baseUrl: "https://chatgpt.com/backend-api",
-    pricingSource: "models.dev",
+    pricingSource: "openai",
     estimateModel: "gpt-5.6-sol",
     noPng: false,
     silent: false,
@@ -425,7 +430,7 @@ function globalStepCount(options: CliOptions): number {
     options.codexRoots.length === 0
   ) {
     return (
-      4 + outputStepCount({ includePng: !options.noPng, reportOnly: options.command === "collect" })
+      5 + outputStepCount({ includePng: !options.noPng, reportOnly: options.command === "collect" })
     )
   }
 
@@ -462,11 +467,11 @@ function validateSource(value: string): SourceMode {
 }
 
 function validatePricingSource(value: string): PricingSource {
-  if (value === "bundled" || value === "models.dev") {
+  if (value === "bundled" || value === "openai" || value === "models.dev") {
     return value
   }
 
-  throw new Error("--pricing-source must be bundled or models.dev")
+  throw new Error("--pricing-source must be openai, bundled, or models.dev")
 }
 
 function helpText(): string {
@@ -495,7 +500,7 @@ Filters :
   --timezone <tz>            Local .codex default : Europe/Paris, usage JSON keeps its timezone
 
 Pricing :
-  --pricing-source <source>  models.dev (default) | bundled
+  --pricing-source <source>  openai (default) | models.dev | bundled
   --pricing-json <path>      Custom pricing JSON
   --estimate-model <model>   Default : gpt-5.6-sol
 

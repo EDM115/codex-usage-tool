@@ -1,7 +1,7 @@
 import type { ThemeChoice } from "./theme"
 
 export type SourceMode = "hybrid" | "backend" | "local"
-export type PricingSource = "bundled" | "models.dev"
+export type PricingSource = "bundled" | "openai" | "models.dev"
 
 export type UsageTheme = {
   name: string
@@ -180,12 +180,25 @@ export type WhamAnalytics = {
   }>
 }
 
-export type ModelPricing = {
-  model: string
+export type PricingTier = "standard" | "priority" | "batch" | "flex"
+
+export type PricingRates = {
   inputPerMillion: number
   cachedInputPerMillion?: number
+  cacheWritePerMillion?: number
   outputPerMillion: number
+}
+
+export type ContextPricing = {
+  short: PricingRates
+  long?: PricingRates
+}
+
+export type ModelPricing = PricingRates & {
+  model: string
   source: string
+  aliasFor?: string
+  tiers?: Partial<Record<PricingTier, ContextPricing>>
 }
 
 export type LocalUsageSlice = {
@@ -259,6 +272,7 @@ export type UsageDataset = {
   pricing: {
     source: string
     estimateModel: string
+    models?: string[]
     fetchedAt?: string
     warning?: string
   }

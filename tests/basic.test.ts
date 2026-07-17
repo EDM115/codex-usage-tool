@@ -419,6 +419,11 @@ test("buildDataset exposes canonical local model usage and exact costs", async (
     ["priority", 50],
   ])
   expect(model.serviceTiers[0].inferredTokens).toBe(50)
+  expect(model.serviceTiers[0].costUsd).toBeCloseTo(0.0015, 8)
+  expect(model.serviceTiers[1].costUsd).toBeCloseTo(0.00125, 8)
+  expect(model.reasoningEfforts[0].costUsd).toBeCloseTo(0.0015, 8)
+  expect(model.reasoningEfforts[1].costUsd).toBeCloseTo(0.00125, 8)
+  expect(model.costUsd).toBeCloseTo(0.00275, 8)
   expect(model.reasoningEfforts.reduce((sum, row) => sum + row.costUsd, 0)).toBeCloseTo(
     model.costUsd,
   )
@@ -449,6 +454,45 @@ test("buildDataset exposes canonical local model usage and exact costs", async (
     ["priority", 50],
   ])
   expect(dailyModelUsage[0].costUsd).toBeCloseTo(model.costUsd)
+})
+
+test("buildDataset applies long-context prices only with explicit rollout context evidence", async () => {
+  const pricing = await loadPricing({ source: "bundled" })
+  const dataset = buildDataset({
+    profileResult: { fetched: false, error: "offline" },
+    events: [
+      {
+        eventId: "known-long-context",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-07-10T08:00:00.000Z",
+        date: "2026-07-10",
+        model: "gpt-5.5",
+        modelContextWindow: 1_050_000,
+        breakdown: {
+          inputTokens: 300_000,
+          cachedInputTokens: 0,
+          outputTokens: 100_000,
+          reasoningOutputTokens: 20_000,
+          totalTokens: 400_000,
+        },
+      },
+    ],
+    codexHomes: [{ path: "home", label: "home" }],
+    sourceMode: "local",
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    localStats: { rolloutFiles: 1, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
+    pricing,
+    estimateModel: "gpt-5.6-sol",
+    ...resolveUsageThemes([]),
+  })
+
+  expect(dataset.local.modelUsage[0].costUsd).toBeCloseTo(7.5)
+  expect(dataset.daily[0].knownLocalCostUsd).toBeCloseTo(7.5)
 })
 
 test("report model rows keep local models authoritative and add cloud enrichment", async () => {

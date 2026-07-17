@@ -127,7 +127,15 @@ export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
 export function renderReportHtml(dataset: UsageDataset): string {
   const dataJson = JSON.stringify(dataset).replaceAll("</", "<\\/")
   const modelRowsJson = JSON.stringify(buildReportModelRows(dataset)).replaceAll("</", "<\\/")
-  const modelProgressColorsJson = JSON.stringify(MODEL_PROGRESS_COLORS).replaceAll("</", "<\\/")
+  const pricingModels = dataset.pricing.models ?? Object.keys(MODEL_PROGRESS_COLORS)
+  const fallbackColors = Object.values(MODEL_PROGRESS_COLORS)
+  const activeModelProgressColors = Object.fromEntries(
+    pricingModels.map((model, index) => [
+      model,
+      MODEL_PROGRESS_COLORS[model] ?? fallbackColors[index % fallbackColors.length],
+    ]),
+  )
+  const modelProgressColorsJson = JSON.stringify(activeModelProgressColors).replaceAll("</", "<\\/")
   const theme = dataset.theme
 
   return `<!doctype html>
@@ -308,7 +316,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       </div>
       <div class="toolbar">
         <div id="themePicker" class="theme-picker">
-          <button id="themePickerButton" class="theme-picker-button" type="button" aria-haspopup="listbox" aria-expanded="false">Theme : <span id="themePickerLabel" class="theme-picker-label">${escapeHtml(dataset.themeChoice)}</span>${controlChevron()}</button>
+          <button id="themePickerButton" class="theme-picker-button" type="button" aria-haspopup="listbox" aria-expanded="false">Theme :<span id="themePickerLabel" class="theme-picker-label">${escapeHtml(dataset.themeChoice)}</span>${controlChevron()}</button>
           <div id="themePickerPopover" class="theme-picker-popover" hidden>
             <input id="themeSearch" class="theme-search" type="search" role="combobox" aria-label="Search themes" aria-controls="themeOptions" aria-expanded="false" aria-autocomplete="list" autocomplete="off" placeholder="Search themes">
             <div id="themeOptions" class="theme-options" role="listbox" aria-label="Themes"></div>

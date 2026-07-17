@@ -12,6 +12,11 @@ import type { ThemeChoice } from "./theme"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
+import {
+  estimateBreakdownCost,
+  estimateUnattributedCost,
+  type PricingLoadResult,
+} from "./pricing"
 import { addBreakdown, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util"
 
 export type MergeUsageOptions = {
@@ -21,6 +26,8 @@ export type MergeUsageOptions = {
   theme?: UsageTheme
   themeChoice?: ThemeChoice
   availableThemes?: UsageThemeOption[]
+  pricing?: PricingLoadResult
+  estimateModel?: string
 }
 
 export function loadUsageDatasets(paths: string[]): UsageDataset[] {
@@ -67,7 +74,14 @@ export function mergeUsageDatasets(
   }
 
   const primary = datasets[0]
-  const daily = mergeDaily(datasets, options.from, options.to)
+  const estimateModel = options.estimateModel ?? primary.pricing.estimateModel
+  const daily = mergeDaily(
+    datasets,
+    options.from,
+    options.to,
+    options.pricing,
+    estimateModel,
+  )
   const profile =
     datasets.find((dataset) => dataset.profile?.fetched)?.profile ??
     datasets.find((dataset) => dataset.profile)?.profile
@@ -101,9 +115,17 @@ export function mergeUsageDatasets(
       sqliteDatabases: datasets.reduce((sum, dataset) => sum + dataset.local.sqliteDatabases, 0),
       sqliteThreads: datasets.reduce((sum, dataset) => sum + dataset.local.sqliteThreads, 0),
       parseErrors: datasets.flatMap((dataset) => dataset.local.parseErrors).slice(0, 100),
-      modelUsage: mergeModelUsage(datasets),
+      modelUsage: mergeModelUsage(datasets, options.pricing, estimateModel),
     },
-    pricing: primary.pricing,
+    pricing: options.pricing
+      ? {
+          source: options.pricing.source,
+          estimateModel,
+          models: [...options.pricing.table.keys()].sort(),
+          fetchedAt: options.pricing.fetchedAt,
+          warning: options.pricing.warning,
+        }
+      : primary.pricing,
     theme: options.theme ?? primary.theme,
     themeChoice: options.themeChoice ?? primary.themeChoice,
     availableThemes: options.availableThemes ?? primary.availableThemes,
@@ -129,6 +151,8 @@ function mergeDaily(
   datasets: UsageDataset[],
   from: string | null,
   to: string | null,
+  pricing?: PricingLoadResult,
+  estimateModel = datasets[0]?.pricing.estimateModel ?? "gpt-5.6-sol",
 ): DailyUsage[] {
   const sourceDays = datasets.map((dataset) => new Map(dataset.daily.map((day) => [day.date, day])))
   const knownDates = [...new Set(sourceDays.flatMap((days) => [...days.keys()]))].sort()
@@ -152,8 +176,19 @@ function mergeDaily(
       cloudDay && cloudDay.unattributedTokens > 0
         ? cloudDay.estimatedUnattributedCostUsd / cloudDay.unattributedTokens
         : 0
-    const knownLocalCostUsd = days.reduce((sum, day) => sum + day.knownLocalCostUsd, 0)
-    const estimatedUnattributedCostUsd = unattributedTokens * cloudRate
+    const modelUsage = mergeModelUsageRows(days.flatMap(dailyModelUsage), pricing, estimateModel)
+    const knownLocalCostUsd = pricing
+      ? modelUsage.reduce((sum, row) => sum + row.costUsd, 0)
+      : days.reduce((sum, day) => sum + day.knownLocalCostUsd, 0)
+    const estimatedUnattributedCostUsd = pricing
+      ? estimateUnattributedCost(
+          unattributedTokens,
+          knownLocalCostUsd,
+          localTokens.totalTokens,
+          estimateModel,
+          pricing.table,
+        )
+      : unattributedTokens * cloudRate
 
     return {
       date,
@@ -163,7 +198,7 @@ function mergeDaily(
       unattributedTokens,
       sourceTotal: backendTokens === undefined ? "local" : "backend",
       models: mergeBreakdownRecords(days.map((day) => day.models)),
-      modelUsage: mergeModelUsageRows(days.flatMap(dailyModelUsage)),
+      modelUsage,
       reasoningEfforts: mergeNumberRecords(days.map((day) => day.reasoningEfforts)),
       homes: mergeNumberRecords(days.map((day) => day.homes)),
       knownLocalCostUsd,
@@ -173,11 +208,23 @@ function mergeDaily(
   })
 }
 
-function mergeModelUsage(datasets: UsageDataset[]): LocalModelUsage[] {
-  return mergeModelUsageRows(datasets.flatMap((dataset) => dataset.local.modelUsage))
+function mergeModelUsage(
+  datasets: UsageDataset[],
+  pricing?: PricingLoadResult,
+  estimateModel = datasets[0]?.pricing.estimateModel ?? "gpt-5.6-sol",
+): LocalModelUsage[] {
+  return mergeModelUsageRows(
+    datasets.flatMap((dataset) => dataset.local.modelUsage),
+    pricing,
+    estimateModel,
+  )
 }
 
-function mergeModelUsageRows(rows: LocalModelUsage[]): LocalModelUsage[] {
+function mergeModelUsageRows(
+  rows: LocalModelUsage[],
+  pricing?: PricingLoadResult,
+  estimateModel = "gpt-5.6-sol",
+): LocalModelUsage[] {
   const models = new Map<string, LocalModelUsage>()
 
   for (const row of rows) {
@@ -199,7 +246,76 @@ function mergeModelUsageRows(rows: LocalModelUsage[]): LocalModelUsage[] {
     models.set(row.model, current)
   }
 
-  return [...models.values()].sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens)
+  const merged = [...models.values()].sort(
+    (a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens,
+  )
+
+  return pricing ? merged.map((row) => repriceModelUsage(row, pricing, estimateModel)) : merged
+}
+
+function repriceModelUsage(
+  row: LocalModelUsage,
+  pricing: PricingLoadResult,
+  estimateModel: string,
+): LocalModelUsage {
+  const repriced = structuredClone(row)
+  let covered = { ...ZERO_BREAKDOWN }
+  let costUsd = 0
+
+  for (const tier of repriced.serviceTiers) {
+    tier.costUsd = estimateBreakdownCost(
+      tier.breakdown,
+      repriced.model,
+      pricing.table,
+      estimateModel,
+      { serviceTier: tier.serviceTier },
+    )
+    covered = addBreakdown(covered, tier.breakdown)
+    costUsd += tier.costUsd
+  }
+
+  const remainder = subtractBreakdown(repriced.breakdown, covered)
+
+  if (repriced.serviceTiers.length === 0 || remainder.totalTokens > 0) {
+    costUsd += estimateBreakdownCost(
+      repriced.serviceTiers.length === 0 ? repriced.breakdown : remainder,
+      repriced.model,
+      pricing.table,
+      estimateModel,
+    )
+  }
+
+  repriced.costUsd = costUsd
+  const reasoningCosts = repriced.reasoningEfforts.map((effort) =>
+    estimateBreakdownCost(effort.breakdown, repriced.model, pricing.table, estimateModel),
+  )
+  const reasoningCostTotal = reasoningCosts.reduce((sum, cost) => sum + cost, 0)
+  const reasoningTokenTotal = repriced.reasoningEfforts.reduce(
+    (sum, effort) => sum + effort.breakdown.totalTokens,
+    0,
+  )
+  const reconcileReasoning =
+    reasoningCostTotal > 0 && reasoningTokenTotal === repriced.breakdown.totalTokens
+  const reasoningScale = reconcileReasoning ? costUsd / reasoningCostTotal : 1
+
+  repriced.reasoningEfforts.forEach((effort, index) => {
+    effort.costUsd = reasoningCosts[index] * reasoningScale
+  })
+
+  return repriced
+}
+
+function subtractBreakdown(total: TokenBreakdown, part: TokenBreakdown): TokenBreakdown {
+  return {
+    totalTokens: Math.max(0, total.totalTokens - part.totalTokens),
+    inputTokens: Math.max(0, total.inputTokens - part.inputTokens),
+    cachedInputTokens: Math.max(0, total.cachedInputTokens - part.cachedInputTokens),
+    outputTokens: Math.max(0, total.outputTokens - part.outputTokens),
+    reasoningOutputTokens: Math.max(
+      0,
+      total.reasoningOutputTokens - part.reasoningOutputTokens,
+    ),
+  }
 }
 
 function dailyModelUsage(day: DailyUsage): LocalModelUsage[] {
@@ -458,6 +574,8 @@ function isPricing(value: unknown): boolean {
     isRecord(value) &&
     typeof value.source === "string" &&
     typeof value.estimateModel === "string" &&
+    (value.models === undefined ||
+      (Array.isArray(value.models) && value.models.every((model) => typeof model === "string"))) &&
     isOptionalString(value.fetchedAt) &&
     isOptionalString(value.warning)
   )
