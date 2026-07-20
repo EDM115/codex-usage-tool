@@ -7,7 +7,7 @@ import { buildDataset } from "./aggregate"
 import { loadWhamAnalytics } from "./analytics-api"
 import { loadAuthFromHomes } from "./auth"
 import { resolveCodexHomes } from "./codex-homes"
-import { outputStepCount, writeOutputs } from "./export"
+import { outputProgressWeights, writeOutputs } from "./export"
 import { loadPricing } from "./pricing"
 import { loadProfile } from "./profile-api"
 import { CliProgress } from "./progress"
@@ -26,7 +26,7 @@ async function main() {
   }
 
   const progress = new CliProgress({ silent: options.silent })
-  progress.setTotal(globalStepCount(options))
+  progress.setSteps(globalProgressSteps(options))
 
   const codexHomes = resolveCodexHomes(
     options.codexHomes,
@@ -423,31 +423,32 @@ export function parseArgs(args: string[]): CliOptions {
   return options
 }
 
-function globalStepCount(options: CliOptions): number {
+function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
   if (
     options.usageJsons.length > 0 &&
     options.codexHomes.length === 0 &&
     options.codexRoots.length === 0
   ) {
-    return (
-      5 + outputStepCount({ includePng: !options.noPng, reportOnly: options.command === "collect" })
-    )
+    return [1, 1, 1, 1, 1, ...outputProgressWeights({
+      includePng: !options.noPng,
+      reportOnly: options.command === "collect",
+    })].map((weight) => ({ weight }))
   }
 
-  const inputSteps = 5
-  const profileSteps = 1
-  const localSteps = options.source === "backend" ? 1 : 3
-  const analyticsSteps = 1
-  const datasetSteps = 1
+  const localWeights = options.source === "backend" ? [1] : [2, 2, 16]
 
-  return (
-    inputSteps +
-    profileSteps +
-    localSteps +
-    analyticsSteps +
-    datasetSteps +
-    outputStepCount({ includePng: !options.noPng, reportOnly: options.command === "collect" })
-  )
+  return [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    ...localWeights,
+    1,
+    1,
+    ...outputProgressWeights({ includePng: !options.noPng, reportOnly: options.command === "collect" }),
+  ].map((weight) => ({ weight }))
 }
 
 function validateDate(value: string, flag: string): string {

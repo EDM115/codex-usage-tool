@@ -1,35 +1,57 @@
 export type ProgressState = "success" | "failure" | "neutral"
 
+export type ProgressStep = {
+  weight: number
+}
+
 export type ProgressSink = {
-  setTotal(total: number): void
+  setSteps(steps: ProgressStep[]): void
   step(message: string, state?: ProgressState): void
   status(message: string): void
+  statusProgress(message: string, completed: number, total: number): void
   statusDone(message: string, state?: ProgressState): void
   finish(): void
 }
 
 export class CliProgress implements ProgressSink {
-  private total = 1
-  private current = 0
+  private steps: ProgressStep[] = [{ weight: 1 }]
+  private totalWeight = 1
+  private completedWeight = 0
+  private currentStep = 0
+  private stageProgress = 0
   private statusLine = ""
   private renderedLines = 0
 
   constructor(private readonly options: { silent: boolean }) {}
 
-  setTotal(total: number): void {
-    this.total = Math.max(1, total)
-    this.current = 0
+  setSteps(steps: ProgressStep[]): void {
+    this.steps = steps.length > 0 ? steps.map(normalizeStep) : [{ weight: 1 }]
+    this.totalWeight = this.steps.reduce((sum, step) => sum + step.weight, 0)
+    this.completedWeight = 0
+    this.currentStep = 0
+    this.stageProgress = 0
     this.render()
   }
 
   step(message: string, state: ProgressState = "success"): void {
     this.statusLine = ""
-    this.current = Math.min(this.total, this.current + 1)
+    this.stageProgress = 0
+    this.completedWeight = Math.min(
+      this.totalWeight,
+      this.completedWeight + (this.steps[this.currentStep]?.weight ?? 0),
+    )
+    this.currentStep += 1
 
     if (!this.options.silent) {
       this.writeMarkedLine(message, state)
     }
 
+    this.render()
+  }
+
+  statusProgress(message: string, completed: number, total: number): void {
+    this.statusLine = message
+    this.stageProgress = total > 0 ? Math.max(0, Math.min(1, completed / total)) : 0
     this.render()
   }
 
@@ -63,10 +85,15 @@ export class CliProgress implements ProgressSink {
 
   private render(): void {
     this.clearRendered()
-    const percent = Math.round((this.current / this.total) * 100)
+    const currentWeight = this.steps[this.currentStep]?.weight ?? 0
+    const completed = Math.min(
+      this.totalWeight,
+      this.completedWeight + currentWeight * this.stageProgress,
+    )
+    const percent = Math.round((completed / this.totalWeight) * 100)
     const width = 24
-    const filled = Math.max(0, Math.min(width, Math.round((this.current / this.total) * width)))
-    const bar = `${"#".repeat(filled)}${"-".repeat(width - filled)}`
+    const filled = Math.max(0, Math.min(width, Math.round((completed / this.totalWeight) * width)))
+    const bar = `${"▰".repeat(filled)}${"▱".repeat(width - filled)}`
 
     if (!this.options.silent && this.statusLine) {
       process.stderr.write(`${this.statusLine}\n`)
@@ -93,6 +120,10 @@ export class CliProgress implements ProgressSink {
   }
 }
 
+function normalizeStep(step: ProgressStep): ProgressStep {
+  return { weight: Math.max(0, Number.isFinite(step.weight) ? step.weight : 0) }
+}
+
 function markFor(state: ProgressState): string {
   if (state === "failure") {
     return "✗"
@@ -106,9 +137,10 @@ function markFor(state: ProgressState): string {
 }
 
 export const noopProgress: ProgressSink = {
-  setTotal() {},
+  setSteps() {},
   step() {},
   status() {},
+  statusProgress() {},
   statusDone() {},
   finish() {},
 }

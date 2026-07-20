@@ -167,7 +167,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .toolbar { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 8px; width: min(100%, 570px); }
     .toolbar > * { min-width: 0; }
     .theme-picker { position: relative; }
-    .theme-picker-button { position: relative; width: 100%; height: 38px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; padding-right: 30px; text-align: left; }
+    .theme-picker-button { position: relative; width: 100%; height: 38px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px; padding-right: 30px; text-align: left; }
     .theme-picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .select-control { position: relative; min-width: 0; }
     .select-control select { width: 100%; height: 38px; appearance: none; padding-right: 30px; }

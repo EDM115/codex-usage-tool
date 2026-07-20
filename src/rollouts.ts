@@ -34,22 +34,24 @@ export function collectRolloutEvents(options: {
 }): RolloutCollection {
   const sqlite = discoverFromSqlite(options.homes, options.progress)
   const paths = new Set<string>(sqlite.rolloutPaths)
+  const scanTargets = options.homes.flatMap((home) =>
+    ["sessions", "archived_sessions"].map((subdir) => ({ home, subdir })),
+  )
 
-  for (const home of options.homes) {
-    for (const subdir of ["sessions", "archived_sessions"]) {
-      options.progress?.status(`Scanning ${home.label}/${subdir}`)
-      const root = join(home.path, subdir)
+  for (const [index, { home, subdir }] of scanTargets.entries()) {
+    const message = `Scanning ${home.label}/${subdir}`
+    options.progress?.status(message)
+    const root = join(home.path, subdir)
 
-      if (!dirExists(root)) {
-        continue
-      }
-
+    if (dirExists(root)) {
       for (const file of walkFiles(root, (candidate) =>
         /^rollout-.*\.jsonl$/i.test(basename(candidate)),
       )) {
         paths.add(resolve(file))
       }
     }
+
+    options.progress?.statusProgress(message, index + 1, scanTargets.length)
   }
 
   options.progress?.statusDone(`Discovered ${paths.size} ${pluralize("rollout file", paths.size)}`)
@@ -65,11 +67,12 @@ export function collectRolloutEvents(options: {
 
   for (const rolloutPath of paths) {
     rolloutIndex += 1
-    options.progress?.status(
-      `Processing source ${rolloutIndex}/${paths.size} : ${basename(rolloutPath)}`,
-    )
+    const message = `Processing source ${rolloutIndex}/${paths.size} : ${basename(rolloutPath)}`
+    options.progress?.status(message)
 
     if (!fileExists(rolloutPath)) {
+      options.progress?.statusProgress(message, rolloutIndex, paths.size)
+
       continue
     }
 
@@ -90,6 +93,8 @@ export function collectRolloutEvents(options: {
         eventMap.set(event.eventId, event)
       }
     }
+
+    options.progress?.statusProgress(message, rolloutIndex, paths.size)
   }
 
   if (paths.size > 0) {

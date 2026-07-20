@@ -28,39 +28,40 @@ export function discoverFromSqlite(homes: CodexHome[], progress?: ProgressSink):
   }
 
   for (const [index, item] of dbPaths.entries()) {
-    progress?.status(`SQLite read ${index + 1}/${dbPaths.length} : ${item.home.label}`)
+    const message = `SQLite read ${index + 1}/${dbPaths.length} : ${item.home.label}`
+    progress?.status(message)
     const rows = readThreads(item.dbPath)
 
-    if (!rows) {
-      continue
-    }
+    if (rows) {
+      sqliteDatabases += 1
+      sqliteThreads += rows.length
 
-    sqliteDatabases += 1
-    sqliteThreads += rows.length
+      for (const row of rows) {
+        const rolloutPath = String(row.rollout_path ?? "")
+        const threadId = String(row.id ?? "")
 
-    for (const row of rows) {
-      const rolloutPath = String(row.rollout_path ?? "")
-      const threadId = String(row.id ?? "")
+        if (!threadId) {
+          continue
+        }
 
-      if (!threadId) {
-        continue
-      }
+        const metadata: ThreadMetadata = {
+          threadId,
+          rolloutPath,
+          model: optionalString(row.model),
+          reasoningEffort: optionalString(row.reasoning_effort),
+          source: optionalString(row.source),
+          tokensUsed: Number(row.tokens_used ?? 0),
+          archived: Number(row.archived ?? 0) === 1,
+        }
+        metadataByThreadId.set(threadId, metadata)
 
-      const metadata: ThreadMetadata = {
-        threadId,
-        rolloutPath,
-        model: optionalString(row.model),
-        reasoningEffort: optionalString(row.reasoning_effort),
-        source: optionalString(row.source),
-        tokensUsed: Number(row.tokens_used ?? 0),
-        archived: Number(row.archived ?? 0) === 1,
-      }
-      metadataByThreadId.set(threadId, metadata)
-
-      if (rolloutPath && fileExists(rolloutPath)) {
-        rolloutPaths.add(resolve(rolloutPath))
+        if (rolloutPath && fileExists(rolloutPath)) {
+          rolloutPaths.add(resolve(rolloutPath))
+        }
       }
     }
+
+    progress?.statusProgress(message, index + 1, dbPaths.length)
   }
 
   if (dbPaths.length > 0) {

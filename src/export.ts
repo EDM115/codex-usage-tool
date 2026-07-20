@@ -42,6 +42,7 @@ export async function writeOutputs(
   if (!options.reportOnly) {
     const plannedSvg = svgOutputCount()
     options.progress?.status(`Generating ${plannedSvg} SVG`)
+    let svgIndex = 0
 
     for (const mode of ["daily", "weekly", "cumulative"] as const) {
       const heatmap = renderHeatmapSvg(dataset, mode)
@@ -49,12 +50,16 @@ export async function writeOutputs(
       writeFileSync(heatmapPath, heatmap, "utf8")
       files.push(heatmapPath)
       svgOutputs.push({ path: heatmapPath, svg: heatmap })
+      svgIndex += 1
+      options.progress?.statusProgress(`Generating SVG ${svgIndex}/${plannedSvg}`, svgIndex, plannedSvg)
 
       const chart = renderChartSvg(dataset, mode)
       const chartPath = join(outDir, `chart-${mode}.svg`)
       writeFileSync(chartPath, chart, "utf8")
       files.push(chartPath)
       svgOutputs.push({ path: chartPath, svg: chart })
+      svgIndex += 1
+      options.progress?.statusProgress(`Generating SVG ${svgIndex}/${plannedSvg}`, svgIndex, plannedSvg)
 
       for (const style of ["bar", "area"] as const) {
         if (style === "bar" && mode === "cumulative") {
@@ -66,6 +71,8 @@ export async function writeOutputs(
         writeFileSync(styledPath, styledChart, "utf8")
         files.push(styledPath)
         svgOutputs.push({ path: styledPath, svg: styledChart })
+        svgIndex += 1
+        options.progress?.statusProgress(`Generating SVG ${svgIndex}/${plannedSvg}`, svgIndex, plannedSvg)
       }
     }
 
@@ -75,7 +82,8 @@ export async function writeOutputs(
       options.progress?.status(`Generating ${svgOutputs.length} PNG`)
 
       for (const [index, output] of svgOutputs.entries()) {
-        options.progress?.status(`Generating PNG ${index + 1}/${svgOutputs.length}`)
+        const message = `Generating PNG ${index + 1}/${svgOutputs.length}`
+        options.progress?.status(message)
         const png = await tryWritePng(output.svg, output.path.replace(/\.svg$/, ".png"))
 
         if (png.ok) {
@@ -83,6 +91,8 @@ export async function writeOutputs(
         } else {
           warnings.push(png.warning)
         }
+
+        options.progress?.statusProgress(message, index + 1, svgOutputs.length)
       }
 
       options.progress?.statusDone(
@@ -100,12 +110,12 @@ export async function writeOutputs(
   return { files, warnings: [...new Set(warnings)] }
 }
 
-export function outputStepCount(options: { includePng: boolean; reportOnly?: boolean }): number {
+export function outputProgressWeights(options: { includePng: boolean; reportOnly?: boolean }): number[] {
   if (options.reportOnly) {
-    return 3
+    return [1, 1, 1]
   }
 
-  return options.includePng ? 5 : 4
+  return options.includePng ? [1, 1, 3, 6, 1] : [1, 1, 3, 1]
 }
 
 function svgOutputCount(): number {
