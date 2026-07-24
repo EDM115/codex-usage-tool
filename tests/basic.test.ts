@@ -606,6 +606,40 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
   dataset.generatedAt = "2026-07-10T13:33:11.042Z"
 
   const html = renderReportHtml(dataset)
+  const formattingScript = html.slice(
+    html.indexOf("    function exact"),
+    html.indexOf("    function renderStats"),
+  )
+  const loadFormatters = new Function(
+    "navigator",
+    "rawCountsEl",
+    `${formattingScript}
+return { exact, compact, money, percent: typeof percent === "function" ? percent : null };`,
+  ) as (
+    navigator: { languages: string[]; language: string },
+    rawCountsEl: { checked: boolean },
+  ) => {
+    exact: (value: number, maximumFractionDigits?: number, minimumFractionDigits?: number) => string
+    compact: (value: number) => string
+    money: (value: number) => string
+    percent: ((value: number) => string) | null
+  }
+  const englishFormatters = loadFormatters(
+    { languages: ["en-US"], language: "en-US" },
+    { checked: false },
+  )
+  const fallbackFormatters = loadFormatters(
+    { languages: [], language: "" },
+    { checked: false },
+  )
+  expect(englishFormatters.exact(1234.5, 2, 2)).toBe("1,234.50")
+  expect(englishFormatters.compact(1_250_000)).toBe("1.3 M")
+  expect(englishFormatters.money(1234.5)).toBe("$1,234.50")
+  expect(englishFormatters.percent?.(12.5)).toBe("12.5%")
+  expect(fallbackFormatters.exact(1234.5, 2, 2)).toBe("1 234,50")
+  expect(fallbackFormatters.compact(1_250_000)).toBe("1,3 M")
+  expect(fallbackFormatters.money(1234.5)).toBe("1 234,50 $")
+  expect(fallbackFormatters.percent?.(12.5)).toBe("12,5 %")
   expect(html).toContain("Generated at 2026-07-10 15:33:11.042 UTC+02:00 (Europe/Paris)")
   expect(html).not.toContain("Generated at 2026-07-10T13:33:11.042Z")
   dataset.generatedAt = "2026-01-10T13:33:11.042Z"

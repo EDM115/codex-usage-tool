@@ -490,7 +490,16 @@ export function renderReportHtml(dataset: UsageDataset): string {
         return '0';
       }
 
-      return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: maximumFractionDigits == null ? 0 : maximumFractionDigits, minimumFractionDigits: minimumFractionDigits == null ? 0 : minimumFractionDigits, useGrouping: true }).format(value).replace(/[\\u00a0\\u202f]/g, ' ');
+      const options = { maximumFractionDigits: maximumFractionDigits == null ? 0 : maximumFractionDigits, minimumFractionDigits: minimumFractionDigits == null ? 0 : minimumFractionDigits, useGrouping: true };
+      const locales = browserLocales();
+
+      if (locales && typeof Intl !== 'undefined' && typeof Intl.NumberFormat === 'function') {
+        try {
+          return new Intl.NumberFormat(locales, options).format(value);
+        } catch {}
+      }
+
+      return fallbackExact(value, options.maximumFractionDigits, options.minimumFractionDigits);
     }
 
     function compact(value) {
@@ -515,17 +524,57 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return exact(value || 0, 0);
     }
 
-    function trimFixed(value) {
-      return exact(value, 1);
+    function percent(value) {
+      const amount = Number.isFinite(value) ? value : 0;
+      const locales = browserLocales();
+
+      if (locales && typeof Intl !== 'undefined' && typeof Intl.NumberFormat === 'function') {
+        try {
+          return new Intl.NumberFormat(locales, { style: 'percent', maximumFractionDigits: 1 }).format(amount / 100);
+        } catch {}
+      }
+
+      return fallbackExact(amount, 1, 0) + ' %';
     }
 
     function money(value) {
-      if (!Number.isFinite(value)) {
-        return '$ 0,00';
+      const amount = Number.isFinite(value) ? value : 0;
+      const digits = Math.abs(amount) < 0.01 && amount !== 0 ? 4 : 2;
+      const locales = browserLocales();
+
+      if (locales && typeof Intl !== 'undefined' && typeof Intl.NumberFormat === 'function') {
+        try {
+          return new Intl.NumberFormat(locales, { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: true }).format(amount);
+        } catch {}
       }
 
-      const digits = Math.abs(value) < 0.01 && value !== 0 ? 4 : 2;
-      return '$ ' + exact(value, digits, digits);
+      return fallbackExact(amount, digits, digits) + ' $';
+    }
+
+    function browserLocales() {
+      try {
+        if (typeof navigator === 'undefined') return null;
+        const languages = Array.isArray(navigator.languages) ? navigator.languages.filter(function (value) { return typeof value === 'string' && value.trim(); }) : [];
+        if (languages.length) return languages;
+        if (typeof navigator.language === 'string' && navigator.language.trim()) return navigator.language;
+      } catch {}
+
+      return null;
+    }
+
+    function fallbackExact(value, maximumFractionDigits, minimumFractionDigits) {
+      if (typeof Intl !== 'undefined' && typeof Intl.NumberFormat === 'function') {
+        try {
+          return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: maximumFractionDigits, minimumFractionDigits: minimumFractionDigits, useGrouping: true }).format(value).replace(/[\\u00a0\\u202f]/g, ' ');
+        } catch {}
+      }
+
+      const fixed = value.toFixed(maximumFractionDigits);
+      const parts = fixed.split('.');
+      let fraction = parts[1] || '';
+      while (fraction.length > minimumFractionDigits && fraction.endsWith('0')) fraction = fraction.slice(0, -1);
+      const integer = parts[0].replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ');
+      return fraction ? integer + ',' + fraction : integer;
     }
 
     function renderStats() {
@@ -1217,7 +1266,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
       return '<div class="breakdown-panel"><h3>Surfaces</h3><div class="rows">' + rows.map(function (row) {
         const color = surfaceColor(row.surface);
-        const text = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : trimFixed(row.percent) + '%') + ' - ' + compact(row.turns) + ' turns';
+        const text = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : percent(row.percent)) + ' - ' + compact(row.turns) + ' turns';
         const surfaceCost = totalSurfaceTokens ? dataset.summary.estimatedCostUsd * row.textTotalTokens / totalSurfaceTokens : 0;
         const tip = row.surface + '\\nTokens : ' + exact(row.textTotalTokens, 0) + '\\nInput : ' + exact(row.inputTokens, 0) + '\\nCached input : ' + exact(row.cachedInputTokens, 0) + '\\nOutput : ' + exact(row.outputTokens, 0) + '\\nTurns : ' + exact(row.turns, 0) + '\\nThreads : ' + exact(row.threads, 0) + '\\nCredits : ' + exact(row.credits, 2) + (row.textTotalTokens ? '\\nEstimated overall cost share : ' + money(surfaceCost) : '');
         const meter = row.textTotalTokens && totalSurfaceTokens ? '<div class="meter"><span style="width:'+meterWidth(row.textTotalTokens, totalSurfaceTokens)+'; background:'+color+'"></span></div>' : '';
@@ -1482,7 +1531,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       y += 34;
       const totalSurfaceTokens = surfaces.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0) || 1;
       surfaces.forEach(function (row) {
-        const valueText = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : trimFixed(row.percent) + '%') + ' - ' + compact(row.turns) + ' turns';
+        const valueText = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : percent(row.percent)) + ' - ' + compact(row.turns) + ' turns';
         y += barRow(sideX + 16, y, sideWidth - 32, row.surface, valueText, row.textTotalTokens, totalSurfaceTokens, surfaceColor(row.surface), { noMeter: !row.textTotalTokens });
       });
       y = panelY + surfaceHeight + gap + 34;
