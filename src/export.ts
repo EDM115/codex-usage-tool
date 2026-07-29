@@ -112,10 +112,27 @@ export async function writeOutputs(
 
 export function outputProgressWeights(options: { includePng: boolean; reportOnly?: boolean }): number[] {
   if (options.reportOnly) {
-    return [1, 1, 1]
+    return [
+      1, // Write usage-data.json
+      1, // Write cost-estimate.csv
+      1, // Write usage-report.html
+    ]
   }
 
-  return options.includePng ? [1, 1, 3, 6, 1] : [1, 1, 3, 1]
+  return options.includePng
+    ? [
+        1, // Write usage-data.json
+        1, // Write cost-estimate.csv
+        2, // Render the batch of SVG heatmaps and charts
+        4, // Rasterize every SVG to PNG, native rendering is the most expensive export step
+        1, // Write usage-report.html
+      ]
+    : [
+        1, // Write usage-data.json
+        1, // Write cost-estimate.csv
+        2, // Render the batch of SVG heatmaps and charts
+        1, // Write usage-report.html
+      ]
 }
 
 function svgOutputCount(): number {

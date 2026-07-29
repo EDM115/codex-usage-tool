@@ -424,29 +424,44 @@ export function parseArgs(args: string[]): CliOptions {
 }
 
 function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
+  // Weights are relative progress-bar budget, not measurements of elapsed time. A loop updates its own `completed / total` fraction within this budget, so expensive local work stays visible without making the bar jump backwards when the number of rollout files is discovered at runtime.
   if (
     options.usageJsons.length > 0 &&
     options.codexHomes.length === 0 &&
     options.codexRoots.length === 0
   ) {
-    return [1, 1, 1, 1, 1, ...outputProgressWeights({
-      includePng: !options.noPng,
-      reportOnly: options.command === "collect",
-    })].map((weight) => ({ weight }))
+    return [
+      1, // Resolve the requested Codex homes (none for imported-only reports)
+      1, // Read the usage JSON inputs
+      1, // Load the pricing table
+      1, // Resolve the report theme
+      1, // Merge imported datasets
+      ...outputProgressWeights({
+        includePng: !options.noPng,
+        reportOnly: options.command === "collect",
+      }),
+    ].map((weight) => ({ weight }))
   }
 
-  const localWeights = options.source === "backend" ? [1] : [2, 2, 16]
+  const localWeights =
+    options.source === "backend"
+      ? [1] // Skip local collection when the backend is the only selected source
+      : [
+          2, // Read SQLite metadata databases and their thread rows
+          2, // Scan the sessions and archived_sessions directory trees
+          32, // Parse every rollout file, this is typically the longest local operation
+        ]
 
   return [
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
+    1, // Resolve Codex homes
+    1, // Read optional usage JSON inputs
+    1, // Load the pricing table
+    1, // Read locally available authentication material
+    1, // Resolve the report theme
+    1, // Fetch or read profile data
     ...localWeights,
-    1,
-    1,
+    1, // Fetch or read WHAM analytics
+    1, // Aggregate the final usage dataset
     ...outputProgressWeights({ includePng: !options.noPng, reportOnly: options.command === "collect" }),
   ].map((weight) => ({ weight }))
 }
