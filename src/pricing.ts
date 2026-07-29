@@ -520,7 +520,12 @@ export function estimateUnattributedCost(
 }
 
 function pricingTableFromOpenAiMarkdown(markdown: string, source: string): Map<string, ModelPricing> {
-  const parsed = new Map<string, { model: string; longContext: boolean; tiers: Partial<Record<PricingTier, PricingRates>> }>()
+  const parsed = new Map<string, {
+    model: string
+    longContext: boolean
+    tiers: Partial<Record<PricingTier, PricingRates>>
+    longTiers: Partial<Record<PricingTier, PricingRates>>
+  }>()
   const componentPattern = /<TextTokenPricingTables[\s\S]*?tier="(standard|batch|flex|priority)"[\s\S]*?rows=\{\[([\s\S]*?)\]\}\s*\/>/g
 
   for (const component of markdown.matchAll(componentPattern)) {
@@ -542,9 +547,57 @@ function pricingTableFromOpenAiMarkdown(markdown: string, source: string): Map<s
         model,
         longContext: LONG_CONTEXT_MODELS.has(key) || /<\s*272k\s+context/i.test(label),
         tiers: {},
+        longTiers: {},
       }
       current.longContext ||= LONG_CONTEXT_MODELS.has(key) || /<\s*272k\s+context/i.test(label)
       current.tiers[tier] = rates
+      parsed.set(key, current)
+    }
+  }
+
+  const markdownTablePattern = /^###\s+(standard|batch|flex|priority)\s+pricing data\s*$/gim
+
+  for (const section of markdown.matchAll(markdownTablePattern)) {
+    const tier = section[1].toLowerCase() as PricingTier
+    const sectionBody = markdown.slice((section.index ?? 0) + section[0].length)
+    const lines = sectionBody.split(/\r?\n/)
+    const headerIndex = lines.findIndex((line) => line.trimStart().startsWith("|"))
+
+    if (headerIndex < 0) {
+      continue
+    }
+
+    const headers = parseMarkdownTableRow(lines[headerIndex]).map((header) => header.toLowerCase())
+
+    if (headers[0] !== "model") {
+      continue
+    }
+
+    for (let index = headerIndex + 2; index < lines.length && lines[index].trimStart().startsWith("|"); index += 1) {
+      const cells = parseMarkdownTableRow(lines[index])
+      const label = cells[0]
+      const model = normalizeOpenAiModelLabel(label)
+      const shortRates = parseMarkdownPricingRates(headers, cells, "short")
+
+      if (!shortRates) {
+        continue
+      }
+
+      const longRates = parseMarkdownPricingRates(headers, cells, "long")
+      const key = model.toLowerCase()
+      const current = parsed.get(key) ?? {
+        model,
+        longContext: LONG_CONTEXT_MODELS.has(key) || /<\s*272k\s+context/i.test(label),
+        tiers: {},
+        longTiers: {},
+      }
+      current.longContext ||= Boolean(longRates) || LONG_CONTEXT_MODELS.has(key) || /<\s*272k\s+context/i.test(label)
+      current.tiers[tier] = shortRates
+
+      if (longRates) {
+        current.longTiers[tier] = longRates
+      }
+
       parsed.set(key, current)
     }
   }
@@ -563,7 +616,9 @@ function pricingTableFromOpenAiMarkdown(markdown: string, source: string): Map<s
     for (const [tier, rates] of Object.entries(parsedRow.tiers) as [PricingTier, PricingRates][]) {
       tiers[tier] = {
         short: rates,
-        long: tier === "standard" && parsedRow.longContext ? longContextRates(rates) : undefined,
+        long:
+          parsedRow.longTiers[tier] ??
+          (tier === "standard" && parsedRow.longContext ? longContextRates(rates) : undefined),
       }
     }
 
@@ -576,6 +631,34 @@ function pricingTableFromOpenAiMarkdown(markdown: string, source: string): Map<s
   }
 
   return table
+}
+
+function parseMarkdownTableRow(row: string): string[] {
+  return row.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim())
+}
+
+function parseMarkdownPricingRates(
+  headers: string[],
+  cells: string[],
+  context: "short" | "long",
+): PricingRates | undefined {
+  const value = (column: string) => {
+    const index = headers.indexOf(`${context} context ${column}`)
+    return index < 0 ? undefined : parsePriceValue(cells[index] ?? "")
+  }
+  const input = value("input")
+  const output = value("output")
+
+  if (typeof input !== "number" || typeof output !== "number") {
+    return undefined
+  }
+
+  return {
+    inputPerMillion: input,
+    cachedInputPerMillion: value("cached input"),
+    cacheWritePerMillion: value("cache writes"),
+    outputPerMillion: output,
+  }
 }
 
 function parseOpenAiRates(rawValues: string): PricingRates | undefined {
@@ -602,7 +685,7 @@ function parseOpenAiRates(rawValues: string): PricingRates | undefined {
 }
 
 function parsePriceValue(value: string): number | undefined {
-  const normalized = value.trim().replace(/^['"]|['"]$/g, "")
+  const normalized = value.trim().replace(/^['"]|['"]$/g, "").replace(/^\$/, "")
 
   if (normalized === "-" || normalized === "null" || normalized === "") {
     return undefined

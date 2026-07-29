@@ -35,6 +35,26 @@ const OPENAI_PRICING_FIXTURE = `
 />
 `
 
+const OPENAI_MARKDOWN_TABLE_PRICING_FIXTURE = `
+### Standard pricing data
+
+| Model | Short context input | Short context cached input | Short context cache writes | Short context output | Long context input | Long context cached input | Long context cache writes | Long context output |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| gpt-table-layout | $7.00 | $0.70 | $8.75 | $42.00 | $14.00 | $1.40 | $17.50 | $63.00 |
+
+### Batch pricing data
+
+| Model | Short context input | Short context cached input | Short context cache writes | Short context output | Long context input | Long context cached input | Long context cache writes | Long context output |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| gpt-table-layout | $3.50 | $0.35 | $4.375 | $21.00 | $7.00 | $0.70 | $8.75 | $31.50 |
+
+### Priority pricing data
+
+| Model | Short context input | Short context cached input | Short context cache writes | Short context output |
+| --- | --- | --- | --- | --- |
+| gpt-table-layout | $14.00 | $1.40 | $17.50 | $84.00 |
+`
+
 const MODELS_DEV_FIXTURE = {
   openai: {
     models: {
@@ -96,6 +116,24 @@ test("OpenAI standard and Priority prices override models.dev", async () => {
   expect(estimate(pricing, "gpt-5.5")).toBeCloseTo(35)
   expect(estimate(pricing, "gpt-5.5", "default")).toBeCloseTo(35)
   expect(estimate(pricing, "gpt-5.5", "priority")).toBeCloseTo(87.5)
+})
+
+test("rendered OpenAI Markdown pricing tables are parsed with their explicit long-context rates", async () => {
+  const pricing = await loadFixture(OPENAI_MARKDOWN_TABLE_PRICING_FIXTURE)
+  const longRequest: TokenBreakdown = {
+    totalTokens: 400_000,
+    inputTokens: 300_000,
+    cachedInputTokens: 0,
+    outputTokens: 100_000,
+    reasoningOutputTokens: 0,
+  }
+
+  expect(pricing.source).toBe("developers.openai.com/api/docs/pricing.md + models.dev fallback")
+  expect(pricing.warning).toBeUndefined()
+  expect(estimate(pricing, "gpt-table-layout")).toBeCloseTo(49)
+  expect(estimate(pricing, "gpt-table-layout", "batch")).toBeCloseTo(24.5)
+  expect(estimate(pricing, "gpt-table-layout", "priority")).toBeCloseTo(98)
+  expect(estimate(pricing, "gpt-table-layout", undefined, longRequest, 1_050_000)).toBeCloseTo(10.5)
 })
 
 test("Batch and Flex prices are used only for an explicit event tier", async () => {
