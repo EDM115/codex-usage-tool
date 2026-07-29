@@ -37,6 +37,11 @@ export async function writeOutputs(
   files.push(csvPath)
   options.progress?.step("Generated CSV estimate")
 
+  const htmlPath = join(outDir, "usage-report.html")
+  writeFileSync(htmlPath, renderReportHtml(dataset), "utf8")
+  files.push(htmlPath)
+  options.progress?.step("Generated HTML report")
+
   const svgOutputs: SvgOutput[] = []
 
   if (!options.reportOnly) {
@@ -102,11 +107,6 @@ export async function writeOutputs(
     }
   }
 
-  const htmlPath = join(outDir, "usage-report.html")
-  writeFileSync(htmlPath, renderReportHtml(dataset), "utf8")
-  files.push(htmlPath)
-  options.progress?.step("Generated HTML report")
-
   return { files, warnings: [...new Set(warnings)] }
 }
 
@@ -123,15 +123,15 @@ export function outputProgressWeights(options: { includePng: boolean; reportOnly
     ? [
         1, // Write usage-data.json
         1, // Write cost-estimate.csv
+        1, // Write usage-report.html
         2, // Render the batch of SVG heatmaps and charts
         4, // Rasterize every SVG to PNG, native rendering is the most expensive export step
-        1, // Write usage-report.html
       ]
     : [
         1, // Write usage-data.json
         1, // Write cost-estimate.csv
-        2, // Render the batch of SVG heatmaps and charts
         1, // Write usage-report.html
+        2, // Render the batch of SVG heatmaps and charts
       ]
 }
 

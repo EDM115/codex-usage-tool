@@ -4,7 +4,9 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { buildDataset } from "../src/aggregate"
+import { writeOutputs } from "../src/export"
 import { loadPricing } from "../src/pricing"
+import type { ProgressSink } from "../src/progress"
 import { resolveUsageThemes } from "../src/theme"
 import type { TokenEvent, UsageDataset } from "../src/types"
 import { loadUsageDatasets, mergeUsageDatasets } from "../src/usage-json"
@@ -176,6 +178,33 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
   expect(rebuilt.codexHomes).toEqual([{ path: "shared", label: "shared" }])
   expect(rebuilt.timezone).toBe("America/New_York")
 }, 15_000)
+
+test("writeOutputs writes the HTML report before generating image artifacts", async () => {
+  const root = join(tmpdir(), `codex-usage-export-order-${crypto.randomUUID()}`)
+  const dataset = await createDataset({ home: "desktop", model: "gpt-5", tokens: 100 })
+  const steps: string[] = []
+  const progress: ProgressSink = {
+    setSteps() {},
+    step(message) {
+      steps.push(message)
+    },
+    status() {},
+    statusProgress() {},
+    statusDone(message) {
+      steps.push(message)
+    },
+    finish() {},
+  }
+
+  await writeOutputs(dataset, root, { includePng: false, progress })
+
+  expect(steps).toEqual([
+    "Generated JSON data",
+    "Generated CSV estimate",
+    "Generated HTML report",
+    "Generated 11 SVG",
+  ])
+})
 
 async function createDataset(args: {
   home: string
