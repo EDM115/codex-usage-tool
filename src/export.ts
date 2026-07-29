@@ -4,7 +4,7 @@ import type { UsageDataset } from "./types"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 
-import { renderChartSvg, renderHeatmapSvg } from "./render"
+import { renderCapabilitiesPieSvg, renderChartSvg, renderHeatmapSvg } from "./render"
 import { renderReportHtml } from "./report-html"
 import { ensureDir } from "./util"
 
@@ -81,6 +81,18 @@ export async function writeOutputs(
       }
     }
 
+    const capabilitiesPie = renderCapabilitiesPieSvg(dataset)
+    const capabilitiesPiePath = join(outDir, "skills-plugins-pie.svg")
+    writeFileSync(capabilitiesPiePath, capabilitiesPie, "utf8")
+    files.push(capabilitiesPiePath)
+    svgOutputs.push({ path: capabilitiesPiePath, svg: capabilitiesPie })
+    svgIndex += 1
+    options.progress?.statusProgress(
+      `Generating SVG ${svgIndex}/${plannedSvg}`,
+      svgIndex,
+      plannedSvg,
+    )
+
     options.progress?.statusDone(`Generated ${svgOutputs.length} SVG`)
 
     if (options.includePng) {
@@ -136,7 +148,7 @@ export function outputProgressWeights(options: { includePng: boolean; reportOnly
 }
 
 function svgOutputCount(): number {
-  return 11
+  return 12
 }
 
 async function tryWritePng(

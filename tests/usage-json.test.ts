@@ -8,7 +8,7 @@ import { writeOutputs } from "../src/export"
 import { loadPricing } from "../src/pricing"
 import type { ProgressSink } from "../src/progress"
 import { resolveUsageThemes } from "../src/theme"
-import type { TokenEvent, UsageDataset } from "../src/types"
+import type { CapabilityUsageEvent, TokenEvent, UsageDataset } from "../src/types"
 import { loadUsageDatasets, mergeUsageDatasets } from "../src/usage-json"
 
 test("loadUsageDatasets reads generated datasets and identifies invalid inputs", async () => {
@@ -59,6 +59,23 @@ test("mergeUsageDatasets adds local sources without duplicating cloud enrichment
     analyticsModel: "gpt-5-mini",
     serviceTier: "priority",
   })
+  const capabilityEvent: CapabilityUsageEvent = {
+    eventId: "desktop-capability",
+    homePath: "desktop",
+    homeLabel: "desktop",
+    rolloutPath: "desktop/rollout.jsonl",
+    threadId: "desktop-thread",
+    timestamp: "2026-07-10T08:01:00.000Z",
+    date: "2026-07-10",
+    kind: "plugin",
+    name: "Codex Security",
+    evidenceType: "injection",
+    confidence: "high",
+    detail: "Injected plugin capabilities",
+  }
+  ;(desktop.local as typeof desktop.local & { capabilityEvents?: unknown[] }).capabilityEvents = [
+    capabilityEvent,
+  ]
 
   const merged = mergeUsageDatasets([desktop, laptop], {
     from: null,
@@ -78,6 +95,9 @@ test("mergeUsageDatasets adds local sources without duplicating cloud enrichment
   expect(merged.analytics).toEqual(desktop.analytics)
   expect(merged.summary.localKnownTokens).toBe(150)
   expect(merged.summary.lifetimeTokens).toBe(300)
+  expect(
+    (merged.local as typeof merged.local & { capabilityEvents?: unknown[] }).capabilityEvents,
+  ).toEqual([capabilityEvent])
 })
 
 test("mergeUsageDatasets reprices imported service-tier breakdowns with the active catalog", async () => {
@@ -169,6 +189,8 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
     "heatmap-daily.png",
     "chart-daily.svg",
     "chart-daily.png",
+    "skills-plugins-pie.svg",
+    "skills-plugins-pie.png",
   ]) {
     expect(existsSync(join(outDir, file))).toBe(true)
   }
@@ -202,7 +224,7 @@ test("writeOutputs writes the HTML report before generating image artifacts", as
     "Generated JSON data",
     "Generated CSV estimate",
     "Generated HTML report",
-    "Generated 11 SVG",
+    "Generated 12 SVG",
   ])
 })
 

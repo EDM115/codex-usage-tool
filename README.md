@@ -38,7 +38,8 @@ The report combines several data sources and keeps their roles explicit :
 - **WHAM dashboard analytics** from the Codex cloud dashboard : model turns, surface tokens, current and archived task samples, PR metadata, and task diff summaries
 - **Pricing metadata** from [`models.dev`](https://models.dev/), with bundled fallback pricing for offline runs
 
-When backend totals and local files disagree, `hybrid` mode keeps backend totals authoritative and uses local files only to explain the portion it can see. Backend-only tokens remain visible instead of being silently discarded.
+When backend totals and local files disagree, `hybrid` mode keeps backend totals authoritative and uses local files only to explain the portion it can see. Backend-only tokens remain visible instead of being silently discarded.  
+On some cases, "local enriched tokens" might appear higher than total tokens. This can happen when the day's usage haven't been processed by the backend yet, and only the local rollout data reflects that usage. This is also why in the Codex App you might see 0 token usage for the day and it only refreshes the next day.
 
 ## Installation
 

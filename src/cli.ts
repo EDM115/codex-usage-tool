@@ -129,6 +129,7 @@ async function main() {
 
           return {
             events: [],
+            capabilityEvents: [],
             rolloutFiles: 0,
             sqliteDatabases: 0,
             sqliteThreads: 0,
@@ -171,6 +172,7 @@ async function main() {
   const currentDataset = buildDataset({
     profileResult,
     events: local.events,
+    capabilityEvents: local.capabilityEvents,
     codexHomes,
     sourceMode: options.source,
     from: options.from,

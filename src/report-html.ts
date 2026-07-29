@@ -127,6 +127,12 @@ export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
 export function renderReportHtml(dataset: UsageDataset): string {
   const dataJson = JSON.stringify(dataset).replaceAll("</", "<\\/")
   const modelRowsJson = JSON.stringify(buildReportModelRows(dataset)).replaceAll("</", "<\\/")
+  const reportDates = [
+    ...dataset.daily.map((day) => day.date),
+    ...(dataset.local.capabilityEvents ?? []).map((event) => event.date),
+  ].sort()
+  const reportFrom = dataset.dateRange.from ?? reportDates[0] ?? ""
+  const reportTo = dataset.dateRange.to ?? reportDates.at(-1) ?? ""
   const pricingModels = dataset.pricing.models ?? Object.keys(MODEL_PROGRESS_COLORS)
   const fallbackColors = Object.values(MODEL_PROGRESS_COLORS)
   const activeModelProgressColors = Object.fromEntries(
@@ -237,6 +243,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .model-details { display: grid; gap: 9px; margin-left: 12px; padding-left: 11px; border-left: 1px solid var(--line); }
     .model-section { display: grid; gap: 7px; }
     .model-section + .model-section { padding-top: 9px; border-top: 1px solid var(--line); }
+    .capability-section { padding-top: 12px; border-top: 1px solid var(--line); }
     .model-section h4 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
     .overall-sections { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
     .overall-sections .row { font-size: 12px; }
@@ -324,8 +331,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
         </div>
         <label class="select-control"><select id="mode" aria-label="Chart time mode"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="cumulative">Cumulative</option></select>${controlChevron()}</label>
         <label class="select-control"><select id="chartStyle" aria-label="Chart style"><option value="auto">Auto chart</option><option value="bar">Bar</option><option value="area">Line/area</option></select>${controlChevron()}</label>
-        ${dateControl("from", "Start date", dataset.dateRange.from ?? dataset.daily[0]?.date ?? "")}
-        ${dateControl("to", "End date", dataset.dateRange.to ?? dataset.daily.at(-1)?.date ?? "")}
+        ${dateControl("from", "Start date", reportFrom)}
+        ${dateControl("to", "End date", reportTo)}
         <div class="toolbar-meta"><label class="toggle-control"><input id="rawCounts" type="checkbox">Exact counts</label>${githubLink()}</div>
       </div>
     </header>
@@ -907,6 +914,37 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return [...models.values()].sort(function (a, b) { return b.breakdown.totalTokens - a.breakdown.totalTokens; });
     }
 
+    function capabilityDateMatches(date) {
+      const value = String(date || '').slice(0, 10);
+      return (!fromDateValue || value >= fromDateValue) && (!toDateValue || value <= toDateValue);
+    }
+
+    function filteredCapabilityRows() {
+      const rows = new Map();
+
+      ((dataset.local && dataset.local.capabilityEvents) || []).filter(function (event) {
+        return capabilityDateMatches(event.date);
+      }).forEach(function (event) {
+        const key = event.kind + '\\u0000' + event.name;
+        const current = rows.get(key) || { kind: event.kind, name: event.name, count: 0, evidenceCounts: {}, confidenceCounts: {}, events: [] };
+        current.count += 1;
+        current.evidenceCounts[event.evidenceType] = (current.evidenceCounts[event.evidenceType] || 0) + 1;
+        current.confidenceCounts[event.confidence] = (current.confidenceCounts[event.confidence] || 0) + 1;
+        current.events.push(event);
+        rows.set(key, current);
+      });
+
+      return [...rows.values()].sort(function (a, b) {
+        return b.count - a.count || latestCapabilityDate(b).localeCompare(latestCapabilityDate(a)) || a.name.localeCompare(b.name) || a.kind.localeCompare(b.kind);
+      });
+    }
+
+    function latestCapabilityDate(row) {
+      return row.events.reduce(function (latest, event) {
+        return event.date > latest ? event.date : latest;
+      }, '');
+    }
+
     function analyticsDateMatches(date) {
       const value = String(date || '').slice(0, 10);
       return (!fromDateValue || value >= fromDateValue) && (!toDateValue || value <= toDateValue);
@@ -1028,15 +1066,16 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const analytics = dataset.analytics;
       const filtered = filteredAnalytics();
       const models = filteredReportModels();
+      const capabilities = filteredCapabilityRows();
       const surfaces = filtered && filtered.bySurface ? filtered.bySurface : [];
 
-      if (models.length === 0 && surfaces.length === 0 && !(analytics && analytics.tasks)) {
+      if (models.length === 0 && capabilities.length === 0 && surfaces.length === 0 && !(analytics && analytics.tasks)) {
         analyticsBreakdown.innerHTML = '<div class="breakdown-panel"><h3>Dashboard data unavailable</h3><div class="rows"><p>' + escapeText(analytics && analytics.error ? analytics.error : 'No wham analytics response was available for this run') + '</p></div></div>';
 
         return;
       }
 
-      const modelHtml = models.length ? modelPanel(models, filtered && filtered.byModelVariants ? filtered.byModelVariants : []) : '<div class="breakdown-panel"><h3>Models</h3><div class="rows"><p>No usage was recorded in this date range</p></div></div>';
+      const modelHtml = models.length || capabilities.length ? modelPanel(models, filtered && filtered.byModelVariants ? filtered.byModelVariants : []) : '<div class="breakdown-panel"><h3>Models</h3><div class="rows"><p>No usage was recorded in this date range</p></div></div>';
       const cloudHtml = analytics ? surfacePanel(surfaces) + taskPanel(analytics.tasks) : '<div class="breakdown-panel"><h3>Cloud enrichment unavailable</h3><div class="rows"><p>No WHAM analytics response was available for this run</p></div></div>';
       analyticsBreakdown.innerHTML = modelHtml + '<div class="breakdown-sidebar">' + cloudHtml + '</div>';
       analyticsBreakdown.querySelectorAll('[data-tip]').forEach(bindTip);
@@ -1102,7 +1141,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       }).join('');
       const overall = overallPanels(rows, variantsByModel);
 
-      return '<div class="breakdown-panel model-panel"><h3>Models</h3><div class="rows">' + modelRows + overall + '</div></div>';
+      return '<div class="breakdown-panel model-panel"><h3>Models</h3><div class="rows">' + modelRows + capabilitySection() + overall + '</div></div>';
     }
 
     function modelValueText(row) {
@@ -1207,6 +1246,33 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
         return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(tier.label)+'</div><div>'+escapeText(valueText)+'</div><div class="meter"><span style="width:'+meterWidth(value, denominator)+'; background:'+modeColor(tier.label)+'"></span></div></div>';
       }).join('') + '</div></div>';
+    }
+
+    function capabilitySection() {
+      const rows = filteredCapabilityRows();
+
+      if (!rows.length) {
+        return '<div class="model-section capability-section"><h4>Skills &amp; plugins</h4><p>No high- or medium-confidence usage evidence in this date range</p></div>';
+      }
+
+      const max = Math.max.apply(null, rows.map(function (row) { return row.count; }));
+      return '<div class="model-section capability-section"><h4>Skills &amp; plugins</h4>' + rows.map(function (row) {
+        const label = (row.kind === 'plugin' ? 'Plugin · ' : 'Skill · ') + row.name;
+        const uses = row.count === 1 ? '1 use' : compact(row.count) + ' uses';
+        return '<div class="row" data-tip="'+escapeText(capabilityTip(row))+'"><div class="row-label">'+escapeText(label)+'</div><div class="row-value">'+escapeText(uses)+'</div><div class="meter"><span style="width:'+meterWidth(row.count, max)+'; background:'+stableProgressColor(row.kind + ':' + row.name)+'"></span></div></div>';
+      }).join('') + '</div>';
+    }
+
+    function capabilityTip(row) {
+      const evidenceLabels = { injection: 'Injections', tool_call: 'Plugin tool calls', skill_file_read: 'SKILL.md reads' };
+      let tip = (row.kind === 'plugin' ? 'Plugin · ' : 'Skill · ') + row.name + '\\nUses : ' + exact(row.count, 0) + '\\nEvidence :';
+      Object.keys(row.evidenceCounts).forEach(function (evidenceType) {
+        tip += '\\n- ' + (evidenceLabels[evidenceType] || evidenceType) + ' : ' + exact(row.evidenceCounts[evidenceType], 0);
+      });
+      tip += '\\nConfidence : ' + exact(row.confidenceCounts.high || 0, 0) + ' high';
+      if (row.confidenceCounts.medium) tip += ', ' + exact(row.confidenceCounts.medium, 0) + ' medium';
+
+      return tip;
     }
 
     function overallUsageRows(rows, variantsByModel) {
@@ -1360,7 +1426,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const width = 1100;
       const height = Math.max(560, analyticsBreakdown.scrollHeight + 72);
       const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export"><h2 style="margin:0 0 12px;font-size:18px;color:'+theme.colors.text+'">Usage Breakdown</h2>' + clone.outerHTML + '</div>';
-      const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;min-width:0}.row-label,.task-title,.task-meta{overflow-wrap:anywhere}.row-value{text-align:right;font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
+      const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.capability-section{padding-top:12px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;min-width:0}.row-label,.task-title,.task-meta{overflow-wrap:anywhere}.row-value{text-align:right;font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
 
       return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
     }
@@ -1368,12 +1434,13 @@ export function renderReportHtml(dataset: UsageDataset): string {
     function renderDashboardCanvas() {
       const analytics = filteredAnalytics() || { };
       const models = filteredReportModels();
+      const capabilities = filteredCapabilityRows();
       const variants = analytics.byModelVariants || [];
       const surfaces = analytics.bySurface || [];
       const tasks = analytics.tasks;
       const variantsByModel = modelVariantsByName(variants);
       const overall = overallUsageRows(models, variantsByModel);
-      const modelLineCount = models.reduce(function (sum, row) { return sum + 1 + (row.reasoningEfforts || []).length + serviceTierRows(row, variantsByModel.get(row.model) || []).length + ((row.reasoningEfforts || []).length ? 1 : 0) + (serviceTierRows(row, variantsByModel.get(row.model) || []).length ? 1 : 0); }, 0) + overall.reasoningRows.length + overall.modeRows.length + 4;
+      const modelLineCount = models.reduce(function (sum, row) { return sum + 1 + (row.reasoningEfforts || []).length + serviceTierRows(row, variantsByModel.get(row.model) || []).length + ((row.reasoningEfforts || []).length ? 1 : 0) + (serviceTierRows(row, variantsByModel.get(row.model) || []).length ? 1 : 0); }, 0) + capabilities.length + (capabilities.length ? 2 : 0) + overall.reasoningRows.length + overall.modeRows.length + 4;
       const width = 1400;
       const margin = 28;
       const gap = 18;
@@ -1510,6 +1577,25 @@ export function renderReportHtml(dataset: UsageDataset): string {
           });
         }
       });
+
+      if (capabilities.length) {
+        y += 4;
+        ctx.strokeStyle = theme.colors.line;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(modelX + 16, y);
+        ctx.lineTo(modelX + mainWidth - 16, y);
+        ctx.stroke();
+        y += 18;
+        section(modelX + 16, y, 'Skills & plugins');
+        y += 22;
+        const maxCapabilityUses = Math.max.apply(null, capabilities.map(function (row) { return row.count; }));
+        capabilities.forEach(function (row) {
+          const label = (row.kind === 'plugin' ? 'Plugin · ' : 'Skill · ') + row.name;
+          const valueText = row.count === 1 ? '1 use' : compact(row.count) + ' uses';
+          y += barRow(modelX + 16, y, mainWidth - 32, label, valueText, row.count, maxCapabilityUses, stableProgressColor(row.kind + ':' + row.name), { small: true });
+        });
+      }
 
       function drawOverallRows(titleText, rows, colorKind) {
         if (!rows.length) return;

@@ -6,9 +6,11 @@ import { join } from "node:path"
 
 import { buildDataset } from "../src/aggregate"
 import { loadPricing } from "../src/pricing"
+import { renderCapabilitiesPieSvg } from "../src/render"
 import { buildReportModelRows, renderReportHtml, type ReportModelRow } from "../src/report-html"
 import { collectRolloutEvents } from "../src/rollouts"
 import { resolveUsageThemes } from "../src/theme"
+import type { CapabilityUsageEvent, UsageDataset } from "../src/types"
 import { compactNumber, exactNumber, money } from "../src/util"
 
 test("French number formatting uses spaces and decimal commas", () => {
@@ -86,6 +88,138 @@ test("collectRolloutEvents parses token_count breakdowns", () => {
   })
   expect(result.events[0].model).toBe("gpt-5")
   expect(result.events[0].reasoningEffort).toBe("high")
+})
+
+test("collectRolloutEvents extracts dated skill and plugin evidence without low-confidence mentions", () => {
+  const root = join(tmpdir(), `codex-capability-test-${Date.now()}`)
+  const codexHome = join(root, ".codex")
+  const sessions = join(codexHome, "sessions", "2026", "07", "10")
+  mkdirSync(sessions, { recursive: true })
+  const rollout = join(
+    sessions,
+    "rollout-2026-07-10T08-00-00-00000000-0000-0000-0000-000000000010.jsonl",
+  )
+  const skillBlock =
+    "<skill>\n<name>using-superpowers</name>\n<path>C:\\Users\\dev\\.agents\\skills\\using-superpowers\\SKILL.md</path>\nUse the skill.</skill>"
+  const pluginBlock =
+    "Capabilities from the `Codex Security` plugin:\n- Skills from this plugin are prefixed with `Codex Security:`.\n- MCP servers from this plugin available in this session: `codex-security`.\nUse these plugin-associated capabilities to help solve the task."
+  writeFileSync(
+    rollout,
+    [
+      JSON.stringify({
+        timestamp: "2026-07-10T08:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "00000000-0000-0000-0000-000000000010", model: "gpt-5" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:01:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: skillBlock }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:02:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "developer",
+          content: [{ type: "input_text", text: pluginBlock }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:03:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "open_codex_security_workspace",
+          arguments: "{}",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:04:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "shell_command",
+          arguments: JSON.stringify({
+            command: "Get-Content -Path 'C:\\Users\\dev\\.agents\\skills\\rtk\\SKILL.md' -Raw",
+          }),
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:05:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          name: "exec",
+          input:
+            "await tools.shell_command({command:\"Get-Content -Path 'C:\\\\Users\\\\dev\\\\.codex\\\\plugins\\\\cache\\\\openai-curated-remote\\\\codex-security\\\\0.1.14\\\\skills\\\\security-scan\\\\SKILL.md' -Raw\"})",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:06:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Please consider $rtk and @Codex Security." }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-11T08:01:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: skillBlock }],
+        },
+      }),
+    ].join("\n"),
+  )
+
+  const result = collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+  }) as ReturnType<typeof collectRolloutEvents> & { capabilityEvents?: Array<Record<string, unknown>> }
+
+  expect(
+    result.capabilityEvents?.map((event) => [
+      event.date,
+      event.kind,
+      event.name,
+      event.evidenceType,
+      event.confidence,
+    ]),
+  ).toEqual([
+    ["2026-07-10", "skill", "using-superpowers", "injection", "high"],
+    ["2026-07-10", "plugin", "Codex Security", "injection", "high"],
+    ["2026-07-10", "plugin", "Codex Security", "tool_call", "high"],
+    ["2026-07-10", "skill", "rtk", "skill_file_read", "medium"],
+    [
+      "2026-07-10",
+      "skill",
+      "codex-security:security-scan",
+      "skill_file_read",
+      "medium",
+    ],
+    ["2026-07-11", "skill", "using-superpowers", "injection", "high"],
+  ])
+
+  const filtered = collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: "2026-07-11",
+    to: "2026-07-11",
+  }) as ReturnType<typeof collectRolloutEvents> & { capabilityEvents?: Array<Record<string, unknown>> }
+
+  expect(filtered.capabilityEvents?.map((event) => [event.date, event.name])).toEqual([
+    ["2026-07-11", "using-superpowers"],
+  ])
 })
 
 test("collectRolloutEvents follows thread settings model and service tier changes", () => {
@@ -331,6 +465,42 @@ test("buildDataset keeps backend totals authoritative and local details enriched
     "EDM115",
     "absolutely-dark",
   ])
+})
+
+test("buildDataset retains capability evidence for report-side date filtering", async () => {
+  const pricing = await loadPricing({ source: "bundled" })
+  const capabilityEvent: CapabilityUsageEvent = {
+    eventId: "capability-1",
+    homePath: "home",
+    homeLabel: "home",
+    rolloutPath: "rollout",
+    threadId: "thread",
+    timestamp: "2026-07-10T08:00:00.000Z",
+    date: "2026-07-10",
+    kind: "skill",
+    name: "rtk",
+    evidenceType: "skill_file_read",
+    confidence: "medium",
+    detail: "Read skill instructions from C:/skills/rtk/SKILL.md",
+  }
+  const dataset = buildDataset({
+    profileResult: { fetched: false, error: "offline" },
+    events: [],
+    capabilityEvents: [capabilityEvent],
+    codexHomes: [{ path: "home", label: "home" }],
+    sourceMode: "local",
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    localStats: { rolloutFiles: 1, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
+    pricing,
+    estimateModel: "gpt-5",
+    ...resolveUsageThemes([]),
+  } as Parameters<typeof buildDataset>[0] & { capabilityEvents: Array<typeof capabilityEvent> })
+
+  expect(
+    (dataset.local as typeof dataset.local & { capabilityEvents?: unknown[] }).capabilityEvents,
+  ).toEqual([capabilityEvent])
 })
 
 test("buildDataset exposes canonical local model usage and exact costs", async () => {
@@ -593,6 +763,78 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
         },
       },
     ],
+    capabilityEvents: [
+      {
+        eventId: "skill-injection-1",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-06-27T08:01:00.000Z",
+        date: "2026-06-27",
+        kind: "skill",
+        name: "rtk",
+        evidenceType: "injection",
+        confidence: "high",
+        detail: "Injected skill instructions from C:/skills/rtk/SKILL.md",
+      },
+      {
+        eventId: "skill-injection-2",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-06-27T08:02:00.000Z",
+        date: "2026-06-27",
+        kind: "skill",
+        name: "rtk",
+        evidenceType: "injection",
+        confidence: "high",
+        detail: "Injected skill instructions from C:/skills/rtk/SKILL.md",
+      },
+      {
+        eventId: "skill-read",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-06-27T08:03:00.000Z",
+        date: "2026-06-27",
+        kind: "skill",
+        name: "rtk",
+        evidenceType: "skill_file_read",
+        confidence: "medium",
+        detail: "Read skill instructions from C:/skills/rtk/SKILL.md",
+      },
+      {
+        eventId: "plugin-injection",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-06-28T08:01:00.000Z",
+        date: "2026-06-28",
+        kind: "plugin",
+        name: "Codex Security",
+        evidenceType: "injection",
+        confidence: "high",
+        detail: "Injected plugin capabilities",
+      },
+      {
+        eventId: "plugin-tool",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-06-28T08:02:00.000Z",
+        date: "2026-06-28",
+        kind: "plugin",
+        name: "Codex Security",
+        evidenceType: "tool_call",
+        confidence: "high",
+        detail: "Called plugin tool open_codex_security_workspace",
+      },
+    ],
     codexHomes: [{ path: "home", label: "home" }],
     sourceMode: "local",
     from: null,
@@ -649,11 +891,17 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(html).toContain('id="rawCounts"')
   expect(html).toContain('id="from" type="text" value="27/06/2026"')
   expect(html).toContain('id="fromPicker" type="date" value="2026-06-27"')
-  expect(html).toContain('id="to" type="text" value="27/06/2026"')
-  expect(html).toContain('id="toPicker" type="date" value="2026-06-27"')
+  expect(html).toContain('id="to" type="text" value="28/06/2026"')
+  expect(html).toContain('id="toPicker" type="date" value="2026-06-28"')
   expect(html).toContain('placeholder="DD/MM/YYYY"')
   expect(html).toContain("function parseDisplayDate")
   expect(html).toContain("function filteredReportModels")
+  expect(html).toContain("function filteredCapabilityRows")
+  expect(html).toContain("function capabilitySection")
+  expect(html).not.toContain("Recent evidence :")
+  expect(html).toContain(
+    ".capability-section { padding-top: 12px; border-top: 1px solid var(--line); }",
+  )
   expect(html).toContain("function filteredAnalytics")
   expect(html).toContain("const models = filteredReportModels()")
   expect(html).toContain("const analytics = filteredAnalytics() || { }")
@@ -704,6 +952,99 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(modelRows.map((row) => [row.model, row.source, row.localTokens])).toEqual([
     ["gpt-5", "local", 120],
   ])
+  const capabilityScript = html.slice(
+    html.indexOf("    function capabilityDateMatches"),
+    html.indexOf("    function analyticsDateMatches"),
+  )
+  const filteredCapabilities = new Function(
+    "dataset",
+    "fromDateValue",
+    "toDateValue",
+    `${capabilityScript}
+return filteredCapabilityRows();`,
+  ) as (
+    dataset: UsageDataset,
+    fromDateValue: string,
+    toDateValue: string,
+  ) => Array<{
+    kind: string
+    name: string
+    count: number
+    evidenceCounts: Record<string, number>
+    confidenceCounts: Record<string, number>
+    events: Array<{ detail: string }>
+  }>
+  expect(filteredCapabilities(dataset, "2026-06-27", "2026-06-27")).toEqual([
+    {
+      kind: "skill",
+      name: "rtk",
+      count: 3,
+      evidenceCounts: { injection: 2, skill_file_read: 1 },
+      confidenceCounts: { high: 2, medium: 1 },
+      events: dataset.local.capabilityEvents.slice(0, 3),
+    },
+  ])
+  expect(filteredCapabilities(dataset, "2026-06-28", "2026-06-28")).toEqual([
+    {
+      kind: "plugin",
+      name: "Codex Security",
+      count: 2,
+      evidenceCounts: { injection: 1, tool_call: 1 },
+      confidenceCounts: { high: 2 },
+      events: dataset.local.capabilityEvents.slice(3),
+    },
+  ])
+  const tiedDataset = structuredClone(dataset)
+
+  for (const name of ["beta", "alpha"]) {
+    for (let occurrence = 1; occurrence <= 2; occurrence += 1) {
+      tiedDataset.local.capabilityEvents.push({
+        ...dataset.local.capabilityEvents[0],
+        eventId: `${name}-${occurrence}`,
+        timestamp: `2026-06-29T08:0${occurrence}:00.000Z`,
+        date: "2026-06-29",
+        name,
+      })
+    }
+  }
+
+  expect(
+    filteredCapabilities(tiedDataset, "2026-06-27", "2026-06-29").map((row) => [
+      row.name,
+      row.count,
+    ]),
+  ).toEqual([
+    ["rtk", 3],
+    ["alpha", 2],
+    ["beta", 2],
+    ["Codex Security", 2],
+  ])
+  const pie = renderCapabilitiesPieSvg(tiedDataset)
+  expect(pie).toContain("Skills &amp; plugins usage")
+  expect(pie).toContain("Skill · rtk")
+  expect(pie).toContain("Plugin · Codex Security")
+  expect(pie.indexOf("Skill · alpha")).toBeLessThan(pie.indexOf("Skill · beta"))
+  expect(html).not.toContain("skills-plugins-pie")
+
+  const crowdedDataset = structuredClone(dataset)
+  crowdedDataset.local.capabilityEvents = []
+
+  for (let rank = 1; rank <= 10; rank += 1) {
+    for (let occurrence = rank; occurrence <= 10; occurrence += 1) {
+      crowdedDataset.local.capabilityEvents.push({
+        ...dataset.local.capabilityEvents[0],
+        eventId: `skill-${rank}-${occurrence}`,
+        timestamp: `2026-06-${String(30 - rank).padStart(2, "0")}T08:00:00.000Z`,
+        date: `2026-06-${String(30 - rank).padStart(2, "0")}`,
+        name: `skill-${rank}`,
+      })
+    }
+  }
+
+  const crowdedPie = renderCapabilitiesPieSvg(crowdedDataset)
+  expect(crowdedPie).toContain("Other")
+  expect(crowdedPie).not.toContain("Skill · skill-9")
+  expect(crowdedPie).not.toContain("Skill · skill-10")
   const scripts = [
     ...html.matchAll(/<script(?![^>]*application\/json)[^>]*>([\s\S]*?)<\/script>/g),
   ].map((match) => match[1])

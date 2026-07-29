@@ -67,6 +67,21 @@ export type TokenEvent = {
   modelContextWindow?: number
 }
 
+export type CapabilityUsageEvent = {
+  eventId: string
+  homePath: string
+  homeLabel: string
+  rolloutPath: string
+  threadId: string
+  timestamp: string
+  date: string
+  kind: "skill" | "plugin"
+  name: string
+  evidenceType: "injection" | "tool_call" | "skill_file_read"
+  confidence: "high" | "medium"
+  detail: string
+}
+
 export type AccountTokenUsageSummary = {
   lifetimeTokens: number | null
   peakDailyTokens: number | null
@@ -268,6 +283,7 @@ export type UsageDataset = {
     sqliteThreads: number
     parseErrors: Array<{ path: string; line?: number; error: string }>
     modelUsage: LocalModelUsage[]
+    capabilityEvents: CapabilityUsageEvent[]
   }
   pricing: {
     source: string

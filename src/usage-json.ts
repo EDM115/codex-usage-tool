@@ -1,4 +1,5 @@
 import type {
+  CapabilityUsageEvent,
   DailyUsage,
   LocalModelUsage,
   TokenBreakdown,
@@ -46,6 +47,8 @@ export function loadUsageDatasets(paths: string[]): UsageDataset[] {
     if (!isUsageDataset(value)) {
       throw new Error(`Invalid usage JSON ${path} : expected a generated usage-data.json`)
     }
+
+    value.local.capabilityEvents ??= []
 
     return value
   })
@@ -116,6 +119,9 @@ export function mergeUsageDatasets(
       sqliteThreads: datasets.reduce((sum, dataset) => sum + dataset.local.sqliteThreads, 0),
       parseErrors: datasets.flatMap((dataset) => dataset.local.parseErrors).slice(0, 100),
       modelUsage: mergeModelUsage(datasets, options.pricing, estimateModel),
+      capabilityEvents: datasets
+        .flatMap((dataset) => dataset.local.capabilityEvents ?? [])
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
     },
     pricing: options.pricing
       ? {
@@ -530,7 +536,30 @@ function isLocalUsage(value: unknown): boolean {
     Array.isArray(value.parseErrors) &&
     value.parseErrors.every(isParseError) &&
     Array.isArray(value.modelUsage) &&
-    value.modelUsage.every(isLocalModelUsage)
+    value.modelUsage.every(isLocalModelUsage) &&
+    (value.capabilityEvents === undefined ||
+      (Array.isArray(value.capabilityEvents) &&
+        value.capabilityEvents.every(isCapabilityUsageEvent)))
+  )
+}
+
+function isCapabilityUsageEvent(value: unknown): value is CapabilityUsageEvent {
+  return (
+    isRecord(value) &&
+    typeof value.eventId === "string" &&
+    typeof value.homePath === "string" &&
+    typeof value.homeLabel === "string" &&
+    typeof value.rolloutPath === "string" &&
+    typeof value.threadId === "string" &&
+    typeof value.timestamp === "string" &&
+    isDate(value.date) &&
+    (value.kind === "skill" || value.kind === "plugin") &&
+    typeof value.name === "string" &&
+    (value.evidenceType === "injection" ||
+      value.evidenceType === "tool_call" ||
+      value.evidenceType === "skill_file_read") &&
+    (value.confidence === "high" || value.confidence === "medium") &&
+    typeof value.detail === "string"
   )
 }
 

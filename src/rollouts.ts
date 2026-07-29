@@ -1,10 +1,14 @@
 import type { ProgressSink } from "./progress"
-import type { CodexHome, ThreadMetadata, TokenEvent } from "./types"
+import type { CapabilityUsageEvent, CodexHome, ThreadMetadata, TokenEvent } from "./types"
 
 import { readFileSync } from "node:fs"
 import { basename, dirname, join, resolve } from "node:path"
 
 import { discoverFromSqlite } from "./sqlite"
+import {
+  createCapabilityEvidenceTracker,
+  extractCapabilityUsageEvents,
+} from "./capabilities"
 import {
   clampDate,
   dateKey,
@@ -19,6 +23,7 @@ import {
 
 export type RolloutCollection = {
   events: TokenEvent[]
+  capabilityEvents: CapabilityUsageEvent[]
   rolloutFiles: number
   sqliteDatabases: number
   sqliteThreads: number
@@ -58,6 +63,7 @@ export function collectRolloutEvents(options: {
 
   const parseErrors: Array<{ path: string; line?: number; error: string }> = []
   const eventMap = new Map<string, TokenEvent>()
+  const capabilityEventMap = new Map<string, CapabilityUsageEvent>()
 
   if (paths.size === 0) {
     options.progress?.statusDone(`Processed 0/0 ${pluralize("source", 0)}`)
@@ -78,19 +84,27 @@ export function collectRolloutEvents(options: {
 
     const home = homeForRollout(options.homes, rolloutPath)
 
-    for (const event of parseRolloutFile({
+    const parsedRollout = parseRolloutFile({
       rolloutPath,
       home,
       timezone: options.timezone,
       metadataByThreadId: sqlite.metadataByThreadId,
       parseErrors,
-    })) {
+    })
+
+    for (const event of parsedRollout.events) {
       if (!clampDate(event.date, options.from, options.to)) {
         continue
       }
 
       if (!eventMap.has(event.eventId)) {
         eventMap.set(event.eventId, event)
+      }
+    }
+
+    for (const event of parsedRollout.capabilityEvents) {
+      if (clampDate(event.date, options.from, options.to) && !capabilityEventMap.has(event.eventId)) {
+        capabilityEventMap.set(event.eventId, event)
       }
     }
 
@@ -105,6 +119,9 @@ export function collectRolloutEvents(options: {
 
   return {
     events: [...eventMap.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
+    capabilityEvents: [...capabilityEventMap.values()].sort((a, b) =>
+      a.timestamp.localeCompare(b.timestamp),
+    ),
     rolloutFiles: paths.size,
     sqliteDatabases: sqlite.sqliteDatabases,
     sqliteThreads: sqlite.sqliteThreads,
@@ -118,8 +135,10 @@ function parseRolloutFile(args: {
   timezone: string
   metadataByThreadId: Map<string, ThreadMetadata>
   parseErrors: Array<{ path: string; line?: number; error: string }>
-}): TokenEvent[] {
+}): { events: TokenEvent[]; capabilityEvents: CapabilityUsageEvent[] } {
   const out: TokenEvent[] = []
+  const capabilityEvents: CapabilityUsageEvent[] = []
+  const capabilityTracker = createCapabilityEvidenceTracker()
   const text = readFileSync(args.rolloutPath, "utf8")
   const lines = text.split(/\r?\n/)
   let threadId = threadIdFromFilename(args.rolloutPath)
@@ -175,6 +194,20 @@ function parseRolloutFile(args: {
 
       continue
     }
+
+    capabilityEvents.push(
+      ...extractCapabilityUsageEvents({
+        parsed,
+        payload,
+        lineIndex: index,
+        rolloutPath: args.rolloutPath,
+        homePath: args.home.path,
+        homeLabel: args.home.label,
+        threadId,
+        timezone: args.timezone,
+        tracker: capabilityTracker,
+      }),
+    )
 
     if (type === "turn_context") {
       setCurrentModel(firstString(payload.model, currentModel))
@@ -271,7 +304,7 @@ function parseRolloutFile(args: {
     }
   }
 
-  return out
+  return { events: out, capabilityEvents }
 }
 
 function homeForRollout(homes: CodexHome[], rolloutPath: string): CodexHome {

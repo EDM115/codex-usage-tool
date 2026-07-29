@@ -1,5 +1,6 @@
 import type {
   AccountProfileResponse,
+  CapabilityUsageEvent,
   CodexHome,
   DailyUsage,
   LocalModelUsage,
@@ -35,6 +36,7 @@ export function buildDataset(args: {
     error?: string
   }
   events: TokenEvent[]
+  capabilityEvents?: CapabilityUsageEvent[]
   codexHomes: CodexHome[]
   sourceMode: SourceMode
   from: string | null
@@ -160,6 +162,9 @@ export function buildDataset(args: {
       sqliteThreads: args.localStats.sqliteThreads,
       parseErrors: args.localStats.parseErrors.slice(0, 100),
       modelUsage,
+      capabilityEvents: [...(args.capabilityEvents ?? [])].sort((a, b) =>
+        a.timestamp.localeCompare(b.timestamp),
+      ),
     },
     pricing: {
       source: args.pricing.source,
