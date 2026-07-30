@@ -337,8 +337,7 @@ function buildSummary(
 
   return {
     lifetimeTokens: profile?.summary.lifetimeTokens ?? lifetimeFromDaily,
-    peakDailyTokens:
-      profile?.summary.peakDailyTokens ?? Math.max(0, ...daily.map((day) => day.totalTokens)),
+    peakDailyTokens: Math.max(0, ...daily.map((day) => day.localTokens.totalTokens)),
     currentStreakDays: profile?.summary.currentStreakDays ?? null,
     longestStreakDays: profile?.summary.longestStreakDays ?? null,
     longestRunningTurnSec: profile?.summary.longestRunningTurnSec ?? null,
