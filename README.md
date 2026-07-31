@@ -36,7 +36,7 @@ The report combines several data sources and keeps their roles explicit :
 - **Local `.codex` enrichment** from rollout JSONL files and SQLite thread databases : model, token breakdown, reasoning effort, source home, and local cost context
 - **Generated `usage-data.json` inputs** : portable normalized datasets that can be rendered again or combined with other machines without copying their `.codex` folders
 - **WHAM dashboard analytics** from the Codex cloud dashboard : model turns, surface tokens, current and archived task samples, PR metadata, and task diff summaries
-- **Pricing metadata** from [`models.dev`](https://models.dev/), with bundled fallback pricing for offline runs
+- **Pricing metadata** from the live [OpenAI pricing reference](https://developers.openai.com/api/docs/pricing), combined with a bundled effective-dated history and [`models.dev`](https://models.dev/) fallback rows
 
 When backend totals and local files disagree, `hybrid` mode keeps backend totals authoritative and uses local files only to explain the portion it can see. Backend-only tokens remain visible instead of being silently discarded.  
 On some cases, "local enriched tokens" might appear higher than total tokens. This can happen when the day's usage haven't been processed by the backend yet, and only the local rollout data reflects that usage. This is also why in the Codex App you might see 0 token usage for the day and it only refreshes the next day.
@@ -47,7 +47,7 @@ On some cases, "local enriched tokens" might appear higher than total tokens. Th
 bun install --frozen-lockfile
 ```
 
-Requirements:
+Requirements :
 
 - Bun 1.3 or newer
 - A readable Codex home, usually `C:\Users\<you>\.codex`, or at least one generated `usage-data.json`
@@ -93,9 +93,8 @@ Combine several shared datasets with this machine's local Codex history :
 bun usage generate --codex-home "$env:USERPROFILE\.codex" --usage-json "D:\Laptop\usage-data.json" --usage-json "D:\Workstation\usage-data.json" --out ./usage
 ```
 
-When at least one `--usage-json` is provided without an explicit `--codex-home` or `--codex-root`, automatic home discovery is disabled. This keeps the recipient's own Codex history out of the rebuilt report. Local data from every supplied input is added together, cloud profile and WHAM analytics remain a single enhancement snapshot so the same account totals are not counted once per machine.
-
-Portable JSON keeps its original timezone because its daily buckets have already been computed. Every combined JSON must use the same timezone, an explicit `--timezone` must match it. `--from` and `--to` are rejected with `--usage-json` because the normalized file does not contain date-granular model/reasoning/service-tier detail needed to re-filter every report section consistently. Generate the shared JSON with the wanted date range instead.
+When at least one `--usage-json` is provided without an explicit `--codex-home` or `--codex-root`, automatic home discovery is disabled. This keeps the recipient's own Codex history out of the rebuilt report. Local data from every supplied input is added together, cloud profile and WHAM analytics remain a single enhancement snapshot so the same account totals are not counted once per machine.  
+Portable JSON keeps its original timezone because its daily buckets have already been computed. Every combined JSON must use the same timezone, an explicit `--timezone` must match it. When active pricing is loaded, each daily model and service-tier breakdown is repriced with the alias, default model, and price effective on that date before multi-day totals are rebuilt. `--from` and `--to` remain rejected with `--usage-json` because not every report section can be consistently re-filtered from the normalized aggregates. Generate the shared JSON with the wanted date range instead.
 
 ## Commands
 
@@ -120,9 +119,9 @@ help       Show CLI help (default)
 --analytics-json <path>                    Use saved WHAM analytics JSON instead of calling the dashboard APIs
 --no-api                                   Do not call Profile or WHAM APIs
 --base-url <url>                           Backend base URL (default : https://chatgpt.com/backend-api)
---pricing-source openai|bundled|models.dev Default : models.dev with bundled fallback
---pricing-json <path>                      Use a custom pricing JSON file
---estimate-model <model>                   Model used for unattributed backend-only token cost estimates
+--pricing-source openai|bundled|models.dev Default : OpenAI current pricing plus bundled effective-dated history
+--pricing-json <path>                      Use flat current-date or effective-dated custom pricing JSON
+--estimate-model <model>                   Explicit override for missing models; otherwise infer the historical primary
 --no-png                                   Skip static PNG export and write SVG/HTML/JSON/CSV only
 --silent                                   Hide action lines, file count, and warnings, keep the progress bar and token summary
 --theme <theme>                            Default : EDM115, can also be "config" for your `config.toml` one or a any of the built-in Codex themes
@@ -166,4 +165,7 @@ The HTML report is intentionally self-contained. Renderer regressions should be 
 
 ## Notes on cost estimates
 
-Cost estimates are best-effort operational estimates, not billing statements. Cached input, output, and unattributed backend-only tokens are priced from the selected pricing source and estimate model. Treat official OpenAI billing exports as authoritative for accounting.
+Cost estimates are best-effort operational estimates, not billing statements. Explicit local models are resolved through the alias effective on their usage date. When a local event has no model, or backend totals contain tokens not covered by local rollouts, the tool selects the newest model released by that date and marked as eligible to be the primary Codex model. `--estimate-model` overrides this inference when a fixed assumption is preferable.  
+Bundled model definitions start on their documented release dates and bundled price periods remain effective until the next period for the same model.  
+Live pricing complements rather than replaces that history. If a fetched current rate differs from the active bundled rate, the new rate starts on the fetch date, so older usage keeps the older bundled price. Effective-dated custom JSON rows use `effectiveFrom` in `YYYY-MM-DD` format; legacy flat custom rows start on the report's fetch date.  
+Cached input, output, service tiers, long-context requests, and unattributed backend-only tokens all use the selected model's price effective on the usage date. Treat official OpenAI billing exports as authoritative for accounting.

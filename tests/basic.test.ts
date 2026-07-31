@@ -1,35 +1,35 @@
-import { expect, test } from "bun:test"
-import { Database } from "bun:sqlite"
-import { mkdirSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { buildDataset } from "../src/aggregate"
-import { loadPricing } from "../src/pricing"
-import { renderCapabilitiesPieSvg } from "../src/render"
-import { buildReportModelRows, renderReportHtml, type ReportModelRow } from "../src/report-html"
-import { collectRolloutEvents } from "../src/rollouts"
-import { resolveUsageThemes } from "../src/theme"
-import type { CapabilityUsageEvent, UsageDataset } from "../src/types"
-import { compactNumber, exactNumber, money } from "../src/util"
+import { buildDataset } from "../src/aggregate";
+import { loadPricing } from "../src/pricing";
+import { renderCapabilitiesPieSvg } from "../src/render";
+import { buildReportModelRows, renderReportHtml, type ReportModelRow } from "../src/report-html";
+import { collectRolloutEvents } from "../src/rollouts";
+import { resolveUsageThemes } from "../src/theme";
+import type { CapabilityUsageEvent, UsageDataset } from "../src/types";
+import { compactNumber, exactNumber, money } from "../src/util";
 
 test("French number formatting uses spaces and decimal commas", () => {
-  expect(compactNumber(1_234_567_890)).toBe("1,2 B")
-  expect(compactNumber(24_900_000)).toBe("24,9 M")
-  expect(exactNumber(1_373_622)).toBe("1 373 622")
-  expect(money(1373.6223)).toBe("$ 1 373,62")
-  expect(money(8)).toBe("$ 8,00")
-})
+  expect(compactNumber(1_234_567_890)).toBe("1,2 B");
+  expect(compactNumber(24_900_000)).toBe("24,9 M");
+  expect(exactNumber(1_373_622)).toBe("1 373 622");
+  expect(money(1373.6223)).toBe("$ 1 373,62");
+  expect(money(8)).toBe("$ 8,00");
+});
 
 test("collectRolloutEvents parses token_count breakdowns", () => {
-  const root = join(tmpdir(), `codex-usage-test-${Date.now()}`)
-  const codexHome = join(root, ".codex")
-  const sessions = join(codexHome, "sessions", "2026", "06", "27")
-  mkdirSync(sessions, { recursive: true })
+  const root = join(tmpdir(), `codex-usage-test-${Date.now()}`);
+  const codexHome = join(root, ".codex");
+  const sessions = join(codexHome, "sessions", "2026", "06", "27");
+  mkdirSync(sessions, { recursive: true });
   const rollout = join(
     sessions,
     "rollout-2026-06-27T10-00-00-00000000-0000-0000-0000-000000000001.jsonl",
-  )
+  );
   writeFileSync(
     rollout,
     [
@@ -69,40 +69,40 @@ test("collectRolloutEvents parses token_count breakdowns", () => {
         },
       }),
     ].join("\n"),
-  )
+  );
 
   const result = collectRolloutEvents({
     homes: [{ path: codexHome, label: "test" }],
     timezone: "Europe/Paris",
     from: null,
     to: null,
-  })
+  });
 
-  expect(result.events).toHaveLength(1)
+  expect(result.events).toHaveLength(1);
   expect(result.events[0].breakdown).toEqual({
     inputTokens: 100,
     cachedInputTokens: 10,
     outputTokens: 20,
     reasoningOutputTokens: 5,
     totalTokens: 120,
-  })
-  expect(result.events[0].model).toBe("gpt-5")
-  expect(result.events[0].reasoningEffort).toBe("high")
-})
+  });
+  expect(result.events[0].model).toBe("gpt-5");
+  expect(result.events[0].reasoningEffort).toBe("high");
+});
 
 test("collectRolloutEvents extracts dated skill and plugin evidence without low-confidence mentions", () => {
-  const root = join(tmpdir(), `codex-capability-test-${Date.now()}`)
-  const codexHome = join(root, ".codex")
-  const sessions = join(codexHome, "sessions", "2026", "07", "10")
-  mkdirSync(sessions, { recursive: true })
+  const root = join(tmpdir(), `codex-capability-test-${Date.now()}`);
+  const codexHome = join(root, ".codex");
+  const sessions = join(codexHome, "sessions", "2026", "07", "10");
+  mkdirSync(sessions, { recursive: true });
   const rollout = join(
     sessions,
     "rollout-2026-07-10T08-00-00-00000000-0000-0000-0000-000000000010.jsonl",
-  )
+  );
   const skillBlock =
-    "<skill>\n<name>using-superpowers</name>\n<path>C:\\Users\\dev\\.agents\\skills\\using-superpowers\\SKILL.md</path>\nUse the skill.</skill>"
+    "<skill>\n<name>using-superpowers</name>\n<path>C:\\Users\\dev\\.agents\\skills\\using-superpowers\\SKILL.md</path>\nUse the skill.</skill>";
   const pluginBlock =
-    "Capabilities from the `Codex Security` plugin:\n- Skills from this plugin are prefixed with `Codex Security:`.\n- MCP servers from this plugin available in this session: `codex-security`.\nUse these plugin-associated capabilities to help solve the task."
+    "Capabilities from the `Codex Security` plugin:\n- Skills from this plugin are prefixed with `Codex Security:`.\n- MCP servers from this plugin available in this session: `codex-security`.\nUse these plugin-associated capabilities to help solve the task.";
   writeFileSync(
     rollout,
     [
@@ -178,14 +178,16 @@ test("collectRolloutEvents extracts dated skill and plugin evidence without low-
         },
       }),
     ].join("\n"),
-  )
+  );
 
   const result = collectRolloutEvents({
     homes: [{ path: codexHome, label: "test" }],
     timezone: "Europe/Paris",
     from: null,
     to: null,
-  }) as ReturnType<typeof collectRolloutEvents> & { capabilityEvents?: Array<Record<string, unknown>> }
+  }) as ReturnType<typeof collectRolloutEvents> & {
+    capabilityEvents?: Array<Record<string, unknown>>;
+  };
 
   expect(
     result.capabilityEvents?.map((event) => [
@@ -200,37 +202,33 @@ test("collectRolloutEvents extracts dated skill and plugin evidence without low-
     ["2026-07-10", "plugin", "Codex Security", "injection", "high"],
     ["2026-07-10", "plugin", "Codex Security", "tool_call", "high"],
     ["2026-07-10", "skill", "rtk", "skill_file_read", "medium"],
-    [
-      "2026-07-10",
-      "skill",
-      "codex-security:security-scan",
-      "skill_file_read",
-      "medium",
-    ],
+    ["2026-07-10", "skill", "codex-security:security-scan", "skill_file_read", "medium"],
     ["2026-07-11", "skill", "using-superpowers", "injection", "high"],
-  ])
+  ]);
 
   const filtered = collectRolloutEvents({
     homes: [{ path: codexHome, label: "test" }],
     timezone: "Europe/Paris",
     from: "2026-07-11",
     to: "2026-07-11",
-  }) as ReturnType<typeof collectRolloutEvents> & { capabilityEvents?: Array<Record<string, unknown>> }
+  }) as ReturnType<typeof collectRolloutEvents> & {
+    capabilityEvents?: Array<Record<string, unknown>>;
+  };
 
   expect(filtered.capabilityEvents?.map((event) => [event.date, event.name])).toEqual([
     ["2026-07-11", "using-superpowers"],
-  ])
-})
+  ]);
+});
 
 test("collectRolloutEvents follows thread settings model and service tier changes", () => {
-  const root = join(tmpdir(), `codex-usage-switch-test-${Date.now()}`)
-  const codexHome = join(root, ".codex")
-  const sessions = join(codexHome, "sessions", "2026", "07", "10")
-  mkdirSync(sessions, { recursive: true })
+  const root = join(tmpdir(), `codex-usage-switch-test-${Date.now()}`);
+  const codexHome = join(root, ".codex");
+  const sessions = join(codexHome, "sessions", "2026", "07", "10");
+  mkdirSync(sessions, { recursive: true });
   const rollout = join(
     sessions,
     "rollout-2026-07-10T08-00-00-00000000-0000-0000-0000-000000000002.jsonl",
-  )
+  );
   writeFileSync(
     rollout,
     [
@@ -321,36 +319,36 @@ test("collectRolloutEvents follows thread settings model and service tier change
         },
       }),
     ].join("\n"),
-  )
+  );
 
   const result = collectRolloutEvents({
     homes: [{ path: codexHome, label: "test" }],
     timezone: "Europe/Paris",
     from: null,
     to: null,
-  })
+  });
 
   expect(result.events.map((event) => [event.model, event.reasoningEffort])).toEqual([
     ["gpt-5.5", "xhigh"],
     ["gpt-5.6-sol", "high"],
     ["gpt-5.6-sol", "high"],
     ["gpt-5.6-sol", "high"],
-  ])
+  ]);
   expect(result.events.map((event) => [event.serviceTier, event.serviceTierInferred])).toEqual([
     [undefined, undefined],
     ["default", true],
     ["default", undefined],
     ["priority", undefined],
-  ])
-})
+  ]);
+});
 
 test("collectRolloutEvents does not let SQLite metadata overwrite rollout state", () => {
-  const root = join(tmpdir(), `codex-usage-sqlite-test-${Date.now()}`)
-  const codexHome = join(root, ".codex")
-  const sessions = join(codexHome, "sessions", "2026", "07", "10")
-  mkdirSync(sessions, { recursive: true })
-  const threadId = "00000000-0000-0000-0000-000000000003"
-  const rollout = join(sessions, `rollout-2026-07-10T09-00-00-${threadId}.jsonl`)
+  const root = join(tmpdir(), `codex-usage-sqlite-test-${Date.now()}`);
+  const codexHome = join(root, ".codex");
+  const sessions = join(codexHome, "sessions", "2026", "07", "10");
+  mkdirSync(sessions, { recursive: true });
+  const threadId = "00000000-0000-0000-0000-000000000003";
+  const rollout = join(sessions, `rollout-2026-07-10T09-00-00-${threadId}.jsonl`);
   writeFileSync(
     rollout,
     [
@@ -381,11 +379,11 @@ test("collectRolloutEvents does not let SQLite metadata overwrite rollout state"
         },
       }),
     ].join("\n"),
-  )
-  const database = new Database(join(codexHome, "state_5.sqlite"), { create: true })
+  );
+  const database = new Database(join(codexHome, "state_5.sqlite"), { create: true });
   database.run(
     "create table threads (id text, rollout_path text, source text, tokens_used integer, archived integer, model text, reasoning_effort text)",
-  )
+  );
   database.run("insert into threads values (?, ?, ?, ?, ?, ?, ?)", [
     threadId,
     rollout,
@@ -394,23 +392,23 @@ test("collectRolloutEvents does not let SQLite metadata overwrite rollout state"
     0,
     "gpt-5.6-terra",
     "high",
-  ])
-  database.close()
+  ]);
+  database.close();
 
   const result = collectRolloutEvents({
     homes: [{ path: codexHome, label: "test" }],
     timezone: "Europe/Paris",
     from: null,
     to: null,
-  })
+  });
 
-  expect(result.events).toHaveLength(1)
-  expect(result.events[0].model).toBe("gpt-5.5")
-  expect(result.events[0].reasoningEffort).toBe("medium")
-})
+  expect(result.events).toHaveLength(1);
+  expect(result.events[0].model).toBe("gpt-5.5");
+  expect(result.events[0].reasoningEffort).toBe("medium");
+});
 
 test("buildDataset keeps backend totals authoritative and local details enriched", async () => {
-  const pricing = await loadPricing({ source: "bundled" })
+  const pricing = await loadPricing({ source: "bundled" });
   const dataset = buildDataset({
     profileResult: {
       fetched: true,
@@ -454,21 +452,88 @@ test("buildDataset keeps backend totals authoritative and local details enriched
     pricing,
     estimateModel: "gpt-5",
     ...resolveUsageThemes([]),
-  })
+  });
 
-  expect(dataset.daily[0].totalTokens).toBe(1000)
-  expect(dataset.daily[0].localTokens.totalTokens).toBe(150)
-  expect(dataset.daily[0].unattributedTokens).toBe(850)
-  expect(dataset.summary.lifetimeTokens).toBe(1000)
-  expect(dataset.themeChoice).toBe("EDM115")
+  expect(dataset.daily[0].totalTokens).toBe(1000);
+  expect(dataset.daily[0].localTokens.totalTokens).toBe(150);
+  expect(dataset.daily[0].unattributedTokens).toBe(850);
+  expect(dataset.summary.lifetimeTokens).toBe(1000);
+  expect(dataset.themeChoice).toBe("EDM115");
   expect(dataset.availableThemes.slice(0, 2).map((row) => row.id)).toEqual([
     "EDM115",
     "absolutely-dark",
-  ])
-})
+  ]);
+});
+
+test("buildDataset infers dated primary models for missing local and backend-only usage", async () => {
+  const pricing = await loadPricing({ source: "bundled" });
+  const breakdown = {
+    inputTokens: 1_000_000,
+    cachedInputTokens: 0,
+    outputTokens: 1_000_000,
+    reasoningOutputTokens: 0,
+    totalTokens: 2_000_000,
+  };
+  const dataset = buildDataset({
+    profileResult: {
+      fetched: true,
+      endpoint: "fixture",
+      profile: {
+        summary: {
+          lifetimeTokens: 6_000_000,
+          peakDailyTokens: 3_000_000,
+          currentStreakDays: 2,
+          longestStreakDays: 2,
+          longestRunningTurnSec: 10,
+        },
+        dailyUsageBuckets: [
+          { startDate: "2026-04-22", tokens: 3_000_000 },
+          { startDate: "2026-04-23", tokens: 3_000_000 },
+        ],
+      },
+    },
+    events: [
+      {
+        eventId: "missing-model",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-04-22T08:00:00.000Z",
+        date: "2026-04-22",
+        model: "unknown",
+        breakdown,
+      },
+      {
+        eventId: "explicit-model",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout",
+        threadId: "thread",
+        timestamp: "2026-04-23T08:00:00.000Z",
+        date: "2026-04-23",
+        model: "gpt-5.4",
+        breakdown,
+      },
+    ],
+    codexHomes: [{ path: "home", label: "home" }],
+    sourceMode: "hybrid",
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    localStats: { rolloutFiles: 1, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
+    pricing,
+    ...resolveUsageThemes([]),
+  });
+
+  expect(dataset.daily[0].modelUsage.map((row) => row.model)).toEqual(["gpt-5.4"]);
+  expect(dataset.daily[1].modelUsage.map((row) => row.model)).toEqual(["gpt-5.4"]);
+  expect(dataset.daily[0].estimatedUnattributedCostUsd).toBeCloseTo(2.5);
+  expect(dataset.daily[1].estimatedUnattributedCostUsd).toBeCloseTo(5);
+});
 
 test("buildDataset retains capability evidence for report-side date filtering", async () => {
-  const pricing = await loadPricing({ source: "bundled" })
+  const pricing = await loadPricing({ source: "bundled" });
   const capabilityEvent: CapabilityUsageEvent = {
     eventId: "capability-1",
     homePath: "home",
@@ -482,7 +547,7 @@ test("buildDataset retains capability evidence for report-side date filtering", 
     evidenceType: "skill_file_read",
     confidence: "medium",
     detail: "Read skill instructions from C:/skills/rtk/SKILL.md",
-  }
+  };
   const dataset = buildDataset({
     profileResult: { fetched: false, error: "offline" },
     events: [],
@@ -496,15 +561,15 @@ test("buildDataset retains capability evidence for report-side date filtering", 
     pricing,
     estimateModel: "gpt-5",
     ...resolveUsageThemes([]),
-  } as Parameters<typeof buildDataset>[0] & { capabilityEvents: Array<typeof capabilityEvent> })
+  } as Parameters<typeof buildDataset>[0] & { capabilityEvents: Array<typeof capabilityEvent> });
 
   expect(
     (dataset.local as typeof dataset.local & { capabilityEvents?: unknown[] }).capabilityEvents,
-  ).toEqual([capabilityEvent])
-})
+  ).toEqual([capabilityEvent]);
+});
 
 test("buildDataset exposes canonical local model usage and exact costs", async () => {
-  const pricing = await loadPricing({ source: "bundled" })
+  const pricing = await loadPricing({ source: "bundled" });
   const dataset = buildDataset({
     profileResult: { fetched: false, error: "offline" },
     events: [
@@ -576,58 +641,52 @@ test("buildDataset exposes canonical local model usage and exact costs", async (
     pricing,
     estimateModel: "gpt-5.6-sol",
     ...resolveUsageThemes([]),
-  })
-  const model = dataset.local.modelUsage[0]
+  });
+  const model = dataset.local.modelUsage[0];
 
-  expect(model.breakdown.totalTokens).toBe(200)
+  expect(model.breakdown.totalTokens).toBe(200);
   expect(model.reasoningEfforts.map((row) => [row.effort, row.breakdown.totalTokens])).toEqual([
     ["high", 150],
     ["medium", 50],
-  ])
+  ]);
   expect(model.serviceTiers.map((row) => [row.serviceTier, row.breakdown.totalTokens])).toEqual([
     ["default", 150],
     ["priority", 50],
-  ])
-  expect(model.serviceTiers[0].inferredTokens).toBe(50)
-  expect(model.serviceTiers[0].costUsd).toBeCloseTo(0.0015, 8)
-  expect(model.serviceTiers[1].costUsd).toBeCloseTo(0.00125, 8)
-  expect(model.reasoningEfforts[0].costUsd).toBeCloseTo(0.0015, 8)
-  expect(model.reasoningEfforts[1].costUsd).toBeCloseTo(0.00125, 8)
-  expect(model.costUsd).toBeCloseTo(0.00275, 8)
+  ]);
+  expect(model.serviceTiers[0].inferredTokens).toBe(50);
+  expect(model.serviceTiers[0].costUsd).toBeCloseTo(0.0015, 8);
+  expect(model.serviceTiers[1].costUsd).toBeCloseTo(0.00125, 8);
+  expect(model.reasoningEfforts[0].costUsd).toBeCloseTo(0.0015, 8);
+  expect(model.reasoningEfforts[1].costUsd).toBeCloseTo(0.00125, 8);
+  expect(model.costUsd).toBeCloseTo(0.00275, 8);
   expect(model.reasoningEfforts.reduce((sum, row) => sum + row.costUsd, 0)).toBeCloseTo(
     model.costUsd,
-  )
+  );
   expect(dataset.local.modelUsage.reduce((sum, row) => sum + row.costUsd, 0)).toBeCloseTo(
     dataset.summary.knownLocalCostUsd,
-  )
+  );
 
-  const dailyModelUsage = (dataset.daily[0] as any).modelUsage
-  expect(dailyModelUsage).toHaveLength(1)
-  expect(dailyModelUsage[0].model).toBe("gpt-5.5")
-  expect(dailyModelUsage[0].breakdown.totalTokens).toBe(200)
+  const dailyModelUsage = (dataset.daily[0] as any).modelUsage;
+  expect(dailyModelUsage).toHaveLength(1);
+  expect(dailyModelUsage[0].model).toBe("gpt-5.5");
+  expect(dailyModelUsage[0].breakdown.totalTokens).toBe(200);
   expect(
-    dailyModelUsage[0].reasoningEfforts.map((row: any) => [
-      row.effort,
-      row.breakdown.totalTokens,
-    ]),
+    dailyModelUsage[0].reasoningEfforts.map((row: any) => [row.effort, row.breakdown.totalTokens]),
   ).toEqual([
     ["high", 150],
     ["medium", 50],
-  ])
+  ]);
   expect(
-    dailyModelUsage[0].serviceTiers.map((row: any) => [
-      row.serviceTier,
-      row.breakdown.totalTokens,
-    ]),
+    dailyModelUsage[0].serviceTiers.map((row: any) => [row.serviceTier, row.breakdown.totalTokens]),
   ).toEqual([
     ["default", 150],
     ["priority", 50],
-  ])
-  expect(dailyModelUsage[0].costUsd).toBeCloseTo(model.costUsd)
-})
+  ]);
+  expect(dailyModelUsage[0].costUsd).toBeCloseTo(model.costUsd);
+});
 
 test("buildDataset applies long-context prices only with explicit rollout context evidence", async () => {
-  const pricing = await loadPricing({ source: "bundled" })
+  const pricing = await loadPricing({ source: "bundled" });
   const dataset = buildDataset({
     profileResult: { fetched: false, error: "offline" },
     events: [
@@ -659,14 +718,14 @@ test("buildDataset applies long-context prices only with explicit rollout contex
     pricing,
     estimateModel: "gpt-5.6-sol",
     ...resolveUsageThemes([]),
-  })
+  });
 
-  expect(dataset.local.modelUsage[0].costUsd).toBeCloseTo(7.5)
-  expect(dataset.daily[0].knownLocalCostUsd).toBeCloseTo(7.5)
-})
+  expect(dataset.local.modelUsage[0].costUsd).toBeCloseTo(7.5);
+  expect(dataset.daily[0].knownLocalCostUsd).toBeCloseTo(7.5);
+});
 
 test("report model rows keep local models authoritative and add cloud enrichment", async () => {
-  const pricing = await loadPricing({ source: "bundled" })
+  const pricing = await loadPricing({ source: "bundled" });
   const dataset = buildDataset({
     profileResult: { fetched: false, error: "offline" },
     events: [
@@ -726,22 +785,22 @@ test("report model rows keep local models authoritative and add cloud enrichment
       bySurface: [],
       bySource: [],
     },
-  })
-  const rows = buildReportModelRows(dataset)
+  });
+  const rows = buildReportModelRows(dataset);
   expect(rows.map((row) => [row.model, row.source])).toEqual([
     ["gpt-5.5", "local+cloud"],
     ["gpt-5.6-terra", "local"],
     ["gpt-5.4", "cloud"],
-  ])
-  expect(rows[0].turns).toBe(12)
-  expect(rows[0].localTokens).toBe(200)
+  ]);
+  expect(rows[0].turns).toBe(12);
+  expect(rows[0].localTokens).toBe(200);
   expect(
     buildReportModelRows({ ...dataset, analytics: undefined }).map((row) => row.model),
-  ).toEqual(["gpt-5.5", "gpt-5.6-terra"])
-})
+  ).toEqual(["gpt-5.5", "gpt-5.6-terra"]);
+});
 
 test("renderHtmlReport emits parseable runtime scripts", async () => {
-  const pricing = await loadPricing({ source: "bundled" })
+  const pricing = await loadPricing({ source: "bundled" });
   const dataset = buildDataset({
     profileResult: { fetched: false, error: "offline" },
     events: [
@@ -844,14 +903,14 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
     pricing,
     estimateModel: "gpt-5",
     ...resolveUsageThemes([]),
-  })
-  dataset.generatedAt = "2026-07-10T13:33:11.042Z"
+  });
+  dataset.generatedAt = "2026-07-10T13:33:11.042Z";
 
-  const html = renderReportHtml(dataset)
+  const html = renderReportHtml(dataset);
   const formattingScript = html.slice(
     html.indexOf("    function exact"),
     html.indexOf("    function renderStats"),
-  )
+  );
   const loadFormatters = new Function(
     "navigator",
     "rawCountsEl",
@@ -861,101 +920,102 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
     navigator: { languages: string[]; language: string },
     rawCountsEl: { checked: boolean },
   ) => {
-    exact: (value: number, maximumFractionDigits?: number, minimumFractionDigits?: number) => string
-    compact: (value: number) => string
-    money: (value: number) => string
-    percent: ((value: number) => string) | null
-  }
+    exact: (
+      value: number,
+      maximumFractionDigits?: number,
+      minimumFractionDigits?: number,
+    ) => string;
+    compact: (value: number) => string;
+    money: (value: number) => string;
+    percent: ((value: number) => string) | null;
+  };
   const englishFormatters = loadFormatters(
     { languages: ["en-US"], language: "en-US" },
     { checked: false },
-  )
-  const fallbackFormatters = loadFormatters(
-    { languages: [], language: "" },
-    { checked: false },
-  )
-  expect(englishFormatters.exact(1234.5, 2, 2)).toBe("1,234.50")
-  expect(englishFormatters.compact(1_250_000)).toBe("1.3 M")
-  expect(englishFormatters.money(1234.5)).toBe("$1,234.50")
-  expect(englishFormatters.percent?.(12.5)).toBe("12.5%")
-  expect(fallbackFormatters.exact(1234.5, 2, 2)).toBe("1 234,50")
-  expect(fallbackFormatters.compact(1_250_000)).toBe("1,3 M")
-  expect(fallbackFormatters.money(1234.5)).toBe("1 234,50 $")
-  expect(fallbackFormatters.percent?.(12.5)).toBe("12,5 %")
-  expect(html).toContain("Generated at 2026-07-10 15:33:11.042 UTC+02:00 (Europe/Paris)")
-  expect(html).not.toContain("Generated at 2026-07-10T13:33:11.042Z")
-  dataset.generatedAt = "2026-01-10T13:33:11.042Z"
+  );
+  const fallbackFormatters = loadFormatters({ languages: [], language: "" }, { checked: false });
+  expect(englishFormatters.exact(1234.5, 2, 2)).toBe("1,234.50");
+  expect(englishFormatters.compact(1_250_000)).toBe("1.3 M");
+  expect(englishFormatters.money(1234.5)).toBe("$1,234.50");
+  expect(englishFormatters.percent?.(12.5)).toBe("12.5%");
+  expect(fallbackFormatters.exact(1234.5, 2, 2)).toBe("1 234,50");
+  expect(fallbackFormatters.compact(1_250_000)).toBe("1,3 M");
+  expect(fallbackFormatters.money(1234.5)).toBe("1 234,50 $");
+  expect(fallbackFormatters.percent?.(12.5)).toBe("12,5 %");
+  expect(html).toContain("Generated at 2026-07-10 15:33:11.042 UTC+02:00 (Europe/Paris)");
+  expect(html).not.toContain("Generated at 2026-07-10T13:33:11.042Z");
+  dataset.generatedAt = "2026-01-10T13:33:11.042Z";
   expect(renderReportHtml(dataset)).toContain(
     "Generated at 2026-01-10 14:33:11.042 UTC+01:00 (Europe/Paris)",
-  )
-  expect(html).toContain('id="rawCounts"')
-  expect(html).toContain('id="from" type="text" value="27/06/2026"')
-  expect(html).toContain('id="fromPicker" type="date" value="2026-06-27"')
-  expect(html).toContain('id="to" type="text" value="28/06/2026"')
-  expect(html).toContain('id="toPicker" type="date" value="2026-06-28"')
-  expect(html).toContain('placeholder="DD/MM/YYYY"')
-  expect(html).toContain("function parseDisplayDate")
-  expect(html).toContain("function filteredReportModels")
-  expect(html).toContain("function filteredCapabilityRows")
-  expect(html).toContain("function capabilitySection")
-  expect(html).not.toContain("Recent evidence :")
+  );
+  expect(html).toContain('id="rawCounts"');
+  expect(html).toContain('id="from" type="text" value="27/06/2026"');
+  expect(html).toContain('id="fromPicker" type="date" value="2026-06-27"');
+  expect(html).toContain('id="to" type="text" value="28/06/2026"');
+  expect(html).toContain('id="toPicker" type="date" value="2026-06-28"');
+  expect(html).toContain('placeholder="DD/MM/YYYY"');
+  expect(html).toContain("function parseDisplayDate");
+  expect(html).toContain("function filteredReportModels");
+  expect(html).toContain("function filteredCapabilityRows");
+  expect(html).toContain("function capabilitySection");
+  expect(html).not.toContain("Recent evidence :");
   expect(html).toContain(
     ".capability-section { padding-top: 12px; border-top: 1px solid var(--line); }",
-  )
-  expect(html).toContain("function filteredAnalytics")
-  expect(html).toContain("const models = filteredReportModels()")
-  expect(html).toContain("const analytics = filteredAnalytics() || { }")
-  expect(html).toContain("Cloud tasks (current snapshot)")
-  expect(html).toContain('data-stat-value="120"')
-  expect(html).toContain('class="report-title"')
-  expect(html).toContain('class="breakdown-sidebar"')
-  expect(html).toContain('class="model-details"')
-  expect(html).toContain("function serviceTierRows")
-  expect(html).toContain('id="themePickerButton"')
-  expect(html).toContain('id="themeSearch"')
-  expect(html).toContain('role="combobox"')
-  expect(html).toContain('id="themeOptions"')
-  expect(html).toContain('role="listbox"')
-  expect(html).toContain("function applyTheme")
-  expect(html).toContain("function selectTheme")
-  expect(html).toContain('<link rel="icon" type="image/webp" href="data:image/webp;base64,')
-  expect(html).toContain('class="select-control"')
-  expect(html).toContain('class="control-chevron"')
-  expect(html).toContain('class="theme-picker-label"')
+  );
+  expect(html).toContain("function filteredAnalytics");
+  expect(html).toContain("const models = filteredReportModels()");
+  expect(html).toContain("const analytics = filteredAnalytics() || { }");
+  expect(html).toContain("Cloud tasks (current snapshot)");
+  expect(html).toContain('data-stat-value="120"');
+  expect(html).toContain('class="report-title"');
+  expect(html).toContain('class="breakdown-sidebar"');
+  expect(html).toContain('class="model-details"');
+  expect(html).toContain("function serviceTierRows");
+  expect(html).toContain('id="themePickerButton"');
+  expect(html).toContain('id="themeSearch"');
+  expect(html).toContain('role="combobox"');
+  expect(html).toContain('id="themeOptions"');
+  expect(html).toContain('role="listbox"');
+  expect(html).toContain("function applyTheme");
+  expect(html).toContain("function selectTheme");
+  expect(html).toContain('<link rel="icon" type="image/webp" href="data:image/webp;base64,');
+  expect(html).toContain('class="select-control"');
+  expect(html).toContain('class="control-chevron"');
+  expect(html).toContain('class="theme-picker-label"');
   expect(html).toContain(
     ".theme-picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
-  )
-  expect(html).toContain('class="toolbar-meta"')
-  expect(html).toContain('class="github-link"')
-  expect(html).toContain('class="section-actions breakdown-actions"')
-  expect(html).toContain(".model-group.last-model")
-  expect(html).not.toContain(".theme-picker-button::after")
+  );
+  expect(html).toContain('class="toolbar-meta"');
+  expect(html).toContain('class="github-link"');
+  expect(html).toContain('class="section-actions breakdown-actions"');
+  expect(html).toContain(".model-group.last-model");
+  expect(html).not.toContain(".theme-picker-button::after");
   expect(html).toContain(
     "const reasoningEffortOrder = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']",
-  )
-  expect(html).toContain("function modelColor")
-  expect(html).toContain("function surfaceColor")
-  expect(html).toContain("function reasoningColor")
-  expect(html).toContain("function modeColor")
-  expect(html).toContain("function meterWidth")
-  expect(html).toContain("Math.max(2,")
-  const bundledColorCatalog = html.match(/const modelProgressColors = (\{[^;]+\});/)
-  expect(bundledColorCatalog).not.toBeNull()
+  );
+  expect(html).toContain("function modelColor");
+  expect(html).toContain("function surfaceColor");
+  expect(html).toContain("function reasoningColor");
+  expect(html).toContain("function modeColor");
+  expect(html).toContain("function meterWidth");
+  expect(html).toContain("Math.max(2,");
+  const bundledColorCatalog = html.match(/const modelProgressColors = (\{[^;]+\});/);
+  expect(bundledColorCatalog).not.toBeNull();
   expect(
     Object.keys(JSON.parse(bundledColorCatalog?.[1] ?? "{}") as Record<string, unknown>).sort(),
-  ).toEqual([...pricing.table.keys()].sort())
+  ).toEqual([...pricing.table.keys()].sort());
   const modelRowsScript = html.match(
     /<script id="model-rows" type="application\/json">([\s\S]*?)<\/script>/,
-  )
-  expect(modelRowsScript).not.toBeNull()
-  const modelRows = JSON.parse(modelRowsScript?.[1] ?? "[]") as ReportModelRow[]
+  );
+  expect(modelRowsScript).not.toBeNull();
+  const modelRows = JSON.parse(modelRowsScript?.[1] ?? "[]") as ReportModelRow[];
   expect(modelRows.map((row) => [row.model, row.source, row.localTokens])).toEqual([
     ["gpt-5", "local", 120],
-  ])
+  ]);
   const capabilityScript = html.slice(
     html.indexOf("    function capabilityDateMatches"),
     html.indexOf("    function analyticsDateMatches"),
-  )
+  );
   const filteredCapabilities = new Function(
     "dataset",
     "fromDateValue",
@@ -967,13 +1027,13 @@ return filteredCapabilityRows();`,
     fromDateValue: string,
     toDateValue: string,
   ) => Array<{
-    kind: string
-    name: string
-    count: number
-    evidenceCounts: Record<string, number>
-    confidenceCounts: Record<string, number>
-    events: Array<{ detail: string }>
-  }>
+    kind: string;
+    name: string;
+    count: number;
+    evidenceCounts: Record<string, number>;
+    confidenceCounts: Record<string, number>;
+    events: Array<{ detail: string }>;
+  }>;
   expect(filteredCapabilities(dataset, "2026-06-27", "2026-06-27")).toEqual([
     {
       kind: "skill",
@@ -983,7 +1043,7 @@ return filteredCapabilityRows();`,
       confidenceCounts: { high: 2, medium: 1 },
       events: dataset.local.capabilityEvents.slice(0, 3),
     },
-  ])
+  ]);
   expect(filteredCapabilities(dataset, "2026-06-28", "2026-06-28")).toEqual([
     {
       kind: "plugin",
@@ -993,8 +1053,8 @@ return filteredCapabilityRows();`,
       confidenceCounts: { high: 2 },
       events: dataset.local.capabilityEvents.slice(3),
     },
-  ])
-  const tiedDataset = structuredClone(dataset)
+  ]);
+  const tiedDataset = structuredClone(dataset);
 
   for (const name of ["beta", "alpha"]) {
     for (let occurrence = 1; occurrence <= 2; occurrence += 1) {
@@ -1004,7 +1064,7 @@ return filteredCapabilityRows();`,
         timestamp: `2026-06-29T08:0${occurrence}:00.000Z`,
         date: "2026-06-29",
         name,
-      })
+      });
     }
   }
 
@@ -1018,16 +1078,16 @@ return filteredCapabilityRows();`,
     ["alpha", 2],
     ["beta", 2],
     ["Codex Security", 2],
-  ])
-  const pie = renderCapabilitiesPieSvg(tiedDataset)
-  expect(pie).toContain("Skills &amp; plugins usage")
-  expect(pie).toContain("Skill · rtk")
-  expect(pie).toContain("Plugin · Codex Security")
-  expect(pie.indexOf("Skill · alpha")).toBeLessThan(pie.indexOf("Skill · beta"))
-  expect(html).not.toContain("skills-plugins-pie")
+  ]);
+  const pie = renderCapabilitiesPieSvg(tiedDataset);
+  expect(pie).toContain("Skills &amp; plugins usage");
+  expect(pie).toContain("Skill · rtk");
+  expect(pie).toContain("Plugin · Codex Security");
+  expect(pie.indexOf("Skill · alpha")).toBeLessThan(pie.indexOf("Skill · beta"));
+  expect(html).not.toContain("skills-plugins-pie");
 
-  const crowdedDataset = structuredClone(dataset)
-  crowdedDataset.local.capabilityEvents = []
+  const crowdedDataset = structuredClone(dataset);
+  crowdedDataset.local.capabilityEvents = [];
 
   for (let rank = 1; rank <= 10; rank += 1) {
     for (let occurrence = rank; occurrence <= 10; occurrence += 1) {
@@ -1037,22 +1097,22 @@ return filteredCapabilityRows();`,
         timestamp: `2026-06-${String(30 - rank).padStart(2, "0")}T08:00:00.000Z`,
         date: `2026-06-${String(30 - rank).padStart(2, "0")}`,
         name: `skill-${rank}`,
-      })
+      });
     }
   }
 
-  const crowdedPie = renderCapabilitiesPieSvg(crowdedDataset)
-  expect(crowdedPie).toContain("Other")
-  expect(crowdedPie).not.toContain("Skill · skill-9")
-  expect(crowdedPie).not.toContain("Skill · skill-10")
+  const crowdedPie = renderCapabilitiesPieSvg(crowdedDataset);
+  expect(crowdedPie).toContain("Other");
+  expect(crowdedPie).not.toContain("Skill · skill-9");
+  expect(crowdedPie).not.toContain("Skill · skill-10");
   const scripts = [
     ...html.matchAll(/<script(?![^>]*application\/json)[^>]*>([\s\S]*?)<\/script>/g),
-  ].map((match) => match[1])
-  expect(scripts.length).toBeGreaterThan(0)
+  ].map((match) => match[1]);
+  expect(scripts.length).toBeGreaterThan(0);
 
   for (const script of scripts) {
-    expect(() => new Function(script)).not.toThrow()
+    expect(() => new Function(script)).not.toThrow();
   }
 
-  expect(html).toContain("\\nTotal : ")
-})
+  expect(html).toContain("\\nTotal : ");
+});

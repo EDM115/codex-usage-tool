@@ -1,4 +1,4 @@
-// Checked-in fallback for https://developers.openai.com/api/docs/pricing.md, refreshed 2026-07-17.
+// Checked-in fallback for https://developers.openai.com/api/docs/pricing.md, refreshed 2026-07-30.
 // Runtime loading parses the same TextTokenPricingTables components from the live Markdown first.
 export const OPENAI_PRICING_MARKDOWN_CACHE = String.raw`
 # Pricing
@@ -28,8 +28,8 @@ Standard
 | Model | Short context input | Short context cached input | Short context cache writes | Short context output | Long context input | Long context cached input | Long context cache writes | Long context output |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | gpt-5.6-sol | $5.00 | $0.50 | $6.25 | $30.00 | $10.00 | $1.00 | $12.50 | $45.00 |
-| gpt-5.6-terra | $2.50 | $0.25 | $3.125 | $15.00 | $5.00 | $0.50 | $6.25 | $22.50 |
-| gpt-5.6-luna | $1.00 | $0.10 | $1.25 | $6.00 | $2.00 | $0.20 | $2.50 | $9.00 |
+| gpt-5.6-terra | $2.00 | $0.20 | $2.50 | $12.00 | $4.00 | $0.40 | $5.00 | $18.00 |
+| gpt-5.6-luna | $0.20 | $0.02 | $0.25 | $1.20 | $0.40 | $0.04 | $0.50 | $1.80 |
 | gpt-5.5 (<272K context length) | $5.00 | $0.50 | - | $30.00 | $10.00 | $1.00 | - | $45.00 |
 | gpt-5.5-pro (<272K context length) | $30.00 | - | - | $180.00 | $60.00 | - | - | $270.00 |
 | gpt-5.4 (<272K context length) | $2.50 | $0.25 | - | $15.00 | $5.00 | $0.50 | - | $22.50 |
@@ -89,8 +89,8 @@ Batch
 | Model | Short context input | Short context cached input | Short context cache writes | Short context output | Long context input | Long context cached input | Long context cache writes | Long context output |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | gpt-5.6-sol | $2.50 | $0.25 | $3.125 | $15.00 | $5.00 | $0.50 | $6.25 | $22.50 |
-| gpt-5.6-terra | $1.25 | $0.125 | $1.5625 | $7.50 | $2.50 | $0.25 | $3.125 | $11.25 |
-| gpt-5.6-luna | $0.50 | $0.05 | $0.625 | $3.00 | $1.00 | $0.10 | $1.25 | $4.50 |
+| gpt-5.6-terra | $1.00 | $0.10 | $1.25 | $6.00 | $2.00 | $0.20 | $2.50 | $9.00 |
+| gpt-5.6-luna | $0.10 | $0.01 | $0.125 | $0.60 | $0.20 | $0.02 | $0.25 | $0.90 |
 | gpt-5.5 (<272K context length) | $2.50 | $0.25 | - | $15.00 | $5.00 | $0.50 | - | $22.50 |
 | gpt-5.5-pro (<272K context length) | $15.00 | - | - | $90.00 | - | - | - | - |
 | gpt-5.4 (<272K context length) | $1.25 | $0.13 | - | $7.50 | $2.50 | $0.25 | - | $11.25 |
@@ -148,8 +148,8 @@ Flex
 | Model | Short context input | Short context cached input | Short context cache writes | Short context output | Long context input | Long context cached input | Long context cache writes | Long context output |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | gpt-5.6-sol | $2.50 | $0.25 | $3.125 | $15.00 | $5.00 | $0.50 | $6.25 | $22.50 |
-| gpt-5.6-terra | $1.25 | $0.125 | $1.5625 | $7.50 | $2.50 | $0.25 | $3.125 | $11.25 |
-| gpt-5.6-luna | $0.50 | $0.05 | $0.625 | $3.00 | $1.00 | $0.10 | $1.25 | $4.50 |
+| gpt-5.6-terra | $1.00 | $0.10 | $1.25 | $6.00 | $2.00 | $0.20 | $2.50 | $9.00 |
+| gpt-5.6-luna | $0.10 | $0.01 | $0.125 | $0.60 | $0.20 | $0.02 | $0.25 | $0.90 |
 | gpt-5.5 (<272K context length) | $2.50 | $0.25 | - | $15.00 | $5.00 | $0.50 | - | $22.50 |
 | gpt-5.5-pro (<272K context length) | $15.00 | - | - | $90.00 | - | - | - | - |
 | gpt-5.4 (<272K context length) | $1.25 | $0.13 | - | $7.50 | $2.50 | $0.25 | - | $11.25 |
@@ -180,8 +180,8 @@ Priority
 | Model | Short context input | Short context cached input | Short context cache writes | Short context output |
 | --- | --- | --- | --- | --- |
 | gpt-5.6-sol | $10.00 | $1.00 | $12.50 | $60.00 |
-| gpt-5.6-terra | $5.00 | $0.50 | $6.25 | $30.00 |
-| gpt-5.6-luna | $2.00 | $0.20 | $2.50 | $12.00 |
+| gpt-5.6-terra | $4.00 | $0.40 | $5.00 | $24.00 |
+| gpt-5.6-luna | $0.40 | $0.04 | $0.50 | $2.40 |
 | gpt-5.5 (<272K context length) | $12.50 | $1.25 | - | $75.00 |
 | gpt-5.4 (<272K context length) | $5.00 | $0.50 | - | $30.00 |
 | gpt-5.4-mini | $1.50 | $0.15 | - | $9.00 |
@@ -613,4 +613,4 @@ Batch
 
 
 Tokens used for model grading in reinforcement fine-tuning are billed at that model's per-token rate. Inference discounts are available if you enable data sharing when creating the fine-tune job. Learn more.
-`
+`;
