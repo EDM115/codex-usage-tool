@@ -1,69 +1,69 @@
 #!/usr/bin/env bun
-import type { CliOptions, SourceMode, PricingSource, UsageDataset } from "./types"
+import type { CliOptions, SourceMode, PricingSource, UsageDataset } from "./types";
 
-import { resolve } from "node:path"
+import { resolve } from "node:path";
 
-import { buildDataset } from "./aggregate"
-import { loadWhamAnalytics } from "./analytics-api"
-import { loadAuthFromHomes } from "./auth"
-import { resolveCodexHomes } from "./codex-homes"
-import { outputProgressWeights, writeOutputs } from "./export"
-import { loadPricing } from "./pricing"
-import { loadProfile } from "./profile-api"
-import { CliProgress } from "./progress"
-import { collectRolloutEvents } from "./rollouts"
-import { resolveUsageThemes, validateThemeChoice } from "./theme"
-import { loadUsageDatasets, mergeUsageDatasets } from "./usage-json"
-import { compactNumber, money, pluralize } from "./util"
+import { buildDataset } from "./aggregate";
+import { loadWhamAnalytics } from "./analytics-api";
+import { loadAuthFromHomes } from "./auth";
+import { resolveCodexHomes } from "./codex-homes";
+import { outputProgressWeights, writeOutputs } from "./export";
+import { loadPricing } from "./pricing";
+import { loadProfile } from "./profile-api";
+import { CliProgress } from "./progress";
+import { collectRolloutEvents } from "./rollouts";
+import { resolveUsageThemes, validateThemeChoice } from "./theme";
+import { loadUsageDatasets, mergeUsageDatasets } from "./usage-json";
+import { compactNumber, money, pluralize } from "./util";
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2))
+  const options = parseArgs(process.argv.slice(2));
 
   if (options.command === "help") {
-    console.log(helpText())
+    console.log(helpText());
 
-    return
+    return;
   }
 
-  const progress = new CliProgress({ silent: options.silent })
-  progress.setSteps(globalProgressSteps(options))
+  const progress = new CliProgress({ silent: options.silent });
+  progress.setSteps(globalProgressSteps(options));
 
   const codexHomes = resolveCodexHomes(
     options.codexHomes,
     options.codexRoots,
     options.usageJsons.length === 0,
-  )
+  );
   progress.step(
     `Resolved ${codexHomes.length} ${pluralize("Codex home", codexHomes.length)}`,
     codexHomes.length > 0 ? "success" : options.usageJsons.length > 0 ? "neutral" : "failure",
-  )
-  progress.status("Reading usage JSON inputs")
-  const importedDatasets = loadUsageDatasets(options.usageJsons)
+  );
+  progress.status("Reading usage JSON inputs");
+  const importedDatasets = loadUsageDatasets(options.usageJsons);
   progress.step(
     importedDatasets.length > 0
       ? `Loaded ${importedDatasets.length} ${pluralize("usage JSON", importedDatasets.length)}`
       : "No usage JSON inputs",
     importedDatasets.length > 0 ? "success" : "neutral",
-  )
-  const timezone = resolveUsageTimezone(codexHomes.length > 0, importedDatasets, options.timezone)
+  );
+  const timezone = resolveUsageTimezone(codexHomes.length > 0, importedDatasets, options.timezone);
 
   if (codexHomes.length === 0 && importedDatasets.length === 0) {
-    progress.finish()
+    progress.finish();
 
-    throw new Error("No usage sources found, pass --codex-home, --codex-root, or --usage-json")
+    throw new Error("No usage sources found, pass --codex-home, --codex-root, or --usage-json");
   }
 
-  progress.status("Loading pricing table")
+  progress.status("Loading pricing table");
   const pricing = await loadPricing({
     source: options.pricingSource,
     pricingJson: options.pricingJson,
-  })
-  progress.step(`Pricing table : ${pricing.source}`)
+  });
+  progress.step(`Pricing table : ${pricing.source}`);
 
   if (codexHomes.length === 0) {
-    const themeResolution = resolveImportedTheme(importedDatasets, options.theme)
-    progress.step(`Theme : ${themeResolution?.themeChoice ?? importedDatasets[0].themeChoice}`)
-    progress.status("Merging imported usage datasets")
+    const themeResolution = resolveImportedTheme(importedDatasets, options.theme);
+    progress.step(`Theme : ${themeResolution?.themeChoice ?? importedDatasets[0].themeChoice}`);
+    progress.status("Merging imported usage datasets");
     const dataset = mergeUsageDatasets(importedDatasets, {
       from: options.from,
       to: options.to,
@@ -71,21 +71,21 @@ async function main() {
       ...themeResolution,
       pricing,
       estimateModel: options.estimateModel,
-    })
-    progress.step("Dataset built from usage JSON")
-    await writeDataset(dataset, options, progress)
+    });
+    progress.step("Dataset built from usage JSON");
+    await writeDataset(dataset, options, progress);
 
-    return
+    return;
   }
 
-  const auth = loadAuthFromHomes(codexHomes)
+  const auth = loadAuthFromHomes(codexHomes);
   progress.step(
     auth ? "Auth material found" : "No auth material found",
     auth ? "success" : "neutral",
-  )
-  progress.status("Resolving report theme")
-  const themeResolution = resolveUsageThemes(codexHomes, options.theme)
-  progress.step(`Theme : ${themeResolution.themeChoice}`)
+  );
+  progress.status("Resolving report theme");
+  const themeResolution = resolveUsageThemes(codexHomes, options.theme);
+  progress.step(`Theme : ${themeResolution.themeChoice}`);
   progress.status(
     options.source === "local"
       ? "Skipping profile API for local source"
@@ -94,7 +94,7 @@ async function main() {
         : options.noApi
           ? "Skipping profile API because --no-api is set"
           : "Fetching profile API",
-  )
+  );
   const profileResult =
     options.source === "local"
       ? { fetched: false, error: "Profile API skipped because --source local was selected" }
@@ -103,8 +103,8 @@ async function main() {
           noApi: options.noApi,
           baseUrl: options.baseUrl,
           auth,
-        })
-  const profileSkipped = !profileResult.profile && (options.source === "local" || options.noApi)
+        });
+  const profileSkipped = !profileResult.profile && (options.source === "local" || options.noApi);
   progress.step(
     profileResult.profile
       ? "Profile data ready"
@@ -112,20 +112,20 @@ async function main() {
         ? "Profile API skipped"
         : "Profile data unavailable",
     profileResult.profile ? "success" : profileSkipped ? "neutral" : "failure",
-  )
+  );
 
   if (options.source === "backend" && !profileResult.profile) {
-    progress.finish()
+    progress.finish();
 
     throw new Error(
       `Backend source requested but Profile API data is unavailable : ${profileResult.error ?? "unknown error"}`,
-    )
+    );
   }
 
   const local =
     options.source === "backend"
       ? (() => {
-          progress.step("Skipped local collection for backend source")
+          progress.step("Skipped local collection for backend source");
 
           return {
             events: [],
@@ -134,7 +134,7 @@ async function main() {
             sqliteDatabases: 0,
             sqliteThreads: 0,
             parseErrors: [],
-          }
+          };
         })()
       : collectRolloutEvents({
           homes: codexHomes,
@@ -142,7 +142,7 @@ async function main() {
           from: options.from,
           to: options.to,
           progress,
-        })
+        });
 
   progress.status(
     options.analyticsJson
@@ -150,7 +150,7 @@ async function main() {
       : options.noApi
         ? "Skipping WHAM analytics APIs because --no-api is set"
         : "Fetching WHAM analytics APIs",
-  )
+  );
   const analytics = await loadWhamAnalytics({
     analyticsJson: options.analyticsJson,
     noApi: options.noApi,
@@ -158,7 +158,7 @@ async function main() {
     auth,
     from: options.from,
     to: options.to,
-  })
+  });
   progress.step(
     analytics && !analytics.error
       ? "WHAM analytics ready"
@@ -166,9 +166,9 @@ async function main() {
         ? "WHAM analytics skipped"
         : "WHAM analytics unavailable or partial",
     analytics && !analytics.error ? "success" : options.noApi ? "neutral" : "failure",
-  )
+  );
 
-  progress.status("Aggregating daily, weekly, model, and cost summaries")
+  progress.status("Aggregating daily, weekly, model, and cost summaries");
   const currentDataset = buildDataset({
     profileResult,
     events: local.events,
@@ -188,7 +188,7 @@ async function main() {
     estimateModel: options.estimateModel,
     ...themeResolution,
     analytics,
-  })
+  });
   const dataset =
     importedDatasets.length > 0
       ? mergeUsageDatasets([currentDataset, ...importedDatasets], {
@@ -198,10 +198,10 @@ async function main() {
           pricing,
           estimateModel: options.estimateModel,
         })
-      : currentDataset
-  progress.step("Dataset built")
+      : currentDataset;
+  progress.step("Dataset built");
 
-  await writeDataset(dataset, options, progress)
+  await writeDataset(dataset, options, progress);
 }
 
 async function writeDataset(
@@ -213,62 +213,62 @@ async function writeDataset(
     includePng: !options.noPng,
     reportOnly: options.command === "collect",
     progress,
-  })
+  });
 
-  progress.finish()
-  console.log("")
+  progress.finish();
+  console.log("");
 
   if (!options.silent) {
     console.log(
       `Wrote ${result.files.length} ${pluralize("file", result.files.length)} to ${resolve(options.outDir)}`,
-    )
+    );
   }
 
   console.log(
     `Total tokens : ${compactNumber(dataset.summary.lifetimeTokens)}, local enriched : ${compactNumber(dataset.summary.localKnownTokens)}, estimated cost : ${money(dataset.summary.estimatedCostUsd)}`,
-  )
+  );
 
   if (!options.silent) {
     if (dataset.profile?.error) {
-      console.warn(`Profile API warning : ${dataset.profile.error}`)
+      console.warn(`Profile API warning : ${dataset.profile.error}`);
     }
 
     if (dataset.pricing.warning) {
-      console.warn(`Pricing warning : ${dataset.pricing.warning}`)
+      console.warn(`Pricing warning : ${dataset.pricing.warning}`);
     }
 
     if (dataset.analytics?.error) {
-      console.warn(`Analytics API warning : ${dataset.analytics.error}`)
+      console.warn(`Analytics API warning : ${dataset.analytics.error}`);
     }
 
     for (const warning of result.warnings) {
-      console.warn(warning)
+      console.warn(warning);
     }
   }
 }
 
 function resolveImportedTheme(datasets: UsageDataset[], choice: CliOptions["theme"]) {
   if (!choice) {
-    return undefined
+    return undefined;
   }
 
   if (choice !== "config") {
-    return resolveUsageThemes([], choice)
+    return resolveUsageThemes([], choice);
   }
 
   for (const dataset of datasets) {
-    const option = dataset.availableThemes.find((theme) => theme.id === "config")
+    const option = dataset.availableThemes.find((theme) => theme.id === "config");
 
     if (option) {
       return {
         theme: option.theme,
         themeChoice: option.id,
         availableThemes: dataset.availableThemes,
-      }
+      };
     }
   }
 
-  throw new Error("--theme config requires a usable Codex config theme")
+  throw new Error("--theme config requires a usable Codex config theme");
 }
 
 function resolveUsageTimezone(
@@ -277,16 +277,16 @@ function resolveUsageTimezone(
   requested?: string,
 ): string {
   const timezone =
-    requested ?? (hasCodexHomes ? "Europe/Paris" : (datasets[0]?.timezone ?? "Europe/Paris"))
-  const incompatible = datasets.find((dataset) => dataset.timezone !== timezone)
+    requested ?? (hasCodexHomes ? "Europe/Paris" : (datasets[0]?.timezone ?? "Europe/Paris"));
+  const incompatible = datasets.find((dataset) => dataset.timezone !== timezone);
 
   if (incompatible) {
     throw new Error(
       `Usage JSON timezone ${incompatible.timezone} does not match ${timezone}, existing daily buckets cannot be rebucketed`,
-    )
+    );
   }
 
-  return timezone
+  return timezone;
 }
 
 export function parseArgs(args: string[]): CliOptions {
@@ -302,127 +302,127 @@ export function parseArgs(args: string[]): CliOptions {
     noApi: false,
     baseUrl: "https://chatgpt.com/backend-api",
     pricingSource: "openai",
-    estimateModel: "gpt-5.6-sol",
+    estimateModel: undefined,
     noPng: false,
     silent: false,
-  }
+  };
 
   if (args.length === 0) {
-    options.command = "help"
+    options.command = "help";
   }
 
-  const first = args[0]
+  const first = args[0];
 
   if (first && !first.startsWith("-")) {
     if (!["generate", "collect", "help"].includes(first)) {
-      throw new Error(`Unknown command : ${first}`)
+      throw new Error(`Unknown command : ${first}`);
     }
 
-    options.command = first as CliOptions["command"]
-    args = args.slice(1)
+    options.command = first as CliOptions["command"];
+    args = args.slice(1);
   }
 
   for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i]
+    const arg = args[i];
     const next = () => {
-      const value = args[++i]
+      const value = args[++i];
 
       if (!value) {
-        throw new Error(`${arg} requires a value`)
+        throw new Error(`${arg} requires a value`);
       }
 
-      return value
-    }
+      return value;
+    };
     switch (arg) {
       case "--codex-home":
-        options.codexHomes.push(next())
+        options.codexHomes.push(next());
 
-        break
+        break;
       case "--codex-root":
-        options.codexRoots.push(next())
+        options.codexRoots.push(next());
 
-        break
+        break;
       case "--usage-json":
-        options.usageJsons.push(next())
+        options.usageJsons.push(next());
 
-        break
+        break;
       case "--out":
-        options.outDir = next()
+        options.outDir = next();
 
-        break
+        break;
       case "--from":
-        options.from = validateDate(next(), "--from")
+        options.from = validateDate(next(), "--from");
 
-        break
+        break;
       case "--to":
-        options.to = validateDate(next(), "--to")
+        options.to = validateDate(next(), "--to");
 
-        break
+        break;
       case "--timezone":
-        options.timezone = next()
+        options.timezone = next();
 
-        break
+        break;
       case "--source":
-        options.source = validateSource(next())
+        options.source = validateSource(next());
 
-        break
+        break;
       case "--profile-json":
-        options.profileJson = next()
+        options.profileJson = next();
 
-        break
+        break;
       case "--no-api":
-        options.noApi = true
+        options.noApi = true;
 
-        break
+        break;
       case "--base-url":
-        options.baseUrl = next()
+        options.baseUrl = next();
 
-        break
+        break;
       case "--pricing-source":
-        options.pricingSource = validatePricingSource(next())
+        options.pricingSource = validatePricingSource(next());
 
-        break
+        break;
       case "--pricing-json":
-        options.pricingJson = next()
+        options.pricingJson = next();
 
-        break
+        break;
       case "--estimate-model":
-        options.estimateModel = next()
+        options.estimateModel = next();
 
-        break
+        break;
       case "--no-png":
-        options.noPng = true
+        options.noPng = true;
 
-        break
+        break;
       case "--analytics-json":
-        options.analyticsJson = next()
+        options.analyticsJson = next();
 
-        break
+        break;
       case "--theme":
-        options.theme = validateThemeChoice(next())
+        options.theme = validateThemeChoice(next());
 
-        break
+        break;
       case "--silent":
-        options.silent = true
+        options.silent = true;
 
-        break
+        break;
       case "--help":
       case "-h":
-        options.command = "help"
+        options.command = "help";
 
-        break
+        break;
       default:
-        throw new Error(`Unknown option : ${arg}`)
+        throw new Error(`Unknown option : ${arg}`);
     }
   }
 
   if (options.usageJsons.length > 0 && (options.from || options.to)) {
     throw new Error(
       "--from and --to cannot be applied to --usage-json inputs because per-day reasoning and service-tier detail is not available",
-    )
+    );
   }
 
-  return options
+  return options;
 }
 
 function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
@@ -442,7 +442,7 @@ function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
         includePng: !options.noPng,
         reportOnly: options.command === "collect",
       }),
-    ].map((weight) => ({ weight }))
+    ].map((weight) => ({ weight }));
   }
 
   const localWeights =
@@ -452,7 +452,7 @@ function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
           2, // Read SQLite metadata databases and their thread rows
           2, // Scan the sessions and archived_sessions directory trees
           32, // Parse every rollout file, this is typically the longest local operation
-        ]
+        ];
 
   return [
     1, // Resolve Codex homes
@@ -464,32 +464,35 @@ function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
     ...localWeights,
     1, // Fetch or read WHAM analytics
     1, // Aggregate the final usage dataset
-    ...outputProgressWeights({ includePng: !options.noPng, reportOnly: options.command === "collect" }),
-  ].map((weight) => ({ weight }))
+    ...outputProgressWeights({
+      includePng: !options.noPng,
+      reportOnly: options.command === "collect",
+    }),
+  ].map((weight) => ({ weight }));
 }
 
 function validateDate(value: string, flag: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new Error(`${flag} must be YYYY-MM-DD`)
+    throw new Error(`${flag} must be YYYY-MM-DD`);
   }
 
-  return value
+  return value;
 }
 
 function validateSource(value: string): SourceMode {
   if (value === "hybrid" || value === "backend" || value === "local") {
-    return value
+    return value;
   }
 
-  throw new Error("--source must be hybrid, backend, or local")
+  throw new Error("--source must be hybrid, backend, or local");
 }
 
 function validatePricingSource(value: string): PricingSource {
   if (value === "bundled" || value === "openai" || value === "models.dev") {
-    return value
+    return value;
   }
 
-  throw new Error("--pricing-source must be openai, bundled, or models.dev")
+  throw new Error("--pricing-source must be openai, bundled, or models.dev");
 }
 
 function helpText(): string {
@@ -518,9 +521,9 @@ Filters :
   --timezone <tz>            Local .codex default : Europe/Paris, usage JSON keeps its timezone
 
 Pricing :
-  --pricing-source <source>  openai (default) | models.dev | bundled
-  --pricing-json <path>      Custom pricing JSON
-  --estimate-model <model>   Default : gpt-5.6-sol
+  --pricing-source <source>  openai (default) | models.dev | bundled effective-dated history
+  --pricing-json <path>      Custom flat current-date or effective-dated pricing JSON
+  --estimate-model <model>   Explicit override for missing models; default follows historical primary models
 
 Output :
   --out <path>               Output directory (default : outputs/codex-usage)
@@ -536,12 +539,12 @@ Examples :
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --codex-home D:\\Laptop\\.codex --from 2026-01-01
   bun usage generate --usage-json D:\\Shared\\usage-data.json --out outputs\\codex-usage
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --usage-json D:\\Laptop\\usage-data.json
-`
+`;
 }
 
 if (import.meta.main) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error))
-    process.exit(1)
-  })
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }

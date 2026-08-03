@@ -1,23 +1,23 @@
-import type { CodexHome, UsageTheme } from "./types"
+import type { CodexHome, UsageTheme } from "./types";
 
-import { readFileSync } from "node:fs"
-import { join } from "node:path"
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { fileExists } from "./util"
+import { fileExists } from "./util";
 
 export type ThemeSeed = {
-  name: string
-  bg: string
-  text: string
-  accent: string
-  muted?: string
-  panel?: string
-  line?: string
-}
+  name: string;
+  bg: string;
+  text: string;
+  accent: string;
+  muted?: string;
+  panel?: string;
+  line?: string;
+};
 
-const FALLBACK_BG = "#050811"
-const FALLBACK_TEXT = "#f7f1e8"
-const FALLBACK_ACCENT = "#ffb15f"
+const FALLBACK_BG = "#050811";
+const FALLBACK_TEXT = "#f7f1e8";
+const FALLBACK_ACCENT = "#ffb15f";
 
 export const EDM115_THEME: UsageTheme = makeTheme(
   {
@@ -30,7 +30,7 @@ export const EDM115_THEME: UsageTheme = makeTheme(
     line: "#202735",
   },
   "bundled EDM115 theme",
-)
+);
 
 export const BUILTIN_CODEX_THEMES = {
   "absolutely-dark": {
@@ -852,18 +852,18 @@ export const BUILTIN_CODEX_THEMES = {
     panel: "#ffffff",
     line: "#d4d4d4",
   },
-} as const satisfies Record<string, ThemeSeed>
+} as const satisfies Record<string, ThemeSeed>;
 
-export type BuiltinThemeName = keyof typeof BUILTIN_CODEX_THEMES
-export type ThemeChoice = BuiltinThemeName | "EDM115" | "config"
+export type BuiltinThemeName = keyof typeof BUILTIN_CODEX_THEMES;
+export type ThemeChoice = BuiltinThemeName | "EDM115" | "config";
 
-export type ThemeOption = { id: ThemeChoice; theme: UsageTheme }
+export type ThemeOption = { id: ThemeChoice; theme: UsageTheme };
 
 export type ThemeResolution = {
-  themeChoice: ThemeChoice
-  theme: UsageTheme
-  availableThemes: ThemeOption[]
-}
+  themeChoice: ThemeChoice;
+  theme: UsageTheme;
+  availableThemes: ThemeOption[];
+};
 
 export function validateThemeChoice(value: string): ThemeChoice {
   if (
@@ -871,23 +871,23 @@ export function validateThemeChoice(value: string): ThemeChoice {
     value === "config" ||
     Object.prototype.hasOwnProperty.call(BUILTIN_CODEX_THEMES, value)
   ) {
-    return value as ThemeChoice
+    return value as ThemeChoice;
   }
 
   throw new Error(
     `Unknown theme : ${value}. Use EDM115, config, or one of : ${Object.keys(BUILTIN_CODEX_THEMES).join(", ")}`,
-  )
+  );
 }
 
 export function resolveUsageThemes(
   codexHomes: CodexHome[],
   requestedTheme?: ThemeChoice,
 ): ThemeResolution {
-  const configTheme = resolveConfigTheme(codexHomes)
-  const themeChoice = requestedTheme ?? (configTheme ? "config" : "EDM115")
+  const configTheme = resolveConfigTheme(codexHomes);
+  const themeChoice = requestedTheme ?? (configTheme ? "config" : "EDM115");
 
   if (themeChoice === "config" && !configTheme) {
-    throw new Error("--theme config requires a usable Codex config theme")
+    throw new Error("--theme config requires a usable Codex config theme");
   }
 
   const availableThemes: ThemeOption[] = [
@@ -899,67 +899,67 @@ export function resolveUsageThemes(
         id: id as BuiltinThemeName,
         theme: makeTheme(BUILTIN_CODEX_THEMES[id as BuiltinThemeName], `bundled Codex theme ${id}`),
       })),
-  ]
-  const selected = availableThemes.find((row) => row.id === themeChoice)
+  ];
+  const selected = availableThemes.find((row) => row.id === themeChoice);
 
   if (!selected) {
-    throw new Error(`Theme is unavailable : ${themeChoice}`)
+    throw new Error(`Theme is unavailable : ${themeChoice}`);
   }
 
-  return { themeChoice, theme: selected.theme, availableThemes }
+  return { themeChoice, theme: selected.theme, availableThemes };
 }
 
 function resolveConfigTheme(codexHomes: CodexHome[]): UsageTheme | null {
-  const config = firstCodexConfig(codexHomes)
-  const explicit = config ? themeFromConfig(config.text, config.path) : null
+  const config = firstCodexConfig(codexHomes);
+  const explicit = config ? themeFromConfig(config.text, config.path) : null;
 
   if (explicit) {
-    return explicit
+    return explicit;
   }
 
-  const themeName = config ? readStringKey(config.text, "tui", "theme") : null
+  const themeName = config ? readStringKey(config.text, "tui", "theme") : null;
 
   if (themeName === "EDM115") {
-    return { ...EDM115_THEME, source: config!.path }
+    return { ...EDM115_THEME, source: config!.path };
   }
 
   if (themeName && Object.prototype.hasOwnProperty.call(BUILTIN_CODEX_THEMES, themeName)) {
-    return makeTheme(BUILTIN_CODEX_THEMES[themeName as BuiltinThemeName], config!.path)
+    return makeTheme(BUILTIN_CODEX_THEMES[themeName as BuiltinThemeName], config!.path);
   }
 
-  return null
+  return null;
 }
 
 function firstCodexConfig(codexHomes: CodexHome[]): { path: string; text: string } | null {
   for (const home of codexHomes) {
     for (const filename of ["config.toml", "codex.toml"]) {
-      const configPath = join(home.path, filename)
+      const configPath = join(home.path, filename);
 
       if (!fileExists(configPath)) {
-        continue
+        continue;
       }
 
-      return { path: configPath, text: readFileSync(configPath, "utf8") }
+      return { path: configPath, text: readFileSync(configPath, "utf8") };
     }
   }
 
-  return null
+  return null;
 }
 
 function themeFromConfig(text: string, configPath: string): UsageTheme | null {
-  const accent = readStringKey(text, "desktop.appearanceDarkChromeTheme", "accent")
-  const bg = readStringKey(text, "desktop.appearanceDarkChromeTheme", "surface")
-  const textColor = readStringKey(text, "desktop.appearanceDarkChromeTheme", "ink")
+  const accent = readStringKey(text, "desktop.appearanceDarkChromeTheme", "accent");
+  const bg = readStringKey(text, "desktop.appearanceDarkChromeTheme", "surface");
+  const textColor = readStringKey(text, "desktop.appearanceDarkChromeTheme", "ink");
 
   if (!accent && !bg && !textColor) {
-    return null
+    return null;
   }
 
   const semanticSkill = readStringKey(
     text,
     "desktop.appearanceDarkChromeTheme.semanticColors",
     "skill",
-  )
+  );
   const seed = {
     name: readStringKey(text, "tui", "theme") ?? "codex-config",
     bg: normalizeHex(bg) ?? EDM115_THEME.colors.bg,
@@ -980,10 +980,10 @@ function themeFromConfig(text: string, configPath: string): UsageTheme | null {
       normalizeHex(bg) ?? EDM115_THEME.colors.bg,
       0.2,
     ),
-  }
-  const theme = makeTheme(seed, configPath)
-  const uiFont = readStringKey(text, "desktop.appearanceDarkChromeTheme.fonts", "ui")
-  const codeFont = readStringKey(text, "desktop.appearanceDarkChromeTheme.fonts", "code")
+  };
+  const theme = makeTheme(seed, configPath);
+  const uiFont = readStringKey(text, "desktop.appearanceDarkChromeTheme.fonts", "ui");
+  const codeFont = readStringKey(text, "desktop.appearanceDarkChromeTheme.fonts", "code");
 
   return {
     ...theme,
@@ -991,64 +991,64 @@ function themeFromConfig(text: string, configPath: string): UsageTheme | null {
       ui: uiFont ? `${uiFont}, ${theme.fonts.ui}` : theme.fonts.ui,
       code: codeFont ? `${codeFont}, ${theme.fonts.code}` : theme.fonts.code,
     },
-  }
+  };
 }
 
 function readStringKey(text: string, section: string, key: string): string | null {
-  const lines = text.split(/\r?\n/)
-  let current = ""
+  const lines = text.split(/\r?\n/);
+  let current = "";
 
   for (const rawLine of lines) {
-    const line = stripTomlComment(rawLine).trim()
+    const line = stripTomlComment(rawLine).trim();
 
     if (!line) {
-      continue
+      continue;
     }
 
-    const sectionMatch = line.match(/^\[([^\]]+)\]$/)
+    const sectionMatch = line.match(/^\[([^\]]+)\]$/);
 
     if (sectionMatch) {
-      current = sectionMatch[1]
+      current = sectionMatch[1];
 
-      continue
+      continue;
     }
 
     if (current !== section) {
-      continue
+      continue;
     }
 
-    const keyMatch = line.match(/^([A-Za-z0-9_.-]+)\s*=\s*"([^"]*)"\s*$/)
+    const keyMatch = line.match(/^([A-Za-z0-9_.-]+)\s*=\s*"([^"]*)"\s*$/);
 
     if (keyMatch && keyMatch[1] === key) {
-      return keyMatch[2]
+      return keyMatch[2];
     }
   }
 
-  return null
+  return null;
 }
 
 function stripTomlComment(line: string): string {
-  let quoted = false
+  let quoted = false;
 
   for (let index = 0; index < line.length; index += 1) {
     if (line[index] === '"' && line[index - 1] !== "\\") {
-      quoted = !quoted
+      quoted = !quoted;
     } else if (line[index] === "#" && !quoted) {
-      return line.slice(0, index)
+      return line.slice(0, index);
     }
   }
 
-  return line
+  return line;
 }
 
 function makeTheme(seed: ThemeSeed, source: string): UsageTheme {
-  const bg = normalizeHex(seed.bg) ?? FALLBACK_BG
-  const text = normalizeHex(seed.text) ?? FALLBACK_TEXT
-  const accent = normalizeHex(seed.accent) ?? FALLBACK_ACCENT
-  const panel = normalizeHex(seed.panel) ?? blendHex(text, bg, 0.07)
-  const line = normalizeHex(seed.line) ?? blendHex(text, bg, 0.18)
-  const muted = normalizeHex(seed.muted) ?? blendHex(text, bg, 0.65)
-  const accent2 = blendHex(accent, text, 0.68)
+  const bg = normalizeHex(seed.bg) ?? FALLBACK_BG;
+  const text = normalizeHex(seed.text) ?? FALLBACK_TEXT;
+  const accent = normalizeHex(seed.accent) ?? FALLBACK_ACCENT;
+  const panel = normalizeHex(seed.panel) ?? blendHex(text, bg, 0.07);
+  const line = normalizeHex(seed.line) ?? blendHex(text, bg, 0.18);
+  const muted = normalizeHex(seed.muted) ?? blendHex(text, bg, 0.65);
+  const accent2 = blendHex(accent, text, 0.68);
 
   return {
     name: seed.name,
@@ -1077,37 +1077,37 @@ function makeTheme(seed: ThemeSeed, source: string): UsageTheme {
       ui: "ui-sans-serif, system-ui, Segoe UI, sans-serif",
       code: "ui-monospace, SFMono-Regular, Consolas, monospace",
     },
-  }
+  };
 }
 
 function normalizeHex(value?: string | null): string | null {
   if (!value) {
-    return null
+    return null;
   }
 
-  const trimmed = value.trim()
+  const trimmed = value.trim();
 
   if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) {
-    return trimmed.toLowerCase()
+    return trimmed.toLowerCase();
   }
 
-  return null
+  return null;
 }
 
 function blendHex(fg: string, bg: string, alpha: number): string {
-  const f = hexToRgb(fg)
-  const b = hexToRgb(bg)
-  const parts = [0, 1, 2].map((index) => Math.round(f[index] * alpha + b[index] * (1 - alpha)))
+  const f = hexToRgb(fg);
+  const b = hexToRgb(bg);
+  const parts = [0, 1, 2].map((index) => Math.round(f[index] * alpha + b[index] * (1 - alpha)));
 
-  return `#${parts.map((part) => part.toString(16).padStart(2, "0")).join("")}`
+  return `#${parts.map((part) => part.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function hexToRgb(hex: string): [number, number, number] {
-  const value = hex.replace(/^#/, "")
+  const value = hex.replace(/^#/, "");
 
   return [
     parseInt(value.slice(0, 2), 16),
     parseInt(value.slice(2, 4), 16),
     parseInt(value.slice(4, 6), 16),
-  ]
+  ];
 }

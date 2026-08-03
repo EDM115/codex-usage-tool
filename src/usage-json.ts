@@ -7,51 +7,48 @@ import type {
   UsageTheme,
   UsageThemeOption,
   WeeklyUsage,
-} from "./types"
-import type { ThemeChoice } from "./theme"
+} from "./types";
+import type { ThemeChoice } from "./theme";
 
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-import {
-  estimateBreakdownCost,
-  estimateUnattributedCost,
-  type PricingLoadResult,
-} from "./pricing"
-import { addBreakdown, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util"
+import { primaryModelAt, resolveModelAt } from "./model-catalog";
+import { estimateBreakdownCost, estimateUnattributedCost, type PricingLoadResult } from "./pricing";
+import { addBreakdown, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util";
 
 export type MergeUsageOptions = {
-  from: string | null
-  to: string | null
-  timezone: string
-  theme?: UsageTheme
-  themeChoice?: ThemeChoice
-  availableThemes?: UsageThemeOption[]
-  pricing?: PricingLoadResult
-  estimateModel?: string
-}
+  from: string | null;
+  to: string | null;
+  timezone: string;
+  theme?: UsageTheme;
+  themeChoice?: ThemeChoice;
+  availableThemes?: UsageThemeOption[];
+  pricing?: PricingLoadResult;
+  estimateModel?: string;
+};
 
 export function loadUsageDatasets(paths: string[]): UsageDataset[] {
   return paths.map((inputPath) => {
-    const path = resolve(inputPath)
-    let value: unknown
+    const path = resolve(inputPath);
+    let value: unknown;
 
     try {
-      value = JSON.parse(readFileSync(path, "utf8"))
+      value = JSON.parse(readFileSync(path, "utf8"));
     } catch (error) {
       throw new Error(
         `Unable to read usage JSON ${path} : ${error instanceof Error ? error.message : String(error)}`,
-      )
+      );
     }
 
     if (!isUsageDataset(value)) {
-      throw new Error(`Invalid usage JSON ${path} : expected a generated usage-data.json`)
+      throw new Error(`Invalid usage JSON ${path} : expected a generated usage-data.json`);
     }
 
-    value.local.capabilityEvents ??= []
+    value.local.capabilityEvents ??= [];
 
-    return value
-  })
+    return value;
+  });
 }
 
 export function mergeUsageDatasets(
@@ -59,43 +56,37 @@ export function mergeUsageDatasets(
   options: MergeUsageOptions,
 ): UsageDataset {
   if (datasets.length === 0) {
-    throw new Error("At least one usage dataset is required")
+    throw new Error("At least one usage dataset is required");
   }
 
   if (options.from || options.to) {
     throw new Error(
       "Usage JSON inputs cannot be re-filtered by date because per-day reasoning and service-tier detail is not available",
-    )
+    );
   }
 
-  const incompatibleTimezone = datasets.find((dataset) => dataset.timezone !== options.timezone)
+  const incompatibleTimezone = datasets.find((dataset) => dataset.timezone !== options.timezone);
 
   if (incompatibleTimezone) {
     throw new Error(
       `Usage JSON timezone ${incompatibleTimezone.timezone} does not match ${options.timezone}, existing daily buckets cannot be rebucketed`,
-    )
+    );
   }
 
-  const primary = datasets[0]
-  const estimateModel = options.estimateModel ?? primary.pricing.estimateModel
-  const daily = mergeDaily(
-    datasets,
-    options.from,
-    options.to,
-    options.pricing,
-    estimateModel,
-  )
+  const primary = datasets[0];
+  const estimateModel = options.estimateModel ?? primary.pricing.estimateModel;
+  const daily = mergeDaily(datasets, options.from, options.to, options.pricing, estimateModel);
   const profile =
     datasets.find((dataset) => dataset.profile?.fetched)?.profile ??
-    datasets.find((dataset) => dataset.profile)?.profile
+    datasets.find((dataset) => dataset.profile)?.profile;
   const analytics =
     datasets.find((dataset) => dataset.analytics?.fetched && !dataset.analytics.error)?.analytics ??
-    datasets.find((dataset) => dataset.analytics)?.analytics
-  const localKnownTokens = daily.reduce((sum, day) => sum + day.localTokens.totalTokens, 0)
-  const unattributedTokens = daily.reduce((sum, day) => sum + day.unattributedTokens, 0)
-  const knownLocalCostUsd = daily.reduce((sum, day) => sum + day.knownLocalCostUsd, 0)
-  const estimatedCostUsd = daily.reduce((sum, day) => sum + day.estimatedCostUsd, 0)
-  const lifetimeFromDaily = daily.reduce((sum, day) => sum + day.totalTokens, 0)
+    datasets.find((dataset) => dataset.analytics)?.analytics;
+  const localKnownTokens = daily.reduce((sum, day) => sum + day.localTokens.totalTokens, 0);
+  const unattributedTokens = daily.reduce((sum, day) => sum + day.unattributedTokens, 0);
+  const knownLocalCostUsd = daily.reduce((sum, day) => sum + day.knownLocalCostUsd, 0);
+  const estimatedCostUsd = daily.reduce((sum, day) => sum + day.estimatedCostUsd, 0);
+  const lifetimeFromDaily = daily.reduce((sum, day) => sum + day.totalTokens, 0);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -118,7 +109,7 @@ export function mergeUsageDatasets(
       sqliteDatabases: datasets.reduce((sum, dataset) => sum + dataset.local.sqliteDatabases, 0),
       sqliteThreads: datasets.reduce((sum, dataset) => sum + dataset.local.sqliteThreads, 0),
       parseErrors: datasets.flatMap((dataset) => dataset.local.parseErrors).slice(0, 100),
-      modelUsage: mergeModelUsage(datasets, options.pricing, estimateModel),
+      modelUsage: mergeModelUsageRows(daily.flatMap(dailyModelUsage)),
       capabilityEvents: datasets
         .flatMap((dataset) => dataset.local.capabilityEvents ?? [])
         .sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
@@ -149,7 +140,7 @@ export function mergeUsageDatasets(
     },
     daily,
     weekly: buildWeekly(daily),
-  }
+  };
 }
 
 function mergeDaily(
@@ -157,43 +148,51 @@ function mergeDaily(
   from: string | null,
   to: string | null,
   pricing?: PricingLoadResult,
-  estimateModel = datasets[0]?.pricing.estimateModel ?? "gpt-5.6-sol",
+  estimateModel = datasets[0]?.pricing.estimateModel,
 ): DailyUsage[] {
-  const sourceDays = datasets.map((dataset) => new Map(dataset.daily.map((day) => [day.date, day])))
-  const knownDates = [...new Set(sourceDays.flatMap((days) => [...days.keys()]))].sort()
+  const sourceDays = datasets.map(
+    (dataset) => new Map(dataset.daily.map((day) => [day.date, day])),
+  );
+  const knownDates = [...new Set(sourceDays.flatMap((days) => [...days.keys()]))].sort();
 
   if (knownDates.length === 0) {
-    return []
+    return [];
   }
 
-  const dates = eachDate(from ?? knownDates[0], to ?? knownDates.at(-1)!)
+  const dates = eachDate(from ?? knownDates[0], to ?? knownDates.at(-1)!);
 
   return dates.map((date) => {
     const days = sourceDays
       .map((source) => source.get(date))
-      .filter((day): day is DailyUsage => Boolean(day))
-    const cloudDay = days.find((day) => day.backendTokens !== undefined)
-    const localTokens = sumBreakdowns(days.map((day) => day.localTokens))
-    const backendTokens = cloudDay?.backendTokens
-    const totalTokens = backendTokens ?? localTokens.totalTokens
-    const unattributedTokens = Math.max(0, totalTokens - localTokens.totalTokens)
+      .filter((day): day is DailyUsage => Boolean(day));
+    const cloudDay = days.find((day) => day.backendTokens !== undefined);
+    const localTokens = sumBreakdowns(days.map((day) => day.localTokens));
+    const backendTokens = cloudDay?.backendTokens;
+    const totalTokens = backendTokens ?? localTokens.totalTokens;
+    const unattributedTokens = Math.max(0, totalTokens - localTokens.totalTokens);
     const cloudRate =
       cloudDay && cloudDay.unattributedTokens > 0
         ? cloudDay.estimatedUnattributedCostUsd / cloudDay.unattributedTokens
-        : 0
-    const modelUsage = mergeModelUsageRows(days.flatMap(dailyModelUsage), pricing, estimateModel)
+        : 0;
+    const modelUsage = mergeModelUsageRows(
+      days.flatMap(dailyModelUsage),
+      pricing,
+      estimateModel,
+      date,
+    );
     const knownLocalCostUsd = pricing
       ? modelUsage.reduce((sum, row) => sum + row.costUsd, 0)
-      : days.reduce((sum, day) => sum + day.knownLocalCostUsd, 0)
+      : days.reduce((sum, day) => sum + day.knownLocalCostUsd, 0);
     const estimatedUnattributedCostUsd = pricing
       ? estimateUnattributedCost(
           unattributedTokens,
           knownLocalCostUsd,
           localTokens.totalTokens,
           estimateModel,
-          pricing.table,
+          pricing.catalog,
+          { date },
         )
-      : unattributedTokens * cloudRate
+      : unattributedTokens * cloudRate;
 
     return {
       date,
@@ -202,35 +201,24 @@ function mergeDaily(
       localTokens,
       unattributedTokens,
       sourceTotal: backendTokens === undefined ? "local" : "backend",
-      models: mergeBreakdownRecords(days.map((day) => day.models)),
+      models: Object.fromEntries(modelUsage.map((row) => [row.model, row.breakdown])),
       modelUsage,
       reasoningEfforts: mergeNumberRecords(days.map((day) => day.reasoningEfforts)),
       homes: mergeNumberRecords(days.map((day) => day.homes)),
       knownLocalCostUsd,
       estimatedUnattributedCostUsd,
       estimatedCostUsd: knownLocalCostUsd + estimatedUnattributedCostUsd,
-    }
-  })
-}
-
-function mergeModelUsage(
-  datasets: UsageDataset[],
-  pricing?: PricingLoadResult,
-  estimateModel = datasets[0]?.pricing.estimateModel ?? "gpt-5.6-sol",
-): LocalModelUsage[] {
-  return mergeModelUsageRows(
-    datasets.flatMap((dataset) => dataset.local.modelUsage),
-    pricing,
-    estimateModel,
-  )
+    };
+  });
 }
 
 function mergeModelUsageRows(
   rows: LocalModelUsage[],
   pricing?: PricingLoadResult,
-  estimateModel = "gpt-5.6-sol",
+  estimateModel?: string,
+  date?: string,
 ): LocalModelUsage[] {
-  const models = new Map<string, LocalModelUsage>()
+  const models = new Map<string, LocalModelUsage>();
 
   for (const row of rows) {
     const current = models.get(row.model) ?? {
@@ -239,75 +227,85 @@ function mergeModelUsageRows(
       costUsd: 0,
       reasoningEfforts: [],
       serviceTiers: [],
-    }
-    current.breakdown = addBreakdown(current.breakdown, row.breakdown)
-    current.costUsd += row.costUsd
+    };
+    current.breakdown = addBreakdown(current.breakdown, row.breakdown);
+    current.costUsd += row.costUsd;
     current.reasoningEfforts = mergeNamedUsage(
       current.reasoningEfforts,
       row.reasoningEfforts,
       "effort",
-    )
-    current.serviceTiers = mergeNamedUsage(current.serviceTiers, row.serviceTiers, "serviceTier")
-    models.set(row.model, current)
+    );
+    current.serviceTiers = mergeNamedUsage(current.serviceTiers, row.serviceTiers, "serviceTier");
+    models.set(row.model, current);
   }
 
   const merged = [...models.values()].sort(
     (a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens,
-  )
+  );
 
-  return pricing ? merged.map((row) => repriceModelUsage(row, pricing, estimateModel)) : merged
+  return pricing
+    ? merged.map((row) => repriceModelUsage(row, pricing, estimateModel, date))
+    : merged;
 }
 
 function repriceModelUsage(
   row: LocalModelUsage,
   pricing: PricingLoadResult,
-  estimateModel: string,
+  estimateModel: string | undefined,
+  date = new Date().toISOString().slice(0, 10),
 ): LocalModelUsage {
-  const repriced = structuredClone(row)
-  let covered = { ...ZERO_BREAKDOWN }
-  let costUsd = 0
+  const repriced = structuredClone(row);
+  repriced.model =
+    row.model && row.model !== "unknown"
+      ? resolveModelAt(pricing.catalog, row.model, date)
+      : (primaryModelAt(pricing.catalog, date) ?? "unknown");
+  let covered = { ...ZERO_BREAKDOWN };
+  let costUsd = 0;
 
   for (const tier of repriced.serviceTiers) {
     tier.costUsd = estimateBreakdownCost(
       tier.breakdown,
       repriced.model,
-      pricing.table,
+      pricing.catalog,
       estimateModel,
-      { serviceTier: tier.serviceTier },
-    )
-    covered = addBreakdown(covered, tier.breakdown)
-    costUsd += tier.costUsd
+      { date, serviceTier: tier.serviceTier },
+    );
+    covered = addBreakdown(covered, tier.breakdown);
+    costUsd += tier.costUsd;
   }
 
-  const remainder = subtractBreakdown(repriced.breakdown, covered)
+  const remainder = subtractBreakdown(repriced.breakdown, covered);
 
   if (repriced.serviceTiers.length === 0 || remainder.totalTokens > 0) {
     costUsd += estimateBreakdownCost(
       repriced.serviceTiers.length === 0 ? repriced.breakdown : remainder,
       repriced.model,
-      pricing.table,
+      pricing.catalog,
       estimateModel,
-    )
+      { date },
+    );
   }
 
-  repriced.costUsd = costUsd
+  repriced.costUsd = costUsd;
   const reasoningCosts = repriced.reasoningEfforts.map((effort) =>
-    estimateBreakdownCost(effort.breakdown, repriced.model, pricing.table, estimateModel),
-  )
-  const reasoningCostTotal = reasoningCosts.reduce((sum, cost) => sum + cost, 0)
+    estimateBreakdownCost(effort.breakdown, repriced.model, pricing.catalog, estimateModel, {
+      date,
+    }),
+  );
+  const reasoningCostTotal = reasoningCosts.reduce((sum, cost) => sum + cost, 0);
   const reasoningTokenTotal = repriced.reasoningEfforts.reduce(
     (sum, effort) => sum + effort.breakdown.totalTokens,
     0,
-  )
+  );
   const reconcileReasoning =
-    reasoningCostTotal > 0 && reasoningTokenTotal === repriced.breakdown.totalTokens
-  const reasoningScale = reconcileReasoning ? costUsd / reasoningCostTotal : 1
+    reasoningCostTotal > 0 && reasoningTokenTotal === repriced.breakdown.totalTokens;
+  const reasoningScale = reconcileReasoning ? costUsd / reasoningCostTotal : 1;
 
   repriced.reasoningEfforts.forEach((effort, index) => {
-    effort.costUsd = reasoningCosts[index] * reasoningScale
-  })
+    effort.costUsd = reasoningCosts[index] * reasoningScale;
+  });
 
-  return repriced
+  return repriced;
 }
 
 function subtractBreakdown(total: TokenBreakdown, part: TokenBreakdown): TokenBreakdown {
@@ -316,19 +314,16 @@ function subtractBreakdown(total: TokenBreakdown, part: TokenBreakdown): TokenBr
     inputTokens: Math.max(0, total.inputTokens - part.inputTokens),
     cachedInputTokens: Math.max(0, total.cachedInputTokens - part.cachedInputTokens),
     outputTokens: Math.max(0, total.outputTokens - part.outputTokens),
-    reasoningOutputTokens: Math.max(
-      0,
-      total.reasoningOutputTokens - part.reasoningOutputTokens,
-    ),
-  }
+    reasoningOutputTokens: Math.max(0, total.reasoningOutputTokens - part.reasoningOutputTokens),
+  };
 }
 
 function dailyModelUsage(day: DailyUsage): LocalModelUsage[] {
   if (Array.isArray(day.modelUsage)) {
-    return day.modelUsage
+    return day.modelUsage;
   }
 
-  const totalTokens = Math.max(1, day.localTokens.totalTokens)
+  const totalTokens = Math.max(1, day.localTokens.totalTokens);
 
   return Object.entries(day.models).map(([model, breakdown]) => ({
     model,
@@ -336,7 +331,7 @@ function dailyModelUsage(day: DailyUsage): LocalModelUsage[] {
     costUsd: day.knownLocalCostUsd * (breakdown.totalTokens / totalTokens),
     reasoningEfforts: [],
     serviceTiers: [],
-  }))
+  }));
 }
 
 function mergeNamedUsage<T extends { breakdown: TokenBreakdown; costUsd: number }>(
@@ -344,94 +339,94 @@ function mergeNamedUsage<T extends { breakdown: TokenBreakdown; costUsd: number 
   right: T[],
   key: keyof T,
 ): T[] {
-  const rows = new Map<string, T>()
+  const rows = new Map<string, T>();
 
   for (const row of [...left, ...right]) {
-    const name = String(row[key])
-    const current = rows.get(name)
+    const name = String(row[key]);
+    const current = rows.get(name);
 
     if (!current) {
-      rows.set(name, structuredClone(row))
-      continue
+      rows.set(name, structuredClone(row));
+      continue;
     }
 
-    current.breakdown = addBreakdown(current.breakdown, row.breakdown)
-    current.costUsd += row.costUsd
+    current.breakdown = addBreakdown(current.breakdown, row.breakdown);
+    current.costUsd += row.costUsd;
 
     if ("inferredTokens" in current && "inferredTokens" in row) {
-      current.inferredTokens = Number(current.inferredTokens) + Number(row.inferredTokens)
+      current.inferredTokens = Number(current.inferredTokens) + Number(row.inferredTokens);
     }
   }
 
-  return [...rows.values()].sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens)
+  return [...rows.values()].sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens);
 }
 
 function mergeBreakdownRecords(
   records: Array<Record<string, TokenBreakdown>>,
 ): Record<string, TokenBreakdown> {
-  const result: Record<string, TokenBreakdown> = {}
+  const result: Record<string, TokenBreakdown> = {};
 
   for (const record of records) {
     for (const [key, breakdown] of Object.entries(record)) {
-      result[key] = addBreakdown(result[key] ?? ZERO_BREAKDOWN, breakdown)
+      result[key] = addBreakdown(result[key] ?? ZERO_BREAKDOWN, breakdown);
     }
   }
 
-  return result
+  return result;
 }
 
 function mergeNumberRecords(records: Array<Record<string, number>>): Record<string, number> {
-  const result: Record<string, number> = {}
+  const result: Record<string, number> = {};
 
   for (const record of records) {
     for (const [key, value] of Object.entries(record)) {
-      result[key] = (result[key] ?? 0) + value
+      result[key] = (result[key] ?? 0) + value;
     }
   }
 
-  return result
+  return result;
 }
 
 function sumBreakdowns(breakdowns: TokenBreakdown[]): TokenBreakdown {
-  return breakdowns.reduce((sum, breakdown) => addBreakdown(sum, breakdown), { ...ZERO_BREAKDOWN })
+  return breakdowns.reduce((sum, breakdown) => addBreakdown(sum, breakdown), { ...ZERO_BREAKDOWN });
 }
 
 function uniqueHomes(datasets: UsageDataset[]): UsageDataset["codexHomes"] {
-  const homes = new Map<string, UsageDataset["codexHomes"][number]>()
+  const homes = new Map<string, UsageDataset["codexHomes"][number]>();
 
   for (const home of datasets.flatMap((dataset) => dataset.codexHomes)) {
-    homes.set(home.path.toLocaleLowerCase(), home)
+    homes.set(home.path.toLocaleLowerCase(), home);
   }
 
-  return [...homes.values()]
+  return [...homes.values()];
 }
 
 function buildWeekly(daily: DailyUsage[]): WeeklyUsage[] {
-  const weeks = new Map<string, WeeklyUsage>()
+  const weeks = new Map<string, WeeklyUsage>();
 
   for (const day of daily) {
-    const weekStart = isoWeekStart(day.date)
+    const weekStart = isoWeekStart(day.date);
     const week = weeks.get(weekStart) ?? {
       weekStart,
       totalTokens: 0,
       localTokens: { ...ZERO_BREAKDOWN },
       unattributedTokens: 0,
       estimatedCostUsd: 0,
-    }
-    week.totalTokens += day.totalTokens
-    week.backendTokens = (week.backendTokens ?? 0) + (day.backendTokens ?? 0)
-    week.localTokens = addBreakdown(week.localTokens, day.localTokens)
-    week.unattributedTokens += day.unattributedTokens
-    week.estimatedCostUsd += day.estimatedCostUsd
-    weeks.set(weekStart, week)
+    };
+    week.totalTokens += day.totalTokens;
+    week.backendTokens = (week.backendTokens ?? 0) + (day.backendTokens ?? 0);
+    week.localTokens = addBreakdown(week.localTokens, day.localTokens);
+    week.unattributedTokens += day.unattributedTokens;
+    week.estimatedCostUsd += day.estimatedCostUsd;
+    weeks.set(weekStart, week);
   }
 
-  return [...weeks.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+  return [...weeks.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
 }
 
 function isUsageDataset(value: unknown): value is UsageDataset {
   if (!isRecord(value)) {
-    return false
+    return false;
   }
 
   return (
@@ -456,27 +451,27 @@ function isUsageDataset(value: unknown): value is UsageDataset {
     value.daily.every(isDailyUsage) &&
     Array.isArray(value.weekly) &&
     value.weekly.every(isWeeklyUsage)
-  )
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function isNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function isNullableNumber(value: unknown): value is number | null {
-  return value === null || isNumber(value)
+  return value === null || isNumber(value);
 }
 
 function isOptionalString(value: unknown): value is string | undefined {
-  return value === undefined || typeof value === "string"
+  return value === undefined || typeof value === "string";
 }
 
 function isDate(value: unknown): value is string {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function isDateRange(value: unknown): boolean {
@@ -484,11 +479,11 @@ function isDateRange(value: unknown): boolean {
     isRecord(value) &&
     (value.from === null || isDate(value.from)) &&
     (value.to === null || isDate(value.to))
-  )
+  );
 }
 
 function isCodexHome(value: unknown): boolean {
-  return isRecord(value) && typeof value.path === "string" && typeof value.label === "string"
+  return isRecord(value) && typeof value.path === "string" && typeof value.label === "string";
 }
 
 function isTokenBreakdown(value: unknown): value is TokenBreakdown {
@@ -499,15 +494,15 @@ function isTokenBreakdown(value: unknown): value is TokenBreakdown {
     isNumber(value.cachedInputTokens) &&
     isNumber(value.outputTokens) &&
     isNumber(value.reasoningOutputTokens)
-  )
+  );
 }
 
 function isNumberRecord(value: unknown): value is Record<string, number> {
-  return isRecord(value) && Object.values(value).every(isNumber)
+  return isRecord(value) && Object.values(value).every(isNumber);
 }
 
 function isBreakdownRecord(value: unknown): value is Record<string, TokenBreakdown> {
-  return isRecord(value) && Object.values(value).every(isTokenBreakdown)
+  return isRecord(value) && Object.values(value).every(isTokenBreakdown);
 }
 
 function isProfile(value: unknown): boolean {
@@ -522,7 +517,7 @@ function isProfile(value: unknown): boolean {
     isNullableNumber(value.summary.currentStreakDays) &&
     isNullableNumber(value.summary.longestStreakDays) &&
     isNullableNumber(value.summary.longestRunningTurnSec)
-  )
+  );
 }
 
 function isLocalUsage(value: unknown): boolean {
@@ -539,7 +534,7 @@ function isLocalUsage(value: unknown): boolean {
     (value.capabilityEvents === undefined ||
       (Array.isArray(value.capabilityEvents) &&
         value.capabilityEvents.every(isCapabilityUsageEvent)))
-  )
+  );
 }
 
 function isCapabilityUsageEvent(value: unknown): value is CapabilityUsageEvent {
@@ -559,7 +554,7 @@ function isCapabilityUsageEvent(value: unknown): value is CapabilityUsageEvent {
       value.evidenceType === "skill_file_read") &&
     (value.confidence === "high" || value.confidence === "medium") &&
     typeof value.detail === "string"
-  )
+  );
 }
 
 function isParseError(value: unknown): boolean {
@@ -568,13 +563,13 @@ function isParseError(value: unknown): boolean {
     typeof value.path === "string" &&
     (value.line === undefined || isNumber(value.line)) &&
     typeof value.error === "string"
-  )
+  );
 }
 
 function isUsageSlice(
   value: unknown,
 ): value is Record<string, unknown> & { breakdown: TokenBreakdown; costUsd: number } {
-  return isRecord(value) && isTokenBreakdown(value.breakdown) && isNumber(value.costUsd)
+  return isRecord(value) && isTokenBreakdown(value.breakdown) && isNumber(value.costUsd);
 }
 
 function isLocalModelUsage(value: unknown): boolean {
@@ -594,19 +589,19 @@ function isLocalModelUsage(value: unknown): boolean {
         typeof row.serviceTier === "string" &&
         isNumber(row.inferredTokens),
     )
-  )
+  );
 }
 
 function isPricing(value: unknown): boolean {
   return (
     isRecord(value) &&
     typeof value.source === "string" &&
-    typeof value.estimateModel === "string" &&
+    isOptionalString(value.estimateModel) &&
     (value.models === undefined ||
       (Array.isArray(value.models) && value.models.every((model) => typeof model === "string"))) &&
     isOptionalString(value.fetchedAt) &&
     isOptionalString(value.warning)
-  )
+  );
 }
 
 function isTheme(value: unknown): value is UsageTheme {
@@ -617,10 +612,10 @@ function isTheme(value: unknown): value is UsageTheme {
     !isRecord(value.colors) ||
     !isRecord(value.fonts)
   ) {
-    return false
+    return false;
   }
 
-  const colors = value.colors
+  const colors = value.colors;
   const colorKeys = [
     "bg",
     "panel",
@@ -631,8 +626,8 @@ function isTheme(value: unknown): value is UsageTheme {
     "accent",
     "accent2",
     "warning",
-  ]
-  const safeFont = /^[\w\s,.'"-]+$/
+  ];
+  const safeFont = /^[\w\s,.'"-]+$/;
 
   return (
     colorKeys.every((key) => isHexColor(colors[key])) &&
@@ -646,15 +641,15 @@ function isTheme(value: unknown): value is UsageTheme {
     safeFont.test(value.fonts.ui) &&
     typeof value.fonts.code === "string" &&
     safeFont.test(value.fonts.code)
-  )
+  );
 }
 
 function isHexColor(value: unknown): value is string {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
 }
 
 function isThemeOption(value: unknown): boolean {
-  return isRecord(value) && typeof value.id === "string" && isTheme(value.theme)
+  return isRecord(value) && typeof value.id === "string" && isTheme(value.theme);
 }
 
 function isSummary(value: unknown): boolean {
@@ -669,7 +664,7 @@ function isSummary(value: unknown): boolean {
     isNumber(value.unattributedTokens) &&
     isNumber(value.knownLocalCostUsd) &&
     isNumber(value.estimatedCostUsd)
-  )
+  );
 }
 
 function isDailyUsage(value: unknown): boolean {
@@ -689,7 +684,7 @@ function isDailyUsage(value: unknown): boolean {
     isNumber(value.knownLocalCostUsd) &&
     isNumber(value.estimatedUnattributedCostUsd) &&
     isNumber(value.estimatedCostUsd)
-  )
+  );
 }
 
 function isWeeklyUsage(value: unknown): boolean {
@@ -701,7 +696,7 @@ function isWeeklyUsage(value: unknown): boolean {
     isTokenBreakdown(value.localTokens) &&
     isNumber(value.unattributedTokens) &&
     isNumber(value.estimatedCostUsd)
-  )
+  );
 }
 
 function isAnalytics(value: unknown): boolean {
@@ -738,26 +733,26 @@ function isAnalytics(value: unknown): boolean {
       isAnalyticsRow(row, ["source", "credits", "turns", "threads", "users", "textTotalTokens"]),
     ) &&
     (value.tasks === undefined || isAnalyticsTasks(value.tasks))
-  )
+  );
 }
 
 function isAnalyticsTotals(value: unknown): boolean {
   return (
     isRecord(value) &&
     ["credits", "turns", "threads", "users", "textTotalTokens"].every((key) => isNumber(value[key]))
-  )
+  );
 }
 
 function isAnalyticsRow(value: unknown, keys: string[]): boolean {
   if (!isRecord(value)) {
-    return false
+    return false;
   }
 
   return keys.every((key) =>
     key === "model" || key === "speed" || key === "surface" || key === "source"
       ? typeof value[key] === "string"
       : isNumber(value[key]),
-  )
+  );
 }
 
 function isAnalyticsTasks(value: unknown): boolean {
@@ -773,18 +768,18 @@ function isAnalyticsTasks(value: unknown): boolean {
     isNumericRecord(value.diffStats, ["filesModified", "linesAdded", "linesRemoved"]) &&
     Array.isArray(value.recent) &&
     value.recent.every(isRecentTask)
-  )
+  );
 }
 
 function isCountRows(value: unknown, key: string): boolean {
   return (
     Array.isArray(value) &&
     value.every((row) => isRecord(row) && typeof row[key] === "string" && isNumber(row.count))
-  )
+  );
 }
 
 function isNumericRecord(value: unknown, keys: string[]): boolean {
-  return isRecord(value) && keys.every((key) => isNumber(value[key]))
+  return isRecord(value) && keys.every((key) => isNumber(value[key]));
 }
 
 function isRecentTask(value: unknown): boolean {
@@ -797,5 +792,5 @@ function isRecentTask(value: unknown): boolean {
     (value.updatedAt === undefined || isNumber(value.updatedAt)) &&
     typeof value.archived === "boolean" &&
     isNumber(value.pullRequests)
-  )
+  );
 }

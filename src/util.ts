@@ -1,7 +1,7 @@
-import type { TokenBreakdown } from "./types"
+import type { TokenBreakdown } from "./types";
 
-import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs"
-import { join } from "node:path"
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 export const ZERO_BREAKDOWN: TokenBreakdown = {
   totalTokens: 0,
@@ -9,7 +9,7 @@ export const ZERO_BREAKDOWN: TokenBreakdown = {
   cachedInputTokens: 0,
   outputTokens: 0,
   reasoningOutputTokens: 0,
-}
+};
 
 export function addBreakdown(a: TokenBreakdown, b: TokenBreakdown): TokenBreakdown {
   return {
@@ -18,7 +18,7 @@ export function addBreakdown(a: TokenBreakdown, b: TokenBreakdown): TokenBreakdo
     cachedInputTokens: a.cachedInputTokens + b.cachedInputTokens,
     outputTokens: a.outputTokens + b.outputTokens,
     reasoningOutputTokens: a.reasoningOutputTokens + b.reasoningOutputTokens,
-  }
+  };
 }
 
 export function subtractBreakdown(a: TokenBreakdown, b: TokenBreakdown): TokenBreakdown {
@@ -28,7 +28,7 @@ export function subtractBreakdown(a: TokenBreakdown, b: TokenBreakdown): TokenBr
     cachedInputTokens: Math.max(0, a.cachedInputTokens - b.cachedInputTokens),
     outputTokens: Math.max(0, a.outputTokens - b.outputTokens),
     reasoningOutputTokens: Math.max(0, a.reasoningOutputTokens - b.reasoningOutputTokens),
-  }
+  };
 }
 
 export function normalizeBreakdown(value: any): TokenBreakdown {
@@ -40,32 +40,32 @@ export function normalizeBreakdown(value: any): TokenBreakdown {
     reasoningOutputTokens: numberFrom(
       value?.reasoning_output_tokens ?? value?.reasoningOutputTokens,
     ),
-  }
+  };
 }
 
 export function numberFrom(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
-    return value
+    return value;
   }
 
   if (typeof value === "bigint") {
-    return Number(value)
+    return Number(value);
   }
 
   if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value)
+    const parsed = Number(value);
 
-    return Number.isFinite(parsed) ? parsed : 0
+    return Number.isFinite(parsed) ? parsed : 0;
   }
 
-  return 0
+  return 0;
 }
 
 export function dateKey(isoTimestamp: string, timezone: string): string {
-  const date = new Date(isoTimestamp)
+  const date = new Date(isoTimestamp);
 
   if (Number.isNaN(date.getTime())) {
-    return isoTimestamp.slice(0, 10)
+    return isoTimestamp.slice(0, 10);
   }
 
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -73,78 +73,78 @@ export function dateKey(isoTimestamp: string, timezone: string): string {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(date)
-  const year = parts.find((p) => p.type === "year")?.value ?? "1970"
-  const month = parts.find((p) => p.type === "month")?.value ?? "01"
-  const day = parts.find((p) => p.type === "day")?.value ?? "01"
+  }).formatToParts(date);
+  const year = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const month = parts.find((p) => p.type === "month")?.value ?? "01";
+  const day = parts.find((p) => p.type === "day")?.value ?? "01";
 
-  return `${year}-${month}-${day}`
+  return `${year}-${month}-${day}`;
 }
 
 export function eachDate(from: string, to: string): string[] {
-  const out: string[] = []
-  const current = parseDateOnly(from)
-  const end = parseDateOnly(to)
+  const out: string[] = [];
+  const current = parseDateOnly(from);
+  const end = parseDateOnly(to);
 
   while (current <= end) {
-    out.push(formatDateOnly(current))
-    current.setUTCDate(current.getUTCDate() + 1)
+    out.push(formatDateOnly(current));
+    current.setUTCDate(current.getUTCDate() + 1);
   }
 
-  return out
+  return out;
 }
 
 export function parseDateOnly(value: string): Date {
-  const [year, month, day] = value.split("-").map(Number)
+  const [year, month, day] = value.split("-").map(Number);
 
-  return new Date(Date.UTC(year, month - 1, day))
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 export function formatDateOnly(value: Date): string {
-  return value.toISOString().slice(0, 10)
+  return value.toISOString().slice(0, 10);
 }
 
 export function isoWeekStart(dateKeyValue: string): string {
-  const date = parseDateOnly(dateKeyValue)
-  const day = date.getUTCDay() || 7
-  date.setUTCDate(date.getUTCDate() - day + 1)
+  const date = parseDateOnly(dateKeyValue);
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() - day + 1);
 
-  return formatDateOnly(date)
+  return formatDateOnly(date);
 }
 
 export function clampDate(value: string, from: string | null, to: string | null): boolean {
   if (from && value < from) {
-    return false
+    return false;
   }
 
   if (to && value > to) {
-    return false
+    return false;
   }
 
-  return true
+  return true;
 }
 
 export function compactNumber(value: number): string {
-  const abs = Math.abs(value)
+  const abs = Math.abs(value);
 
   if (abs >= 1_000_000_000) {
-    return `${exactNumber(value / 1_000_000_000, 1)} B`
+    return `${exactNumber(value / 1_000_000_000, 1)} B`;
   }
 
   if (abs >= 1_000_000) {
-    return `${exactNumber(value / 1_000_000, 1)} M`
+    return `${exactNumber(value / 1_000_000, 1)} M`;
   }
 
   if (abs >= 1_000) {
-    return `${exactNumber(value / 1_000, 1)} K`
+    return `${exactNumber(value / 1_000, 1)} K`;
   }
 
-  return exactNumber(value)
+  return exactNumber(value);
 }
 
 export function exactNumber(value: number, maximumFractionDigits = 0): string {
   if (!Number.isFinite(value)) {
-    return "0"
+    return "0";
   }
 
   return normalizeFrenchSpaces(
@@ -152,19 +152,19 @@ export function exactNumber(value: number, maximumFractionDigits = 0): string {
       maximumFractionDigits,
       useGrouping: true,
     }).format(value),
-  )
+  );
 }
 
 export function pluralize(value: string, count: number): string {
-  return count <= 1 ? value : `${value}s`
+  return count <= 1 ? value : `${value}s`;
 }
 
 export function money(value: number): string {
   if (!Number.isFinite(value)) {
-    return "$ 0,00"
+    return "$ 0,00";
   }
 
-  const digits = Math.abs(value) < 0.01 && value !== 0 ? 4 : 2
+  const digits = Math.abs(value) < 0.01 && value !== 0 ? 4 : 2;
 
   return `$ ${normalizeFrenchSpaces(
     new Intl.NumberFormat("fr-FR", {
@@ -172,71 +172,71 @@ export function money(value: number): string {
       maximumFractionDigits: digits,
       useGrouping: true,
     }).format(value),
-  )}`
+  )}`;
 }
 
 function normalizeFrenchSpaces(value: string): string {
-  return value.replace(/[\u00a0\u202f]/g, " ")
+  return value.replace(/[\u00a0\u202f]/g, " ");
 }
 
 export function ensureDir(dir: string): void {
-  mkdirSync(dir, { recursive: true })
+  mkdirSync(dir, { recursive: true });
 }
 
 export function fileExists(file: string): boolean {
   try {
-    return existsSync(file) && statSync(file).isFile()
+    return existsSync(file) && statSync(file).isFile();
   } catch {
-    return false
+    return false;
   }
 }
 
 export function dirExists(dir: string): boolean {
   try {
-    return existsSync(dir) && statSync(dir).isDirectory()
+    return existsSync(dir) && statSync(dir).isDirectory();
   } catch {
-    return false
+    return false;
   }
 }
 
 export function walkFiles(root: string, predicate: (file: string) => boolean): string[] {
-  const out: string[] = []
+  const out: string[] = [];
 
   if (!dirExists(root)) {
-    return out
+    return out;
   }
 
-  const stack = [root]
+  const stack = [root];
 
   while (stack.length) {
-    const current = stack.pop()!
-    let entries: string[]
+    const current = stack.pop()!;
+    let entries: string[];
 
     try {
-      entries = readdirSync(current)
+      entries = readdirSync(current);
     } catch {
-      continue
+      continue;
     }
 
     for (const entry of entries) {
-      const full = join(current, entry)
-      let stats
+      const full = join(current, entry);
+      let stats;
 
       try {
-        stats = statSync(full)
+        stats = statSync(full);
       } catch {
-        continue
+        continue;
       }
 
       if (stats.isDirectory()) {
-        stack.push(full)
+        stack.push(full);
       } else if (stats.isFile() && predicate(full)) {
-        out.push(full)
+        out.push(full);
       }
     }
   }
 
-  return out
+  return out;
 }
 
 export function escapeHtml(value: unknown): string {
@@ -244,9 +244,9 @@ export function escapeHtml(value: unknown): string {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
+    .replaceAll('"', "&quot;");
 }
 
 export function sanitizeFilename(value: string): string {
-  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "")
+  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "");
 }

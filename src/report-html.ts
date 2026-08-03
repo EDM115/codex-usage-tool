@@ -5,17 +5,17 @@ import type {
   UsageDataset,
   UsageTheme,
   WhamAnalytics,
-} from "./types"
+} from "./types";
 
-import { readFileSync } from "node:fs"
+import { readFileSync } from "node:fs";
 
-import { compactNumber, escapeHtml, money, pluralize } from "./util"
+import { compactNumber, escapeHtml, money, pluralize } from "./util";
 
 const CODEX_ICON_DATA_URI = `data:image/webp;base64,${readFileSync(
   new URL("../codex_icon.webp", import.meta.url),
-).toString("base64")}`
+).toString("base64")}`;
 
-type ProgressColorPair = { dark: string; light: string }
+type ProgressColorPair = { dark: string; light: string };
 
 const MODEL_PROGRESS_COLORS: Record<string, ProgressColorPair> = {
   "chat-latest": { dark: "#67d8ef", light: "#087c94" },
@@ -69,22 +69,22 @@ const MODEL_PROGRESS_COLORS: Record<string, ProgressColorPair> = {
   "text-embedding-3-large": { dark: "#67d8ef", light: "#087c94" },
   "text-embedding-3-small": { dark: "#50d890", light: "#087a46" },
   "text-embedding-ada-002": { dark: "#d5e45c", light: "#687a00" },
-}
+};
 
 export type ReportModelRow = WhamAnalytics["byModel"][number] & {
-  localTokens: number
-  localBreakdown: TokenBreakdown
-  localCostUsd: number
-  reasoningEfforts: LocalReasoningUsage[]
-  serviceTiers: LocalServiceTierUsage[]
-  source: "local" | "local+cloud" | "cloud"
-}
+  localTokens: number;
+  localBreakdown: TokenBreakdown;
+  localCostUsd: number;
+  reasoningEfforts: LocalReasoningUsage[];
+  serviceTiers: LocalServiceTierUsage[];
+  source: "local" | "local+cloud" | "cloud";
+};
 
 export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
-  const cloudRows = dataset.analytics?.byModel ?? []
-  const cloudByModel = new Map(cloudRows.map((row) => [row.model, row]))
+  const cloudRows = dataset.analytics?.byModel ?? [];
+  const cloudByModel = new Map(cloudRows.map((row) => [row.model, row]));
   const localRows = dataset.local.modelUsage.map((usage): ReportModelRow => {
-    const cloud = cloudByModel.get(usage.model)
+    const cloud = cloudByModel.get(usage.model);
 
     return {
       model: usage.model,
@@ -98,9 +98,9 @@ export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
       reasoningEfforts: usage.reasoningEfforts,
       serviceTiers: usage.serviceTiers,
       source: cloud ? "local+cloud" : "local",
-    }
-  })
-  const localModels = new Set(dataset.local.modelUsage.map((row) => row.model))
+    };
+  });
+  const localModels = new Set(dataset.local.modelUsage.map((row) => row.model));
   const cloudOnlyRows = cloudRows
     .filter((row) => !localModels.has(row.model))
     .map(
@@ -119,30 +119,33 @@ export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
         serviceTiers: [],
         source: "cloud",
       }),
-    )
+    );
 
-  return [...localRows, ...cloudOnlyRows]
+  return [...localRows, ...cloudOnlyRows];
 }
 
 export function renderReportHtml(dataset: UsageDataset): string {
-  const dataJson = JSON.stringify(dataset).replaceAll("</", "<\\/")
-  const modelRowsJson = JSON.stringify(buildReportModelRows(dataset)).replaceAll("</", "<\\/")
+  const dataJson = JSON.stringify(dataset).replaceAll("</", "<\\/");
+  const modelRowsJson = JSON.stringify(buildReportModelRows(dataset)).replaceAll("</", "<\\/");
   const reportDates = [
     ...dataset.daily.map((day) => day.date),
     ...(dataset.local.capabilityEvents ?? []).map((event) => event.date),
-  ].sort()
-  const reportFrom = dataset.dateRange.from ?? reportDates[0] ?? ""
-  const reportTo = dataset.dateRange.to ?? reportDates.at(-1) ?? ""
-  const pricingModels = dataset.pricing.models ?? Object.keys(MODEL_PROGRESS_COLORS)
-  const fallbackColors = Object.values(MODEL_PROGRESS_COLORS)
+  ].sort();
+  const reportFrom = dataset.dateRange.from ?? reportDates[0] ?? "";
+  const reportTo = dataset.dateRange.to ?? reportDates.at(-1) ?? "";
+  const pricingModels = dataset.pricing.models ?? Object.keys(MODEL_PROGRESS_COLORS);
+  const fallbackColors = Object.values(MODEL_PROGRESS_COLORS);
   const activeModelProgressColors = Object.fromEntries(
     pricingModels.map((model, index) => [
       model,
       MODEL_PROGRESS_COLORS[model] ?? fallbackColors[index % fallbackColors.length],
     ]),
-  )
-  const modelProgressColorsJson = JSON.stringify(activeModelProgressColors).replaceAll("</", "<\\/")
-  const theme = dataset.theme
+  );
+  const modelProgressColorsJson = JSON.stringify(activeModelProgressColors).replaceAll(
+    "</",
+    "<\\/",
+  );
+  const theme = dataset.theme;
 
   return `<!doctype html>
 <html lang="en">
@@ -387,7 +390,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       <div><strong>Data sources :</strong> ${escapeHtml(dataset.sourceMode)}, profile API ${dataset.profile?.endpoint ? `from ${escapeHtml(dataset.profile.endpoint)}` : "not used"}, analytics ${dataset.analytics?.fetched ? "requested from wham dashboard APIs" : "not fetched live"}</div>
       <div><strong>Local enrichment :</strong> ${dataset.local.tokenEvents} ${pluralize("token event", dataset.local.tokenEvents)} from ${dataset.local.rolloutFiles} ${pluralize("rollout file", dataset.local.rolloutFiles)}, ${dataset.local.sqliteThreads} ${pluralize("SQLite thread row", dataset.local.sqliteThreads)} across ${dataset.local.sqliteDatabases} ${pluralize("SQLite database", dataset.local.sqliteDatabases)}, ${dataset.codexHomes.length} .codex ${pluralize("source", dataset.codexHomes.length)}</div>
       <div id="themeNote"><strong>Theme :</strong> <span id="themeNoteValue">${escapeHtml(dataset.themeChoice)} from ${escapeHtml(dataset.theme.source)}</span></div>
-      <div><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.source)} using ${escapeHtml(dataset.pricing.estimateModel)} for unattributed backend-only tokens</div>
+      <div><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.source)}${dataset.pricing.estimateModel ? ` using ${escapeHtml(dataset.pricing.estimateModel)} as the explicit missing-model override` : " using the historical primary model for each usage date"}</div>
       ${dataset.profile?.error ? `<div class="warning"><strong>Profile API :</strong> ${escapeHtml(dataset.profile.error)}</div>` : ""}
       ${dataset.analytics?.error ? `<div class="warning"><strong>Analytics API :</strong> ${escapeHtml(dataset.analytics.error)}</div>` : ""}
       ${dataset.pricing.warning ? `<div class="warning"><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.warning)}</div>` : ""}
@@ -1765,14 +1768,14 @@ export function renderReportHtml(dataset: UsageDataset): string {
     render();
   </script>
 </body>
-</html>`
+</html>`;
 }
 
 export function formatGeneratedAt(timestamp: string, timezone: string): string {
-  const date = new Date(timestamp)
+  const date = new Date(timestamp);
 
   if (Number.isNaN(date.getTime())) {
-    return timestamp
+    return timestamp;
   }
 
   try {
@@ -1787,25 +1790,25 @@ export function formatGeneratedAt(timestamp: string, timezone: string): string {
       fractionalSecondDigits: 3,
       timeZoneName: "longOffset",
       hourCycle: "h23",
-    }).formatToParts(date)
-    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-    const offset = (values.timeZoneName ?? timezone).replace(/^GMT/, "UTC")
+    }).formatToParts(date);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const offset = (values.timeZoneName ?? timezone).replace(/^GMT/, "UTC");
 
-    return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}.${values.fractionalSecond ?? "000"} ${offset}`
+    return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}.${values.fractionalSecond ?? "000"} ${offset}`;
   } catch {
-    return timestamp
+    return timestamp;
   }
 }
 
 function dateControl(id: "from" | "to", label: string, value: string): string {
-  const displayValue = value ? value.split("-").reverse().join("/") : ""
-  const pickerLabel = `Choose ${label.toLowerCase()}`
+  const displayValue = value ? value.split("-").reverse().join("/") : "";
+  const pickerLabel = `Choose ${label.toLowerCase()}`;
 
-  return `<div class="date-control"><input id="${id}" type="text" value="${escapeHtml(displayValue)}" aria-label="${escapeHtml(label)}" placeholder="DD/MM/YYYY" inputmode="numeric" autocomplete="off"><svg class="date-calendar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/></svg><input id="${id}Picker" type="date" value="${escapeHtml(value)}" aria-label="${escapeHtml(pickerLabel)}"></div>`
+  return `<div class="date-control"><input id="${id}" type="text" value="${escapeHtml(displayValue)}" aria-label="${escapeHtml(label)}" placeholder="DD/MM/YYYY" inputmode="numeric" autocomplete="off"><svg class="date-calendar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/></svg><input id="${id}Picker" type="date" value="${escapeHtml(value)}" aria-label="${escapeHtml(pickerLabel)}"></div>`;
 }
 
 function cssVars(theme: UsageTheme): string {
-  const cells = theme.colors.cells
+  const cells = theme.colors.cells;
   return `:root {
       color-scheme: ${themeColorScheme(theme.colors.bg)};
       --bg: ${theme.colors.bg};
@@ -1825,36 +1828,36 @@ function cssVars(theme: UsageTheme): string {
       --cell5: ${cells[5]};
       --font-ui: ${theme.fonts.ui};
       --font-code: ${theme.fonts.code};
-    }`
+    }`;
 }
 
 function themeColorScheme(bg: string): "dark" | "light" {
-  const value = bg.replace(/^#/, "")
+  const value = bg.replace(/^#/, "");
 
   if (!/^[0-9a-f]{6}$/i.test(value)) {
-    return "dark"
+    return "dark";
   }
 
-  const red = parseInt(value.slice(0, 2), 16)
-  const green = parseInt(value.slice(2, 4), 16)
-  const blue = parseInt(value.slice(4, 6), 16)
+  const red = parseInt(value.slice(0, 2), 16);
+  const green = parseInt(value.slice(2, 4), 16);
+  const blue = parseInt(value.slice(4, 6), 16);
 
-  return (red * 0.299 + green * 0.587 + blue * 0.114) / 255 > 0.58 ? "light" : "dark"
+  return (red * 0.299 + green * 0.587 + blue * 0.114) / 255 > 0.58 ? "light" : "dark";
 }
 
 function stat(label: string, value: number, kind: "number" | "money" = "number"): string {
-  const display = kind === "money" ? money(value) : compactNumber(value)
-  return `<div class="stat"><strong data-stat-value="${value}" data-stat-kind="${kind}">${escapeHtml(display)}</strong><span>${escapeHtml(label)}</span></div>`
+  const display = kind === "money" ? money(value) : compactNumber(value);
+  return `<div class="stat"><strong data-stat-value="${value}" data-stat-kind="${kind}">${escapeHtml(display)}</strong><span>${escapeHtml(label)}</span></div>`;
 }
 
 function downloadMenu(target: "heatmap" | "chart" | "dashboard"): string {
-  return `<details class="download-menu"><summary aria-label="Download" title="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`
+  return `<details class="download-menu"><summary aria-label="Download" title="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`;
 }
 
 function controlChevron(): string {
-  return `<svg class="control-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 4.25 3.5 3.5 3.5-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/></svg>`
+  return `<svg class="control-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 4.25 3.5 3.5 3.5-3.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/></svg>`;
 }
 
 function githubLink(): string {
-  return `<a class="github-link" href="https://github.com/EDM115/codex-usage-tool" target="_blank" rel="noreferrer" aria-label="Open codex-usage-tool on GitHub" title="GitHub repository"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z" fill="none"/><path fill="currentColor" d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656c0-.781.281-1.625.75-2.188c-.203-.515-.172-1.609.063-2.062c.625-.078 1.468.25 1.968.703c.594-.187 1.219-.281 1.985-.281c.765 0 1.39.094 1.953.265c.484-.437 1.344-.765 1.969-.687c.218.422.25 1.515.046 2.047c.5.593.766 1.39.766 2.203c0 1.922-1.453 3.375-3.547 3.64c.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03C16 3.61 12.406 0 7.984 0C3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156c-1.031 0-1.64-.562-2.078-1.609c-.172-.422-.36-.672-.719-.719c-.187-.015-.25-.093-.25-.187c0-.188.313-.328.625-.328c.453 0 .844.281 1.25.86c.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"/></svg></a>`
+  return `<a class="github-link" href="https://github.com/EDM115/codex-usage-tool" target="_blank" rel="noreferrer" aria-label="Open codex-usage-tool on GitHub" title="GitHub repository"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16H0z" fill="none"/><path fill="currentColor" d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656c0-.781.281-1.625.75-2.188c-.203-.515-.172-1.609.063-2.062c.625-.078 1.468.25 1.968.703c.594-.187 1.219-.281 1.985-.281c.765 0 1.39.094 1.953.265c.484-.437 1.344-.765 1.969-.687c.218.422.25 1.515.046 2.047c.5.593.766 1.39.766 2.203c0 1.922-1.453 3.375-3.547 3.64c.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03C16 3.61 12.406 0 7.984 0C3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156c-1.031 0-1.64-.562-2.078-1.609c-.172-.422-.36-.672-.719-.719c-.187-.015-.25-.093-.25-.187c0-.188.313-.328.625-.328c.453 0 .844.281 1.25.86c.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"/></svg></a>`;
 }

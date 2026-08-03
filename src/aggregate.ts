@@ -12,110 +12,125 @@ import type {
   UsageThemeOption,
   WeeklyUsage,
   WhamAnalytics,
-} from "./types"
-import type { ThemeChoice } from "./theme"
+} from "./types";
+import type { ThemeChoice } from "./theme";
 
-import { estimateBreakdownCost, estimateUnattributedCost, type PricingLoadResult } from "./pricing"
-import { addBreakdown, clampDate, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util"
+import { primaryModelAt, resolveModelAt } from "./model-catalog";
+import { estimateBreakdownCost, estimateUnattributedCost, type PricingLoadResult } from "./pricing";
+import { addBreakdown, clampDate, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util";
 
 type LocalModelUsageAccumulator = Map<
   string,
   {
-    breakdown: TokenBreakdown
-    costUsd: number
-    reasoningEfforts: Map<string, { breakdown: TokenBreakdown; costUsd: number }>
-    serviceTiers: Map<string, { breakdown: TokenBreakdown; costUsd: number; inferredTokens: number }>
+    breakdown: TokenBreakdown;
+    costUsd: number;
+    reasoningEfforts: Map<string, { breakdown: TokenBreakdown; costUsd: number }>;
+    serviceTiers: Map<
+      string,
+      { breakdown: TokenBreakdown; costUsd: number; inferredTokens: number }
+    >;
   }
->
+>;
 
 export function buildDataset(args: {
   profileResult: {
-    profile?: AccountProfileResponse
-    fetched: boolean
-    endpoint?: string
-    error?: string
-  }
-  events: TokenEvent[]
-  capabilityEvents?: CapabilityUsageEvent[]
-  codexHomes: CodexHome[]
-  sourceMode: SourceMode
-  from: string | null
-  to: string | null
-  timezone: string
+    profile?: AccountProfileResponse;
+    fetched: boolean;
+    endpoint?: string;
+    error?: string;
+  };
+  events: TokenEvent[];
+  capabilityEvents?: CapabilityUsageEvent[];
+  codexHomes: CodexHome[];
+  sourceMode: SourceMode;
+  from: string | null;
+  to: string | null;
+  timezone: string;
   localStats: {
-    rolloutFiles: number
-    sqliteDatabases: number
-    sqliteThreads: number
-    parseErrors: Array<{ path: string; line?: number; error: string }>
-  }
-  pricing: PricingLoadResult
-  estimateModel: string
-  theme: UsageTheme
-  themeChoice: ThemeChoice
-  availableThemes: UsageThemeOption[]
-  analytics?: WhamAnalytics
+    rolloutFiles: number;
+    sqliteDatabases: number;
+    sqliteThreads: number;
+    parseErrors: Array<{ path: string; line?: number; error: string }>;
+  };
+  pricing: PricingLoadResult;
+  estimateModel?: string;
+  theme: UsageTheme;
+  themeChoice: ThemeChoice;
+  availableThemes: UsageThemeOption[];
+  analytics?: WhamAnalytics;
 }): UsageDataset {
-  const backendByDate = new Map<string, number>()
+  const backendByDate = new Map<string, number>();
 
   for (const bucket of args.profileResult.profile?.dailyUsageBuckets ?? []) {
     if (!bucket.startDate || !clampDate(bucket.startDate, args.from, args.to)) {
-      continue
+      continue;
     }
 
-    backendByDate.set(bucket.startDate, bucket.tokens)
+    backendByDate.set(bucket.startDate, bucket.tokens);
   }
 
-  const localByDate = new Map<string, DailyUsage>()
-  const localModelUsage: LocalModelUsageAccumulator = new Map()
-  const localModelUsageByDate = new Map<string, LocalModelUsageAccumulator>()
+  const localByDate = new Map<string, DailyUsage>();
+  const localModelUsage: LocalModelUsageAccumulator = new Map();
+  const localModelUsageByDate = new Map<string, LocalModelUsageAccumulator>();
 
   for (const event of args.events) {
-    const day = getOrCreateDay(localByDate, event.date)
+    const eventModel =
+      event.model && event.model !== "unknown"
+        ? resolveModelAt(args.pricing.catalog, event.model, event.date)
+        : args.estimateModel
+          ? resolveModelAt(args.pricing.catalog, args.estimateModel, event.date)
+          : (primaryModelAt(args.pricing.catalog, event.date) ?? "unknown");
+    const effectiveEvent = eventModel === event.model ? event : { ...event, model: eventModel };
+    const day = getOrCreateDay(localByDate, event.date);
     const eventCostUsd = estimateBreakdownCost(
-      event.breakdown,
-      event.model,
-      args.pricing.table,
+      effectiveEvent.breakdown,
+      effectiveEvent.model,
+      args.pricing.catalog,
       args.estimateModel,
       {
-        serviceTier: event.serviceTier,
-        modelContextWindow: event.modelContextWindow,
+        date: event.date,
+        serviceTier: effectiveEvent.serviceTier,
+        modelContextWindow: effectiveEvent.modelContextWindow,
       },
-    )
-    day.localTokens = addBreakdown(day.localTokens, event.breakdown)
-    day.knownLocalCostUsd += eventCostUsd
-    day.models[event.model] = addBreakdown(
-      day.models[event.model] ?? ZERO_BREAKDOWN,
-      event.breakdown,
-    )
-    day.homes[event.homeLabel] = (day.homes[event.homeLabel] ?? 0) + event.breakdown.totalTokens
+    );
+    day.localTokens = addBreakdown(day.localTokens, effectiveEvent.breakdown);
+    day.knownLocalCostUsd += eventCostUsd;
+    day.models[effectiveEvent.model] = addBreakdown(
+      day.models[effectiveEvent.model] ?? ZERO_BREAKDOWN,
+      effectiveEvent.breakdown,
+    );
+    day.homes[effectiveEvent.homeLabel] =
+      (day.homes[effectiveEvent.homeLabel] ?? 0) + effectiveEvent.breakdown.totalTokens;
 
-    if (event.reasoningEffort) {
-      day.reasoningEfforts[event.reasoningEffort] =
-        (day.reasoningEfforts[event.reasoningEffort] ?? 0) + event.breakdown.totalTokens
+    if (effectiveEvent.reasoningEffort) {
+      day.reasoningEfforts[effectiveEvent.reasoningEffort] =
+        (day.reasoningEfforts[effectiveEvent.reasoningEffort] ?? 0) +
+        effectiveEvent.breakdown.totalTokens;
     }
 
-    addEventToModelUsage(localModelUsage, event, eventCostUsd)
-    const dailyModelUsage = localModelUsageByDate.get(event.date) ?? new Map()
-    addEventToModelUsage(dailyModelUsage, event, eventCostUsd)
-    localModelUsageByDate.set(event.date, dailyModelUsage)
+    addEventToModelUsage(localModelUsage, effectiveEvent, eventCostUsd);
+    const dailyModelUsage = localModelUsageByDate.get(event.date) ?? new Map();
+    addEventToModelUsage(dailyModelUsage, effectiveEvent, eventCostUsd);
+    localModelUsageByDate.set(event.date, dailyModelUsage);
   }
 
-  const dates = completeDateRange(backendByDate, localByDate, args.from, args.to)
+  const dates = completeDateRange(backendByDate, localByDate, args.from, args.to);
   const daily = dates.map((date) => {
-    const base = getOrCreateDay(localByDate, date)
-    const backendTokens = backendByDate.get(date)
-    const localTotal = base.localTokens.totalTokens
-    const totalTokens = backendTokens ?? localTotal
-    const unattributedTokens = Math.max(0, totalTokens - localTotal)
-    const knownLocalCostUsd = base.knownLocalCostUsd
+    const base = getOrCreateDay(localByDate, date);
+    const backendTokens = backendByDate.get(date);
+    const localTotal = base.localTokens.totalTokens;
+    const totalTokens = backendTokens ?? localTotal;
+    const unattributedTokens = Math.max(0, totalTokens - localTotal);
+    const knownLocalCostUsd = base.knownLocalCostUsd;
 
     const estimatedUnattributedCostUsd = estimateUnattributedCost(
       unattributedTokens,
       knownLocalCostUsd,
       localTotal,
       args.estimateModel,
-      args.pricing.table,
-    )
+      args.pricing.catalog,
+      { date },
+    );
 
     return {
       ...base,
@@ -127,12 +142,12 @@ export function buildDataset(args: {
       knownLocalCostUsd,
       estimatedUnattributedCostUsd,
       estimatedCostUsd: knownLocalCostUsd + estimatedUnattributedCostUsd,
-    }
-  })
+    };
+  });
 
-  const weekly = buildWeekly(daily)
-  const summary = buildSummary(daily, args.profileResult.profile)
-  const modelUsage = buildLocalModelUsage(localModelUsage)
+  const weekly = buildWeekly(daily);
+  const summary = buildSummary(daily, args.profileResult.profile);
+  const modelUsage = buildLocalModelUsage(localModelUsage);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -180,7 +195,7 @@ export function buildDataset(args: {
     summary,
     daily,
     weekly,
-  }
+  };
 }
 
 function buildLocalModelUsage(map: LocalModelUsageAccumulator): LocalModelUsage[] {
@@ -207,7 +222,7 @@ function buildLocalModelUsage(map: LocalModelUsageAccumulator): LocalModelUsage[
           .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
       }),
     )
-    .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens)
+    .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens);
 }
 
 function addEventToModelUsage(
@@ -223,22 +238,19 @@ function addEventToModelUsage(
       string,
       { breakdown: TokenBreakdown; costUsd: number; inferredTokens: number }
     >(),
-  }
-  modelUsage.breakdown = addBreakdown(modelUsage.breakdown, event.breakdown)
-  modelUsage.costUsd += eventCostUsd
+  };
+  modelUsage.breakdown = addBreakdown(modelUsage.breakdown, event.breakdown);
+  modelUsage.costUsd += eventCostUsd;
 
   if (event.reasoningEffort) {
     const effortUsage = modelUsage.reasoningEfforts.get(event.reasoningEffort) ?? {
       breakdown: { ...ZERO_BREAKDOWN },
       costUsd: 0,
-    }
-    modelUsage.reasoningEfforts.set(
-      event.reasoningEffort,
-      {
-        breakdown: addBreakdown(effortUsage.breakdown, event.breakdown),
-        costUsd: effortUsage.costUsd + eventCostUsd,
-      },
-    )
+    };
+    modelUsage.reasoningEfforts.set(event.reasoningEffort, {
+      breakdown: addBreakdown(effortUsage.breakdown, event.breakdown),
+      costUsd: effortUsage.costUsd + eventCostUsd,
+    });
   }
 
   if (event.serviceTier) {
@@ -246,21 +258,21 @@ function addEventToModelUsage(
       breakdown: { ...ZERO_BREAKDOWN },
       costUsd: 0,
       inferredTokens: 0,
-    }
-    tierUsage.breakdown = addBreakdown(tierUsage.breakdown, event.breakdown)
-    tierUsage.costUsd += eventCostUsd
-    tierUsage.inferredTokens += event.serviceTierInferred ? event.breakdown.totalTokens : 0
-    modelUsage.serviceTiers.set(event.serviceTier, tierUsage)
+    };
+    tierUsage.breakdown = addBreakdown(tierUsage.breakdown, event.breakdown);
+    tierUsage.costUsd += eventCostUsd;
+    tierUsage.inferredTokens += event.serviceTierInferred ? event.breakdown.totalTokens : 0;
+    modelUsage.serviceTiers.set(event.serviceTier, tierUsage);
   }
 
-  map.set(event.model, modelUsage)
+  map.set(event.model, modelUsage);
 }
 
 function getOrCreateDay(map: Map<string, DailyUsage>, date: string): DailyUsage {
-  const existing = map.get(date)
+  const existing = map.get(date);
 
   if (existing) {
-    return existing
+    return existing;
   }
 
   const created: DailyUsage = {
@@ -276,10 +288,10 @@ function getOrCreateDay(map: Map<string, DailyUsage>, date: string): DailyUsage 
     knownLocalCostUsd: 0,
     estimatedUnattributedCostUsd: 0,
     estimatedCostUsd: 0,
-  }
-  map.set(date, created)
+  };
+  map.set(date, created);
 
-  return created
+  return created;
 }
 
 function completeDateRange(
@@ -288,52 +300,52 @@ function completeDateRange(
   from: string | null,
   to: string | null,
 ): string[] {
-  const known = [...backendByDate.keys(), ...localByDate.keys()].sort()
+  const known = [...backendByDate.keys(), ...localByDate.keys()].sort();
 
   if (known.length === 0) {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = new Date().toISOString().slice(0, 10);
 
-    return [today]
+    return [today];
   }
 
-  const start = from ?? known[0]
-  const end = to ?? known[known.length - 1]
+  const start = from ?? known[0];
+  const end = to ?? known[known.length - 1];
 
-  return eachDate(start, end)
+  return eachDate(start, end);
 }
 
 function buildWeekly(daily: DailyUsage[]): WeeklyUsage[] {
-  const weeks = new Map<string, WeeklyUsage>()
+  const weeks = new Map<string, WeeklyUsage>();
 
   for (const day of daily) {
-    const weekStart = isoWeekStart(day.date)
+    const weekStart = isoWeekStart(day.date);
     const week = weeks.get(weekStart) ?? {
       weekStart,
       totalTokens: 0,
       localTokens: { ...ZERO_BREAKDOWN },
       unattributedTokens: 0,
       estimatedCostUsd: 0,
-    }
-    week.totalTokens += day.totalTokens
-    week.backendTokens = (week.backendTokens ?? 0) + (day.backendTokens ?? 0)
-    week.localTokens = addBreakdown(week.localTokens, day.localTokens)
-    week.unattributedTokens += day.unattributedTokens
-    week.estimatedCostUsd += day.estimatedCostUsd
-    weeks.set(weekStart, week)
+    };
+    week.totalTokens += day.totalTokens;
+    week.backendTokens = (week.backendTokens ?? 0) + (day.backendTokens ?? 0);
+    week.localTokens = addBreakdown(week.localTokens, day.localTokens);
+    week.unattributedTokens += day.unattributedTokens;
+    week.estimatedCostUsd += day.estimatedCostUsd;
+    weeks.set(weekStart, week);
   }
 
-  return [...weeks.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+  return [...weeks.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
 }
 
 function buildSummary(
   daily: DailyUsage[],
   profile?: AccountProfileResponse,
 ): UsageDataset["summary"] {
-  const lifetimeFromDaily = daily.reduce((sum, day) => sum + day.totalTokens, 0)
-  const localKnownTokens = daily.reduce((sum, day) => sum + day.localTokens.totalTokens, 0)
-  const unattributedTokens = daily.reduce((sum, day) => sum + day.unattributedTokens, 0)
-  const knownLocalCostUsd = daily.reduce((sum, day) => sum + day.knownLocalCostUsd, 0)
-  const estimatedCostUsd = daily.reduce((sum, day) => sum + day.estimatedCostUsd, 0)
+  const lifetimeFromDaily = daily.reduce((sum, day) => sum + day.totalTokens, 0);
+  const localKnownTokens = daily.reduce((sum, day) => sum + day.localTokens.totalTokens, 0);
+  const unattributedTokens = daily.reduce((sum, day) => sum + day.unattributedTokens, 0);
+  const knownLocalCostUsd = daily.reduce((sum, day) => sum + day.knownLocalCostUsd, 0);
+  const estimatedCostUsd = daily.reduce((sum, day) => sum + day.estimatedCostUsd, 0);
 
   return {
     lifetimeTokens: profile?.summary.lifetimeTokens ?? lifetimeFromDaily,
@@ -345,7 +357,7 @@ function buildSummary(
     unattributedTokens,
     knownLocalCostUsd,
     estimatedCostUsd,
-  }
+  };
 }
 
 function emptyProfileSummary() {
@@ -355,5 +367,5 @@ function emptyProfileSummary() {
     longestRunningTurnSec: null,
     currentStreakDays: null,
     longestStreakDays: null,
-  }
+  };
 }
