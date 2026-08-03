@@ -11,6 +11,9 @@ The tool is designed for people who use Codex across several machines or surface
 
 </div>
 
+> [!TIP]  
+> Using Cline ? Check out https://github.com/EDM115/cline-usage-tool !
+
 ## What it produces
 
 - Interactive `usage-report.html` with token heatmaps, trend charts, WHAM dashboard breakdowns, hover details, and per-chart SVG/PNG downloads
