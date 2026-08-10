@@ -7,7 +7,7 @@
 Generate polished, self-contained Codex usage reports from local `.codex` folders, shared `usage-data.json` files, and the authenticated ChatGPT/Codex dashboard APIs.  
 The tool is designed for people who use Codex across several machines or surfaces and want one offline report that reconciles authoritative backend totals with the richer context available in local rollout files: models, reasoning effort, cached input, output tokens, cost estimates, themes, surfaces, and cloud task metadata.
 
-![Demo composited](https://i.postimg.cc/N09sFNNC/demo-composited.png)
+![Demo composited](https://i.postimg.cc/xj64CjFq/codex-usage.png)
 
 </div>
 
@@ -24,11 +24,14 @@ The tool is designed for people who use Codex across several machines or surface
 
 ## Preview
 
-![Daily intensity](https://i.postimg.cc/W1cPN2BK/overview.png)  
-![Usage trend](https://i.postimg.cc/Hk01jqmS/trend.png)  
-![Models](https://i.postimg.cc/Z5Pz0GmH/models-excerpt.png)  
-![Surfaces](https://i.postimg.cc/K87h46bN/surfaces.png)  
-![Thinking effort + Mode mix](https://i.postimg.cc/SxLbjB4D/effort-mode.png)  
+![Daily intensity](https://i.postimg.cc/FKXPqY1D/1recap.png)  
+![Usage trend](https://i.postimg.cc/rp2hbDzY/2usage.png)  
+![Return on investment](https://i.postimg.cc/YSBXVvjs/3roi.png)  
+![Models](https://i.postimg.cc/R0xP8WqY/4models.png)  
+![Surfaces](https://i.postimg.cc/43R8MYn2/5surfaces.png)  
+![Skills & Plugins](https://i.postimg.cc/N08NwQrk/6skills.png)  
+![Thinking effort + Mode mix](https://i.postimg.cc/hG8CqK70/7mix.png)  
+![Tokens repartition](https://i.postimg.cc/HL0SCT7z/8tokens.png)  
 Example of generated images can be found [here](https://github.com/EDM115/codex-usage-tool/issues/1).
 
 ## Data sources
@@ -169,6 +172,20 @@ Access tokens, account IDs, raw transaction IDs, invoice URLs, pagination cursor
 The generated HTML and images use the first selected Codex home configuration. Explicit desktop theme colors take priority. If the config only contains a named theme, the tool tries the upstream `openai/codex` theme definitions and falls back to a bundled local palette for common Codex themes.
 
 ## Development
+
+The root [`demo.json`](./demo.json) is a deterministic, fully synthetic dataset that exercises the report's local usage, cloud analytics, capability, source, cache, attribution, payment, and ROI views without exposing user data. Refresh the tracked fixture after report-schema changes with :
+
+```pwsh
+bun run demo
+```
+
+Generate a presentation-ready report from the serialized fixture with :
+
+```pwsh
+bun run demo:report
+```
+
+This writes the self-contained report to `output/demo/usage-report.html`. The `output/` directory is ignored, so the HTML can be opened, shared, or screenshotted without adding generated presentation files to Git.
 
 ```pwsh
 bun test

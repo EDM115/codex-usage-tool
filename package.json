@@ -34,6 +34,8 @@
   ],
   "type": "module",
   "scripts": {
+    "demo": "bun scripts/generate-demo.ts",
+    "demo:report": "bun scripts/generate-demo.ts --report",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "usage": "bun src/cli.ts"

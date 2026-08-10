@@ -284,6 +284,10 @@ function smoothCurveCommands(points: Array<{ x: number; y: number }>): string {
     const current = points[index];
     const next = points[index + 1];
     const following = points[index + 2] ?? next;
+    if (Math.abs(next.y - current.y) <= 0.5) {
+      path += ` L ${next.x} ${next.y}`;
+      continue;
+    }
     const control1X = current.x + (next.x - previous.x) / 6;
     const control1Y = current.y + (next.y - previous.y) / 6;
     const control2X = next.x - (following.x - current.x) / 6;

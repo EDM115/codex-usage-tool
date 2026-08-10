@@ -973,6 +973,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
         const current = points[index];
         const next = points[index + 1];
         const following = points[index + 2] || next;
+        if (Math.abs(next.y - current.y) <= 0.5) {
+          commands += ' L ' + next.x + ' ' + next.y;
+          continue;
+        }
         const control1X = current.x + (next.x - previous.x) / 6;
         const control1Y = current.y + (next.y - previous.y) / 6;
         const control2X = next.x - (following.x - current.x) / 6;
@@ -1654,7 +1658,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         return '<div class="breakdown-panel"><h3>Cloud tasks (current snapshot)</h3><div class="rows"><p>No task list response was available</p></div></div>';
       }
 
-      const archived = tasks.archivedCount == null ? '' : ' - ' + compact(tasks.archivedCount) + ' archived sample' + (tasks.archivedHasMore ? '+' : '');
+      const archived = tasks.archivedCount == null ? '' : ' - ' + compact(tasks.archivedCount) + ' archived samples' + (tasks.archivedHasMore ? '+' : '');
       const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
       const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
       const envs = (tasks.currentByEnvironment || []).map(function (row) { return '<span>'+escapeText(row.environment)+' ('+compact(row.count)+')</span>'; }).join('') || '<span>none</span>';
@@ -2001,7 +2005,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
         const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
         const archived = tasks.archivedCount == null ? 'not fetched' : compact(tasks.archivedCount) + (tasks.archivedHasMore ? '+' : '');
-        y += taskText(sideX + 16, y, sideWidth - 32, 'Current tasks', compact(tasks.currentCount) + ' current - ' + archived + ' archived sample');
+        y += taskText(sideX + 16, y, sideWidth - 32, 'Current tasks', compact(tasks.currentCount) + ' current - ' + archived + ' archived samples');
         y += taskText(sideX + 16, y, sideWidth - 32, 'Pull requests', compact(pr.total) + ' total, ' + compact(pr.merged) + ' merged, ' + compact(pr.open) + ' open');
         y += taskText(sideX + 16, y, sideWidth - 32, 'Diff sample', '+' + compact(diff.linesAdded) + ' / -' + compact(diff.linesRemoved) + ' across ' + compact(diff.filesModified) + ' files');
         const environments = tasks.currentByEnvironment || [];
