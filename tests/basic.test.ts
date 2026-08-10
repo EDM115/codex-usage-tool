@@ -1,17 +1,17 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { buildDataset } from "../src/aggregate";
 import { loadPricing } from "../src/pricing";
-import { renderCapabilitiesPieSvg } from "../src/render";
+import { renderCapabilitiesPieSvg, renderChartSvg } from "../src/render";
 import { buildReportModelRows, renderReportHtml, type ReportModelRow } from "../src/report-html";
 import { collectRolloutEvents } from "../src/rollouts";
 import { resolveUsageThemes } from "../src/theme";
 import type { CapabilityUsageEvent, UsageDataset } from "../src/types";
-import { compactNumber, exactNumber, money } from "../src/util";
+import { compactNumber, exactNumber, money, normalizeBreakdown } from "../src/util";
 
 test("French number formatting uses spaces and decimal commas", () => {
   expect(compactNumber(1_234_567_890)).toBe("1,2 B");
@@ -21,7 +21,7 @@ test("French number formatting uses spaces and decimal commas", () => {
   expect(money(8)).toBe("$ 8,00");
 });
 
-test("collectRolloutEvents parses token_count breakdowns", () => {
+test("collectRolloutEvents parses token_count breakdowns", async () => {
   const root = join(tmpdir(), `codex-usage-test-${Date.now()}`);
   const codexHome = join(root, ".codex");
   const sessions = join(codexHome, "sessions", "2026", "06", "27");
@@ -71,7 +71,7 @@ test("collectRolloutEvents parses token_count breakdowns", () => {
     ].join("\n"),
   );
 
-  const result = collectRolloutEvents({
+  const result = await collectRolloutEvents({
     homes: [{ path: codexHome, label: "test" }],
     timezone: "Europe/Paris",
     from: null,
@@ -90,7 +90,304 @@ test("collectRolloutEvents parses token_count breakdowns", () => {
   expect(result.events[0].reasoningEffort).toBe("high");
 });
 
-test("collectRolloutEvents extracts dated skill and plugin evidence without low-confidence mentions", () => {
+test("normalizeBreakdown derives total tokens from positive input and output components", () => {
+  expect(
+    normalizeBreakdown({
+      input_tokens: 100,
+      cached_input_tokens: 80,
+      output_tokens: 20,
+      reasoning_output_tokens: 5,
+      total_tokens: 0,
+    }),
+  ).toEqual({
+    inputTokens: 100,
+    cachedInputTokens: 80,
+    outputTokens: 20,
+    reasoningOutputTokens: 5,
+    totalTokens: 120,
+  });
+});
+
+test("collectRolloutEvents drops only unchanged repeated token events", async () => {
+  const root = join(tmpdir(), `codex-usage-repeat-test-${Date.now()}`);
+  const codexHome = join(root, ".codex");
+  const sessions = join(codexHome, "sessions", "2026", "07", "10");
+  mkdirSync(sessions, { recursive: true });
+  const rollout = join(
+    sessions,
+    "rollout-2026-07-10T08-00-00-00000000-0000-0000-0000-000000000020.jsonl",
+  );
+  const usage = (timestamp: string, totalTokens: number) =>
+    JSON.stringify({
+      timestamp,
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: totalTokens - 10,
+            output_tokens: 10,
+            total_tokens: totalTokens,
+          },
+          last_token_usage: { input_tokens: 90, output_tokens: 10, total_tokens: 100 },
+        },
+      },
+    });
+  writeFileSync(
+    rollout,
+    [
+      JSON.stringify({
+        timestamp: "2026-07-10T08:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "00000000-0000-0000-0000-000000000020", model: "gpt-5.5" },
+      }),
+      usage("2026-07-10T08:01:00.000Z", 100),
+      usage("2026-07-10T08:01:01.000Z", 100),
+      usage("2026-07-10T08:02:00.000Z", 200),
+    ].join("\n"),
+  );
+
+  const result = await collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+  });
+
+  expect(result.events.map((event) => event.breakdown.totalTokens)).toEqual([100, 100]);
+});
+
+test("collectRolloutEvents suppresses copied fork history and preserves child identity", async () => {
+  const root = join(tmpdir(), `codex-usage-fork-test-${Date.now()}`);
+  const codexHome = join(root, ".codex");
+  const sessions = join(codexHome, "sessions", "2026", "07", "10");
+  mkdirSync(sessions, { recursive: true });
+  const childId = "00000000-0000-0000-0000-000000000021";
+  const rollout = join(sessions, `rollout-2026-07-10T08-00-00-${childId}.jsonl`);
+  const capabilityRecord = (timestamp: string, name: string) =>
+    JSON.stringify({
+      timestamp,
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: `<skill>\n<name>${name}</name>\n<path>C:\\skills\\${name}\\SKILL.md</path>\nUse it.</skill>`,
+          },
+        ],
+      },
+    });
+  const usage = (timestamp: string, inputTokens: number, totalTokens: number) =>
+    JSON.stringify({
+      timestamp,
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: totalTokens - 10,
+            output_tokens: 10,
+            total_tokens: totalTokens,
+          },
+          last_token_usage: {
+            input_tokens: inputTokens,
+            output_tokens: 10,
+            total_tokens: inputTokens + 10,
+          },
+        },
+      },
+    });
+  writeFileSync(
+    rollout,
+    [
+      JSON.stringify({
+        timestamp: "2026-07-10T08:00:00.000Z",
+        type: "session_meta",
+        payload: { id: childId, model: "gpt-5.5", forked_from_id: "parent" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "parent", model: "gpt-5.5" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-07-10T08:00:00.000Z",
+        type: "turn_context",
+        payload: { model: "gpt-5.5", reasoning_effort: "high" },
+      }),
+      usage("2026-07-10T08:00:00.001Z", 90, 100),
+      usage("2026-07-10T08:00:00.002Z", 190, 300),
+      capabilityRecord("2026-07-10T08:00:00.003Z", "copied-skill"),
+      capabilityRecord("2026-07-10T08:00:05.000Z", "real-skill"),
+      usage("2026-07-10T08:00:06.000Z", 290, 600),
+    ].join("\n"),
+  );
+  const subagentId = "00000000-0000-0000-0000-000000000024";
+  writeFileSync(
+    join(sessions, `rollout-2026-07-10T09-00-00-${subagentId}.jsonl`),
+    [
+      JSON.stringify({
+        timestamp: "2026-07-10T09:00:00.000Z",
+        type: "session_meta",
+        payload: {
+          id: subagentId,
+          model: "gpt-5.5",
+          source: { subagent: { thread_spawn: { parent_thread_id: "parent" } } },
+        },
+      }),
+      usage("2026-07-10T09:00:00.001Z", 90, 100),
+      usage("2026-07-10T09:00:06.000Z", 190, 300),
+    ].join("\n"),
+  );
+
+  const result = await collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+  });
+
+  expect(result.events).toHaveLength(2);
+  expect(result.events.map((event) => [event.threadId, event.breakdown.totalTokens])).toEqual([
+    [childId, 300],
+    [subagentId, 200],
+  ]);
+  expect(result.capabilityEvents.map((event) => event.name)).toEqual(["real-skill"]);
+});
+
+test("collectRolloutEvents reuses unchanged parse cache entries and reparses grown files", async () => {
+  const root = join(tmpdir(), `codex-usage-cache-test-${Date.now()}`);
+  const codexHome = join(root, ".codex");
+  const sessions = join(codexHome, "sessions", "2026", "07", "10");
+  const cacheDir = join(root, ".cache", "codex-usage-tool");
+  mkdirSync(sessions, { recursive: true });
+  const rollout = join(
+    sessions,
+    "rollout-2026-07-10T08-00-00-00000000-0000-0000-0000-000000000022.jsonl",
+  );
+  const tokenEvent = (timestamp: string, totalTokens: number, lastTokens: number) =>
+    JSON.stringify({
+      timestamp,
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: totalTokens - 10,
+            output_tokens: 10,
+            total_tokens: totalTokens,
+          },
+          last_token_usage: {
+            input_tokens: lastTokens - 10,
+            output_tokens: 10,
+            total_tokens: lastTokens,
+          },
+        },
+      },
+    });
+  writeFileSync(
+    rollout,
+    [
+      JSON.stringify({
+        timestamp: "2026-07-10T08:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "00000000-0000-0000-0000-000000000022", model: "gpt-5.5" },
+      }),
+      tokenEvent("2026-07-10T08:01:00.000Z", 100, 100),
+    ].join("\n"),
+  );
+
+  const first = await collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+    cacheDir,
+  });
+  const second = await collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+    cacheDir,
+  });
+  appendFileSync(rollout, `\n${tokenEvent("2026-07-10T08:02:00.000Z", 150, 50)}`);
+  const grown = await collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+    cacheDir,
+  });
+
+  expect(first.cache).toMatchObject({ version: 2, hits: 0, misses: 1, invalidations: 0 });
+  expect(second.cache).toMatchObject({ version: 2, hits: 1, misses: 0, invalidations: 0 });
+  expect(grown.cache).toMatchObject({ version: 2, hits: 0, misses: 0, invalidations: 1 });
+  expect(grown.events.map((event) => event.breakdown.totalTokens)).toEqual([100, 50]);
+});
+
+test("collectRolloutEvents marks malformed local input as partial coverage", async () => {
+  const root = join(tmpdir(), `codex-usage-coverage-test-${Date.now()}`);
+  const codexHome = join(root, ".codex");
+  const sessions = join(codexHome, "sessions", "2026", "07", "10");
+  const cacheDir = join(root, ".cache", "codex-usage-tool");
+  mkdirSync(sessions, { recursive: true });
+  const rollout = join(
+    sessions,
+    "rollout-2026-07-10T08-00-00-00000000-0000-0000-0000-000000000023.jsonl",
+  );
+  writeFileSync(
+    rollout,
+    [
+      JSON.stringify({
+        timestamp: "2026-07-10T08:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "00000000-0000-0000-0000-000000000023", model: "gpt-5.5" },
+      }),
+      "{malformed",
+      JSON.stringify({
+        timestamp: "2026-07-10T08:01:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: { input_tokens: 90, output_tokens: 10, total_tokens: 100 },
+            last_token_usage: { input_tokens: 90, output_tokens: 10, total_tokens: 100 },
+          },
+        },
+      }),
+    ].join("\n"),
+  );
+
+  const result = await collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+    cacheDir,
+  });
+  const cachedResult = await collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+    cacheDir,
+  });
+
+  expect(result.coverage).toMatchObject({
+    status: "partial",
+    discoveredFiles: 1,
+    parsedFiles: 1,
+    failedFiles: 0,
+    malformedLines: 1,
+  });
+  expect(cachedResult.cache.hits).toBe(1);
+  expect(cachedResult.coverage).toMatchObject({ status: "partial", malformedLines: 1 });
+});
+
+test("collectRolloutEvents extracts dated skill and plugin evidence without low-confidence mentions", async () => {
   const root = join(tmpdir(), `codex-capability-test-${Date.now()}`);
   const codexHome = join(root, ".codex");
   const sessions = join(codexHome, "sessions", "2026", "07", "10");
@@ -180,12 +477,12 @@ test("collectRolloutEvents extracts dated skill and plugin evidence without low-
     ].join("\n"),
   );
 
-  const result = collectRolloutEvents({
+  const result = (await collectRolloutEvents({
     homes: [{ path: codexHome, label: "test" }],
     timezone: "Europe/Paris",
     from: null,
     to: null,
-  }) as ReturnType<typeof collectRolloutEvents> & {
+  })) as Awaited<ReturnType<typeof collectRolloutEvents>> & {
     capabilityEvents?: Array<Record<string, unknown>>;
   };
 
@@ -206,12 +503,12 @@ test("collectRolloutEvents extracts dated skill and plugin evidence without low-
     ["2026-07-11", "skill", "using-superpowers", "injection", "high"],
   ]);
 
-  const filtered = collectRolloutEvents({
+  const filtered = (await collectRolloutEvents({
     homes: [{ path: codexHome, label: "test" }],
     timezone: "Europe/Paris",
     from: "2026-07-11",
     to: "2026-07-11",
-  }) as ReturnType<typeof collectRolloutEvents> & {
+  })) as Awaited<ReturnType<typeof collectRolloutEvents>> & {
     capabilityEvents?: Array<Record<string, unknown>>;
   };
 
@@ -220,7 +517,7 @@ test("collectRolloutEvents extracts dated skill and plugin evidence without low-
   ]);
 });
 
-test("collectRolloutEvents follows thread settings model and service tier changes", () => {
+test("collectRolloutEvents follows thread settings model and service tier changes", async () => {
   const root = join(tmpdir(), `codex-usage-switch-test-${Date.now()}`);
   const codexHome = join(root, ".codex");
   const sessions = join(codexHome, "sessions", "2026", "07", "10");
@@ -321,7 +618,7 @@ test("collectRolloutEvents follows thread settings model and service tier change
     ].join("\n"),
   );
 
-  const result = collectRolloutEvents({
+  const result = await collectRolloutEvents({
     homes: [{ path: codexHome, label: "test" }],
     timezone: "Europe/Paris",
     from: null,
@@ -342,7 +639,7 @@ test("collectRolloutEvents follows thread settings model and service tier change
   ]);
 });
 
-test("collectRolloutEvents does not let SQLite metadata overwrite rollout state", () => {
+test("collectRolloutEvents does not let SQLite metadata overwrite rollout state", async () => {
   const root = join(tmpdir(), `codex-usage-sqlite-test-${Date.now()}`);
   const codexHome = join(root, ".codex");
   const sessions = join(codexHome, "sessions", "2026", "07", "10");
@@ -395,7 +692,7 @@ test("collectRolloutEvents does not let SQLite metadata overwrite rollout state"
   ]);
   database.close();
 
-  const result = collectRolloutEvents({
+  const result = await collectRolloutEvents({
     homes: [{ path: codexHome, label: "test" }],
     timezone: "Europe/Paris",
     from: null,
@@ -685,6 +982,75 @@ test("buildDataset exposes canonical local model usage and exact costs", async (
   expect(dailyModelUsage[0].costUsd).toBeCloseTo(model.costUsd);
 });
 
+test("buildDataset distinguishes attribution completeness from certainty and reports local sessions and cache savings", async () => {
+  const pricing = await loadPricing({ source: "bundled" });
+  const dataset = buildDataset({
+    profileResult: { fetched: false, error: "offline" },
+    events: [
+      {
+        eventId: "observed",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout-1",
+        threadId: "thread-1",
+        timestamp: "2026-07-10T08:00:00.000Z",
+        date: "2026-07-10",
+        model: "gpt-5.5",
+        modelAttribution: "observed",
+        reasoningEffort: "high",
+        reasoningEffortAttribution: "observed",
+        serviceTier: "default",
+        serviceTierAttribution: "observed",
+        breakdown: {
+          inputTokens: 100,
+          cachedInputTokens: 80,
+          outputTokens: 20,
+          reasoningOutputTokens: 5,
+          totalTokens: 120,
+        },
+      },
+      {
+        eventId: "inferred",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "rollout-2",
+        threadId: "thread-2",
+        timestamp: "2026-07-10T08:01:00.000Z",
+        date: "2026-07-10",
+        model: "gpt-5.5",
+        modelAttribution: "inferred",
+        breakdown: {
+          inputTokens: 40,
+          cachedInputTokens: 0,
+          outputTokens: 10,
+          reasoningOutputTokens: 2,
+          totalTokens: 50,
+        },
+      },
+    ],
+    codexHomes: [{ path: "home", label: "home" }],
+    sourceMode: "local",
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    localStats: { rolloutFiles: 2, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
+    pricing,
+    estimateModel: "gpt-5.5",
+    ...resolveUsageThemes([]),
+  });
+
+  expect(dataset.schemaVersion).toBe(2);
+  expect(dataset.sources).toHaveLength(1);
+  expect(dataset.local.distinctSessions).toBe(2);
+  expect(dataset.local.attribution.model).toEqual({ completeTokens: 170, certainTokens: 120 });
+  expect(dataset.local.attribution.reasoningEffort).toEqual({
+    completeTokens: 120,
+    certainTokens: 120,
+  });
+  expect(dataset.summary.cachedInputTokens).toBe(80);
+  expect(dataset.summary.cacheSavingsUsd).toBeGreaterThan(0);
+});
+
 test("buildDataset applies long-context prices only with explicit rollout context evidence", async () => {
   const pricing = await loadPricing({ source: "bundled" });
   const dataset = buildDataset({
@@ -967,6 +1333,46 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(html).toContain("const analytics = filteredAnalytics() || { }");
   expect(html).toContain("Cloud tasks (current snapshot)");
   expect(html).toContain('data-stat-value="120"');
+  expect(html).toContain("local sessions");
+  expect(html).toContain("cached input tokens");
+  expect(html).toContain("cache savings");
+  const summaryStart = html.indexOf('<section class="stats">');
+  const summaryCards = html.slice(summaryStart, html.indexOf("</section>", summaryStart));
+  expect([...summaryCards.matchAll(/<span>([^<]+)<\/span>/g)].map((match) => match[1])).toEqual([
+    "lifetime tokens",
+    "cached input tokens",
+    "local enriched tokens",
+    "peak day",
+    "backend-only tokens",
+    "estimated API cost",
+    "API-equivalent cache savings",
+    "local sessions",
+    "dashboard turns",
+  ]);
+  expect(html).toContain("Local coverage");
+  expect(html).toContain("Attribution completeness / certainty");
+  expect(html).toContain(
+    ".stats { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr));",
+  );
+  expect(html).toContain(
+    ".row-value { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }",
+  );
+  const breakdownHeader = html.slice(
+    html.indexOf("<h2>Usage breakdown</h2>"),
+    html.indexOf('<div id="analyticsBreakdown"'),
+  );
+  expect(breakdownHeader).not.toContain("<h3>");
+  expect(breakdownHeader).not.toContain("from wham APIs");
+  const notes = html.slice(
+    html.indexOf('<section class="section notes">'),
+    html.indexOf('<script id="usage-data"'),
+  );
+  expect(notes).toContain(
+    `<strong>Portable sources :</strong> ${dataset.sources.length} source : ${dataset.sources[0].label}. Merge diagnostics`,
+  );
+  expect(notes).not.toContain(`[${dataset.sources[0].sourceId}`);
+  expect(notes).not.toContain("This is a pricing comparison, not subscription money returned.");
+  expect(html).toContain("function smoothPath");
   expect(html).toContain('class="report-title"');
   expect(html).toContain('class="breakdown-sidebar"');
   expect(html).toContain('class="model-details"');
@@ -1115,4 +1521,16 @@ return filteredCapabilityRows();`,
   }
 
   expect(html).toContain("\\nTotal : ");
+
+  const smoothDataset = structuredClone(dataset);
+  smoothDataset.daily.push({
+    ...structuredClone(dataset.daily[0]),
+    date: "2026-06-28",
+    totalTokens: dataset.daily[0].totalTokens + 10,
+  });
+  const smoothChart = renderChartSvg(smoothDataset, "daily", "area");
+  expect(smoothChart).toContain('<path class="area"');
+  expect(smoothChart).toContain('<path class="line"');
+  expect(smoothChart).toContain(" C ");
+  expect(smoothChart).not.toContain("<polyline");
 });

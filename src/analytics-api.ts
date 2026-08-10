@@ -38,7 +38,7 @@ export async function loadWhamAnalytics(options: {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${options.auth.accessToken}`,
     Accept: "application/json",
-    "User-Agent": "codex-usage-tool/1.6",
+    "User-Agent": "codex-usage-tool/2.0",
     Referer: "https://chatgpt.com/codex/cloud/settings/analytics",
   };
 
@@ -372,21 +372,19 @@ function normalizeDailyBreakdown(
   return {
     units: value?.units,
     groupBy: value?.group_by ?? value?.groupBy,
-    data: data.map(
-      (bucket: any): WhamDailyBreakdownBucket => ({
-        date: String(bucket.date ?? bucket.start_date ?? bucket.startDate),
-        productSurfaceUsageValues: normalizeNumberRecord(
-          bucket.product_surface_usage_values ?? bucket.productSurfaceUsageValues,
-        ),
-        models: Array.isArray(bucket.models)
-          ? bucket.models.map((model: any) => ({
-              model: String(model.model ?? "unknown"),
-              speed: model.speed == null ? undefined : String(model.speed),
-              credits: numberFrom(model.credits),
-            }))
-          : [],
-      }),
-    ),
+    data: data.map((bucket: any): WhamDailyBreakdownBucket => ({
+      date: String(bucket.date ?? bucket.start_date ?? bucket.startDate),
+      productSurfaceUsageValues: normalizeNumberRecord(
+        bucket.product_surface_usage_values ?? bucket.productSurfaceUsageValues,
+      ),
+      models: Array.isArray(bucket.models)
+        ? bucket.models.map((model: any) => ({
+            model: String(model.model ?? "unknown"),
+            speed: model.speed == null ? undefined : String(model.speed),
+            credits: numberFrom(model.credits),
+          }))
+        : [],
+    })),
   };
 }
 
@@ -399,14 +397,12 @@ function normalizeWorkspaceCounts(value: any): WhamAnalytics["workspaceUsageCoun
 
   return {
     groupBy: value?.group_by ?? value?.groupBy,
-    data: data.map(
-      (bucket: any): WhamWorkspaceUsageBucket => ({
-        date: String(bucket.date ?? bucket.start_date ?? bucket.startDate),
-        totals: normalizeNumberRecord(bucket.totals),
-        clients: Array.isArray(bucket.clients) ? bucket.clients : [],
-        models: Array.isArray(bucket.models) ? bucket.models : [],
-      }),
-    ),
+    data: data.map((bucket: any): WhamWorkspaceUsageBucket => ({
+      date: String(bucket.date ?? bucket.start_date ?? bucket.startDate),
+      totals: normalizeNumberRecord(bucket.totals),
+      clients: Array.isArray(bucket.clients) ? bucket.clients : [],
+      models: Array.isArray(bucket.models) ? bucket.models : [],
+    })),
   };
 }
 

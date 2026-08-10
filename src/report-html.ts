@@ -103,23 +103,21 @@ export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
   const localModels = new Set(dataset.local.modelUsage.map((row) => row.model));
   const cloudOnlyRows = cloudRows
     .filter((row) => !localModels.has(row.model))
-    .map(
-      (row): ReportModelRow => ({
-        ...row,
-        localTokens: 0,
-        localBreakdown: {
-          totalTokens: 0,
-          inputTokens: 0,
-          cachedInputTokens: 0,
-          outputTokens: 0,
-          reasoningOutputTokens: 0,
-        },
-        localCostUsd: 0,
-        reasoningEfforts: [],
-        serviceTiers: [],
-        source: "cloud",
-      }),
-    );
+    .map((row): ReportModelRow => ({
+      ...row,
+      localTokens: 0,
+      localBreakdown: {
+        totalTokens: 0,
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        reasoningOutputTokens: 0,
+      },
+      localCostUsd: 0,
+      reasoningEfforts: [],
+      serviceTiers: [],
+      source: "cloud",
+    }));
 
   return [...localRows, ...cloudOnlyRows];
 }
@@ -210,7 +208,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .toggle-control { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--text); cursor: pointer; user-select: none; }
     .toggle-control input { width: auto; margin: 0; padding: 0; accent-color: var(--accent); }
-    .stats { display: grid; grid-template-columns: repeat(6, minmax(135px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 22px; }
+.stats { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 22px; }
     .stat { background: var(--panel); padding: 16px; min-width: 0; }
     .stat strong { display: block; font-size: 22px; margin-bottom: 4px; white-space: nowrap; }
     .stat span { color: var(--muted); text-transform: lowercase; }
@@ -264,7 +262,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .grid { stroke: var(--line); }
     .axis { fill: var(--muted); font-size: 11px; }
     .bar { fill: var(--accent); }
-    .line { stroke: var(--accent); fill: none; stroke-width: 3; }
+    .line { stroke: var(--accent); fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
     .area { fill: var(--accent); opacity: 0.22; }
     .hit { fill: transparent; pointer-events: all; }
     .chart-dot { fill: var(--accent); }
@@ -275,7 +273,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .row { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 12px; align-items: center; }
     .row[data-tip] { cursor: help; }
     .row-label { min-width: 0; overflow-wrap: anywhere; }
-    .row-value { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
+.row-value { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
     .meter { grid-column: 1 / -1; height: 7px; border-radius: 999px; background: var(--panel2); overflow: hidden; }
     .meter span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
     .task-list { display: grid; gap: 9px; margin-top: 12px; }
@@ -300,6 +298,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
     }
     .notes { color: var(--muted); display: grid; gap: 6px; }
     .warning { color: var(--warning); }
+    .diagnostics { border-top: 1px solid var(--line); padding-top: 8px; }
+    .diagnostics summary { width: fit-content; }
+    .diagnostics ol { margin: 8px 0 0; padding-left: 24px; }
+    .diagnostics li { margin: 4px 0; overflow-wrap: anywhere; font-family: var(--font-code); font-size: 12px; }
     @media (max-width: 900px) {
       header { display: block; }
       .toolbar { margin-top: 14px; }
@@ -342,10 +344,13 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
     <section class="stats">
       ${stat("lifetime tokens", dataset.summary.lifetimeTokens)}
-      ${stat("peak day", dataset.summary.peakDailyTokens)}
+      ${stat("cached input tokens", dataset.summary.cachedInputTokens)}
       ${stat("local enriched tokens", dataset.summary.localKnownTokens)}
+      ${stat("peak day", dataset.summary.peakDailyTokens)}
       ${stat("backend-only tokens", dataset.summary.unattributedTokens)}
       ${stat("estimated API cost", dataset.summary.estimatedCostUsd, "money")}
+      ${stat("API-equivalent cache savings", dataset.summary.cacheSavingsUsd, "money")}
+      ${stat("local sessions", dataset.local.distinctSessions)}
       ${stat("dashboard turns", dataset.analytics?.totals?.turns ?? 0)}
     </section>
 
@@ -378,10 +383,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
           <h2>Usage breakdown</h2>
           <p class="section-copy">Local model usage enriched with matching WHAM metrics, plus cloud surface and task metadata</p>
         </div>
-        <div class="section-actions breakdown-actions">
-          <h3>${escapeHtml(dataset.analytics?.error ? "best effort" : dataset.analytics?.fetched ? "from wham APIs" : "saved or unavailable")}</h3>
-          ${downloadMenu("dashboard")}
-        </div>
+        <div class="section-actions breakdown-actions">${downloadMenu("dashboard")}</div>
       </div>
       <div id="analyticsBreakdown" class="breakdown-grid"></div>
     </section>
@@ -389,11 +391,21 @@ export function renderReportHtml(dataset: UsageDataset): string {
     <section class="section notes">
       <div><strong>Data sources :</strong> ${escapeHtml(dataset.sourceMode)}, profile API ${dataset.profile?.endpoint ? `from ${escapeHtml(dataset.profile.endpoint)}` : "not used"}, analytics ${dataset.analytics?.fetched ? "requested from wham dashboard APIs" : "not fetched live"}</div>
       <div><strong>Local enrichment :</strong> ${dataset.local.tokenEvents} ${pluralize("token event", dataset.local.tokenEvents)} from ${dataset.local.rolloutFiles} ${pluralize("rollout file", dataset.local.rolloutFiles)}, ${dataset.local.sqliteThreads} ${pluralize("SQLite thread row", dataset.local.sqliteThreads)} across ${dataset.local.sqliteDatabases} ${pluralize("SQLite database", dataset.local.sqliteDatabases)}, ${dataset.codexHomes.length} .codex ${pluralize("source", dataset.codexHomes.length)}</div>
+      <div><strong>Portable sources :</strong> ${sourceSummary(dataset)}</div>
+      <div><strong>Local coverage :</strong> ${coverageSummary(dataset)}</div>
+      <div><strong>Attribution completeness / certainty :</strong> ${attributionSummary(dataset)}</div>
+      <div><strong>Parser cache :</strong> v${dataset.local.cache.version}, ${dataset.local.cache.hits} ${pluralize("hit", dataset.local.cache.hits)}, ${dataset.local.cache.misses} ${pluralize("miss", dataset.local.cache.misses)}, ${dataset.local.cache.invalidations} ${pluralize("invalidation", dataset.local.cache.invalidations)}, ${compactNumber(dataset.local.cache.reusedBytes)} reused bytes</div>
+        <div><strong>Prompt cache :</strong> ${compactNumber(dataset.summary.cachedInputTokens)} cached input tokens; ${money(dataset.summary.cacheSavingsUsd)} API-equivalent savings versus uncached input pricing.</div>
       <div id="themeNote"><strong>Theme :</strong> <span id="themeNoteValue">${escapeHtml(dataset.themeChoice)} from ${escapeHtml(dataset.theme.source)}</span></div>
       <div><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.source)}${dataset.pricing.estimateModel ? ` using ${escapeHtml(dataset.pricing.estimateModel)} as the explicit missing-model override` : " using the historical primary model for each usage date"}</div>
+      ${dataset.local.coverage.status !== "complete" ? `<div class="warning"><strong>Local coverage warning :</strong> output is ${escapeHtml(dataset.local.coverage.status)}; local totals may be incomplete.</div>` : ""}
+      ${dataset.local.merge.legacyOverlaps > 0 ? `<div class="warning"><strong>Portable overlap warning :</strong> ${dataset.local.merge.legacyOverlaps} legacy aggregate ${pluralize("overlap", dataset.local.merge.legacyOverlaps)} could only be handled conservatively because event identities were unavailable.</div>` : ""}
+      ${dataset.local.cache.readError ? `<div class="warning"><strong>Parser cache read :</strong> ${escapeHtml(dataset.local.cache.readError)}</div>` : ""}
+      ${dataset.local.cache.writeError ? `<div class="warning"><strong>Parser cache write :</strong> ${escapeHtml(dataset.local.cache.writeError)}</div>` : ""}
       ${dataset.profile?.error ? `<div class="warning"><strong>Profile API :</strong> ${escapeHtml(dataset.profile.error)}</div>` : ""}
       ${dataset.analytics?.error ? `<div class="warning"><strong>Analytics API :</strong> ${escapeHtml(dataset.analytics.error)}</div>` : ""}
       ${dataset.pricing.warning ? `<div class="warning"><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.warning)}</div>` : ""}
+      ${parseDiagnostics(dataset)}
     </section>
   </main>
   <div id="tooltip" class="tooltip"></div>
@@ -828,6 +840,23 @@ export function renderReportHtml(dataset: UsageDataset): string {
       }
     }
 
+    function smoothPath(points) {
+      if (!points.length) return { line: '', commands: '' };
+      let commands = '';
+      for (let index = 0; index < points.length - 1; index += 1) {
+        const previous = points[index - 1] || points[index];
+        const current = points[index];
+        const next = points[index + 1];
+        const following = points[index + 2] || next;
+        const control1X = current.x + (next.x - previous.x) / 6;
+        const control1Y = current.y + (next.y - previous.y) / 6;
+        const control2X = next.x - (following.x - current.x) / 6;
+        const control2Y = next.y - (following.y - current.y) / 6;
+        commands += ' C ' + control1X.toFixed(3) + ' ' + control1Y.toFixed(3) + ' ' + control2X.toFixed(3) + ' ' + control2Y.toFixed(3) + ' ' + next.x + ' ' + next.y;
+      }
+      return { line: 'M ' + points[0].x + ' ' + points[0].y + commands, commands: commands };
+    }
+
     function renderChart() {
       const days = values();
       const width = 920, height = 330, left = 70, right = 28, top = 30, bottom = 42;
@@ -860,9 +889,9 @@ export function renderReportHtml(dataset: UsageDataset): string {
         });
 
         if (pts.length) {
-          const line = pts.map(function (p) { return p.x + ',' + p.y; }).join(' ');
-          const area = pts[0].x + ',' + (top+chartH) + ' ' + line + ' ' + pts[pts.length-1].x + ',' + (top+chartH);
-          chart.insertAdjacentHTML('beforeend', '<polygon class="area" points="'+area+'"/><polyline class="line" points="'+line+'"/>');
+          const smooth = smoothPath(pts);
+          const area = 'M ' + pts[0].x + ' ' + (top+chartH) + ' L ' + pts[0].x + ' ' + pts[0].y + smooth.commands + ' L ' + pts[pts.length-1].x + ' ' + (top+chartH) + ' Z';
+          chart.insertAdjacentHTML('beforeend', '<path class="area" d="'+area+'"/><path class="line" d="'+smooth.line+'"/>');
           pts.forEach(function (p) { chart.insertAdjacentHTML('beforeend', '<circle class="chart-dot" cx="'+p.x+'" cy="'+p.y+'" r="3"></circle><circle class="hit" cx="'+p.x+'" cy="'+p.y+'" r="10" data-tip="'+escapeText(tipFor(p.day))+'"></circle>'); });
         }
       }
@@ -1848,6 +1877,54 @@ function themeColorScheme(bg: string): "dark" | "light" {
 function stat(label: string, value: number, kind: "number" | "money" = "number"): string {
   const display = kind === "money" ? money(value) : compactNumber(value);
   return `<div class="stat"><strong data-stat-value="${value}" data-stat-kind="${kind}">${escapeHtml(display)}</strong><span>${escapeHtml(label)}</span></div>`;
+}
+
+function sourceSummary(dataset: UsageDataset): string {
+  if (dataset.sources.length === 0) {
+    return "none recorded";
+  }
+
+  const sources = dataset.sources.map((source) => escapeHtml(source.label)).join("; ");
+  const merge = dataset.local.merge;
+  return `${dataset.sources.length} ${pluralize("source", dataset.sources.length)} : ${sources}. Merge diagnostics : ${merge.duplicateEvents} duplicate ${pluralize("event", merge.duplicateEvents)}, ${merge.duplicateSources} duplicate ${pluralize("source", merge.duplicateSources)}, ${merge.legacyOverlaps} legacy ${pluralize("overlap", merge.legacyOverlaps)}`;
+}
+
+function coverageSummary(dataset: UsageDataset): string {
+  const coverage = dataset.local.coverage;
+  const missing =
+    coverage.missingRoots.length > 0
+      ? `; missing roots : ${coverage.missingRoots.map(escapeHtml).join(", ")}`
+      : "; no missing roots";
+  return `${escapeHtml(coverage.status)}; parsed ${coverage.parsedFiles}/${coverage.discoveredFiles} discovered files; ${coverage.failedFiles} failed ${pluralize("file", coverage.failedFiles)}; ${coverage.malformedLines} malformed ${pluralize("line", coverage.malformedLines)}${missing}`;
+}
+
+function attributionSummary(dataset: UsageDataset): string {
+  const total = dataset.local.attribution.totalTokens;
+  const metric = (name: string, values: { completeTokens: number; certainTokens: number }) =>
+    `${name} ${percentage(values.completeTokens, total)} complete / ${percentage(values.certainTokens, total)} certain`;
+  return [
+    metric("model", dataset.local.attribution.model),
+    metric("reasoning effort", dataset.local.attribution.reasoningEffort),
+    metric("service tier", dataset.local.attribution.serviceTier),
+  ].join("; ");
+}
+
+function percentage(value: number, total: number): string {
+  return `${(total > 0 ? (value / total) * 100 : 0).toFixed(1)}%`;
+}
+
+function parseDiagnostics(dataset: UsageDataset): string {
+  if (dataset.local.parseErrors.length === 0) {
+    return "";
+  }
+
+  const rows = dataset.local.parseErrors
+    .map((error) => {
+      const location = `${error.path}${error.line === undefined ? "" : `:${error.line}`}`;
+      return `<li>${escapeHtml(location)} — ${escapeHtml(error.error)}</li>`;
+    })
+    .join("");
+  return `<details class="diagnostics warning"><summary>Local parse diagnostics (${dataset.local.parseErrors.length})</summary><ol>${rows}</ol></details>`;
 }
 
 function downloadMenu(target: "heatmap" | "chart" | "dashboard"): string {

@@ -15,8 +15,16 @@ import type {
 } from "./types";
 import type { ThemeChoice } from "./theme";
 
+import { createHash } from "node:crypto";
+
 import { primaryModelAt, resolveModelAt } from "./model-catalog";
-import { estimateBreakdownCost, estimateUnattributedCost, type PricingLoadResult } from "./pricing";
+import { ROLLOUT_PARSE_CACHE_VERSION } from "./parse-cache";
+import {
+  estimateBreakdownCost,
+  estimateCacheSavingsUsd,
+  estimateUnattributedCost,
+  type PricingLoadResult,
+} from "./pricing";
 import { addBreakdown, clampDate, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util";
 
 type LocalModelUsageAccumulator = Map<
@@ -51,6 +59,8 @@ export function buildDataset(args: {
     sqliteDatabases: number;
     sqliteThreads: number;
     parseErrors: Array<{ path: string; line?: number; error: string }>;
+    coverage?: UsageDataset["local"]["coverage"];
+    cache?: UsageDataset["local"]["cache"];
   };
   pricing: PricingLoadResult;
   estimateModel?: string;
@@ -72,6 +82,7 @@ export function buildDataset(args: {
   const localByDate = new Map<string, DailyUsage>();
   const localModelUsage: LocalModelUsageAccumulator = new Map();
   const localModelUsageByDate = new Map<string, LocalModelUsageAccumulator>();
+  const effectiveEvents: TokenEvent[] = [];
 
   for (const event of args.events) {
     const eventModel =
@@ -80,7 +91,11 @@ export function buildDataset(args: {
         : args.estimateModel
           ? resolveModelAt(args.pricing.catalog, args.estimateModel, event.date)
           : (primaryModelAt(args.pricing.catalog, event.date) ?? "unknown");
-    const effectiveEvent = eventModel === event.model ? event : { ...event, model: eventModel };
+    const effectiveEvent =
+      eventModel === event.model
+        ? event
+        : { ...event, model: eventModel, modelAttribution: "inferred" as const };
+    effectiveEvents.push(effectiveEvent);
     const day = getOrCreateDay(localByDate, event.date);
     const eventCostUsd = estimateBreakdownCost(
       effectiveEvent.breakdown,
@@ -95,6 +110,17 @@ export function buildDataset(args: {
     );
     day.localTokens = addBreakdown(day.localTokens, effectiveEvent.breakdown);
     day.knownLocalCostUsd += eventCostUsd;
+    day.cacheSavingsUsd += estimateCacheSavingsUsd(
+      effectiveEvent.breakdown,
+      effectiveEvent.model,
+      args.pricing.catalog,
+      args.estimateModel,
+      {
+        date: event.date,
+        serviceTier: effectiveEvent.serviceTier,
+        modelContextWindow: effectiveEvent.modelContextWindow,
+      },
+    );
     day.models[effectiveEvent.model] = addBreakdown(
       day.models[effectiveEvent.model] ?? ZERO_BREAKDOWN,
       effectiveEvent.breakdown,
@@ -148,13 +174,18 @@ export function buildDataset(args: {
   const weekly = buildWeekly(daily);
   const summary = buildSummary(daily, args.profileResult.profile);
   const modelUsage = buildLocalModelUsage(localModelUsage);
+  const attribution = summarizeAttribution(effectiveEvents);
+  const distinctSessions = new Set(effectiveEvents.map((event) => event.threadId)).size;
+  const coverage = args.localStats.coverage ?? defaultCoverage(args.localStats);
 
   return {
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     timezone: args.timezone,
     sourceMode: args.sourceMode,
     dateRange: { from: args.from, to: args.to },
     codexHomes: args.codexHomes,
+    sources: buildSources(args.codexHomes, effectiveEvents, coverage.status),
     profile: args.profileResult.profile
       ? {
           fetched: args.profileResult.fetched,
@@ -175,8 +206,20 @@ export function buildDataset(args: {
       tokenEvents: args.events.length,
       sqliteDatabases: args.localStats.sqliteDatabases,
       sqliteThreads: args.localStats.sqliteThreads,
-      parseErrors: args.localStats.parseErrors.slice(0, 100),
+      parseErrors: [...args.localStats.parseErrors],
       modelUsage,
+      events: effectiveEvents,
+      distinctSessions,
+      attribution,
+      coverage,
+      cache: args.localStats.cache ?? {
+        version: ROLLOUT_PARSE_CACHE_VERSION,
+        hits: 0,
+        misses: 0,
+        invalidations: 0,
+        reusedBytes: 0,
+      },
+      merge: { duplicateEvents: 0, duplicateSources: 0, legacyOverlaps: 0 },
       capabilityEvents: [...(args.capabilityEvents ?? [])].sort((a, b) =>
         a.timestamp.localeCompare(b.timestamp),
       ),
@@ -200,28 +243,26 @@ export function buildDataset(args: {
 
 function buildLocalModelUsage(map: LocalModelUsageAccumulator): LocalModelUsage[] {
   return [...map.entries()]
-    .map(
-      ([model, usage]): LocalModelUsage => ({
-        model,
-        breakdown: usage.breakdown,
-        costUsd: usage.costUsd,
-        reasoningEfforts: [...usage.reasoningEfforts.entries()]
-          .map(([effort, effortUsage]) => ({
-            effort,
-            breakdown: effortUsage.breakdown,
-            costUsd: effortUsage.costUsd,
-          }))
-          .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
-        serviceTiers: [...usage.serviceTiers.entries()]
-          .map(([serviceTier, tierUsage]) => ({
-            serviceTier,
-            breakdown: tierUsage.breakdown,
-            inferredTokens: tierUsage.inferredTokens,
-            costUsd: tierUsage.costUsd,
-          }))
-          .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
-      }),
-    )
+    .map(([model, usage]): LocalModelUsage => ({
+      model,
+      breakdown: usage.breakdown,
+      costUsd: usage.costUsd,
+      reasoningEfforts: [...usage.reasoningEfforts.entries()]
+        .map(([effort, effortUsage]) => ({
+          effort,
+          breakdown: effortUsage.breakdown,
+          costUsd: effortUsage.costUsd,
+        }))
+        .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
+      serviceTiers: [...usage.serviceTiers.entries()]
+        .map(([serviceTier, tierUsage]) => ({
+          serviceTier,
+          breakdown: tierUsage.breakdown,
+          inferredTokens: tierUsage.inferredTokens,
+          costUsd: tierUsage.costUsd,
+        }))
+        .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens),
+    }))
     .sort((a, b) => b.breakdown.totalTokens - a.breakdown.totalTokens);
 }
 
@@ -286,6 +327,7 @@ function getOrCreateDay(map: Map<string, DailyUsage>, date: string): DailyUsage 
     reasoningEfforts: {},
     homes: {},
     knownLocalCostUsd: 0,
+    cacheSavingsUsd: 0,
     estimatedUnattributedCostUsd: 0,
     estimatedCostUsd: 0,
   };
@@ -346,6 +388,8 @@ function buildSummary(
   const unattributedTokens = daily.reduce((sum, day) => sum + day.unattributedTokens, 0);
   const knownLocalCostUsd = daily.reduce((sum, day) => sum + day.knownLocalCostUsd, 0);
   const estimatedCostUsd = daily.reduce((sum, day) => sum + day.estimatedCostUsd, 0);
+  const cachedInputTokens = daily.reduce((sum, day) => sum + day.localTokens.cachedInputTokens, 0);
+  const cacheSavingsUsd = daily.reduce((sum, day) => sum + day.cacheSavingsUsd, 0);
 
   return {
     lifetimeTokens: profile?.summary.lifetimeTokens ?? lifetimeFromDaily,
@@ -357,7 +401,97 @@ function buildSummary(
     unattributedTokens,
     knownLocalCostUsd,
     estimatedCostUsd,
+    cachedInputTokens,
+    cacheSavingsUsd,
   };
+}
+
+function summarizeAttribution(events: TokenEvent[]): UsageDataset["local"]["attribution"] {
+  const dimensions = {
+    model: { completeTokens: 0, certainTokens: 0 },
+    reasoningEffort: { completeTokens: 0, certainTokens: 0 },
+    serviceTier: { completeTokens: 0, certainTokens: 0 },
+  };
+
+  for (const event of events) {
+    addAttribution(
+      dimensions.model,
+      event.modelAttribution ?? (event.model === "unknown" ? "missing" : "observed"),
+      event.breakdown.totalTokens,
+    );
+    addAttribution(
+      dimensions.reasoningEffort,
+      event.reasoningEffortAttribution ?? (event.reasoningEffort ? "observed" : "missing"),
+      event.breakdown.totalTokens,
+    );
+    addAttribution(
+      dimensions.serviceTier,
+      event.serviceTierAttribution ??
+        (event.serviceTier ? (event.serviceTierInferred ? "inferred" : "observed") : "missing"),
+      event.breakdown.totalTokens,
+    );
+  }
+
+  return {
+    totalTokens: events.reduce((sum, event) => sum + event.breakdown.totalTokens, 0),
+    ...dimensions,
+  };
+}
+
+function addAttribution(
+  metric: { completeTokens: number; certainTokens: number },
+  provenance: NonNullable<TokenEvent["modelAttribution"]>,
+  tokens: number,
+): void {
+  if (provenance !== "missing") {
+    metric.completeTokens += tokens;
+  }
+
+  if (provenance === "observed") {
+    metric.certainTokens += tokens;
+  }
+}
+
+function defaultCoverage(localStats: {
+  rolloutFiles: number;
+  parseErrors: Array<unknown>;
+}): UsageDataset["local"]["coverage"] {
+  return {
+    status:
+      localStats.rolloutFiles === 0
+        ? "unavailable"
+        : localStats.parseErrors.length > 0
+          ? "partial"
+          : "complete",
+    discoveredFiles: localStats.rolloutFiles,
+    parsedFiles: localStats.rolloutFiles,
+    failedFiles: 0,
+    malformedLines: localStats.parseErrors.length,
+    missingRoots: [],
+  };
+}
+
+function buildSources(
+  homes: CodexHome[],
+  events: TokenEvent[],
+  status: UsageDataset["local"]["coverage"]["status"],
+): UsageDataset["sources"] {
+  return homes.map((home) => {
+    const homeEvents = events.filter(
+      (event) => event.homePath.toLocaleLowerCase() === home.path.toLocaleLowerCase(),
+    );
+
+    return {
+      sourceId: `codex-home:${createHash("sha256").update(home.path.toLocaleLowerCase()).digest("hex")}`,
+      kind: "codex-home",
+      label: home.label,
+      path: home.path,
+      status,
+      rolloutFiles: new Set(homeEvents.map((event) => event.rolloutPath)).size,
+      tokenEvents: homeEvents.length,
+      distinctSessions: new Set(homeEvents.map((event) => event.threadId)).size,
+    };
+  });
 }
 
 function emptyProfileSummary() {

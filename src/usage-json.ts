@@ -3,6 +3,7 @@ import type {
   DailyUsage,
   LocalModelUsage,
   TokenBreakdown,
+  TokenEvent,
   UsageDataset,
   UsageTheme,
   UsageThemeOption,
@@ -10,9 +11,11 @@ import type {
 } from "./types";
 import type { ThemeChoice } from "./theme";
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 
+import { buildDataset } from "./aggregate";
 import { primaryModelAt, resolveModelAt } from "./model-catalog";
 import { estimateBreakdownCost, estimateUnattributedCost, type PricingLoadResult } from "./pricing";
 import { addBreakdown, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util";
@@ -32,14 +35,18 @@ export function loadUsageDatasets(paths: string[]): UsageDataset[] {
   return paths.map((inputPath) => {
     const path = resolve(inputPath);
     let value: unknown;
+    let text: string;
 
     try {
-      value = JSON.parse(readFileSync(path, "utf8"));
+      text = readFileSync(path, "utf8");
+      value = JSON.parse(text);
     } catch (error) {
       throw new Error(
         `Unable to read usage JSON ${path} : ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+
+    value = migrateUsageDataset(value, path, text);
 
     if (!isUsageDataset(value)) {
       throw new Error(`Invalid usage JSON ${path} : expected a generated usage-data.json`);
@@ -73,6 +80,15 @@ export function mergeUsageDatasets(
     );
   }
 
+  const overlap = inspectOverlap(datasets);
+
+  if (options.pricing && datasets.every((dataset) => Array.isArray(dataset.local.events))) {
+    return mergeEventDatasets(datasets, { ...options, pricing: options.pricing }, overlap);
+  }
+
+  const legacySelection = dedupeLegacyDatasets(datasets);
+  datasets = legacySelection.datasets;
+  overlap.legacyOverlaps += legacySelection.legacyOverlaps;
   const primary = datasets[0];
   const estimateModel = options.estimateModel ?? primary.pricing.estimateModel;
   const daily = mergeDaily(datasets, options.from, options.to, options.pricing, estimateModel);
@@ -89,6 +105,7 @@ export function mergeUsageDatasets(
   const lifetimeFromDaily = daily.reduce((sum, day) => sum + day.totalTokens, 0);
 
   return {
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     timezone: options.timezone,
     sourceMode: datasets.every((dataset) => dataset.sourceMode === primary.sourceMode)
@@ -102,14 +119,20 @@ export function mergeUsageDatasets(
       ? primary.dateRange
       : { from: null, to: null },
     codexHomes: uniqueHomes(datasets),
+    sources: uniqueSources(datasets),
     profile,
     local: {
       rolloutFiles: datasets.reduce((sum, dataset) => sum + dataset.local.rolloutFiles, 0),
       tokenEvents: datasets.reduce((sum, dataset) => sum + dataset.local.tokenEvents, 0),
       sqliteDatabases: datasets.reduce((sum, dataset) => sum + dataset.local.sqliteDatabases, 0),
       sqliteThreads: datasets.reduce((sum, dataset) => sum + dataset.local.sqliteThreads, 0),
-      parseErrors: datasets.flatMap((dataset) => dataset.local.parseErrors).slice(0, 100),
+      parseErrors: datasets.flatMap((dataset) => dataset.local.parseErrors),
       modelUsage: mergeModelUsageRows(daily.flatMap(dailyModelUsage)),
+      distinctSessions: datasets.reduce((sum, dataset) => sum + dataset.local.distinctSessions, 0),
+      attribution: mergeAttribution(datasets),
+      coverage: mergeCoverage(datasets),
+      cache: mergeCacheStats(datasets),
+      merge: overlap,
       capabilityEvents: datasets
         .flatMap((dataset) => dataset.local.capabilityEvents ?? [])
         .sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
@@ -137,10 +160,243 @@ export function mergeUsageDatasets(
       unattributedTokens,
       knownLocalCostUsd,
       estimatedCostUsd,
+      cachedInputTokens: daily.reduce((sum, day) => sum + day.localTokens.cachedInputTokens, 0),
+      cacheSavingsUsd: daily.reduce((sum, day) => sum + day.cacheSavingsUsd, 0),
     },
     daily,
     weekly: buildWeekly(daily),
   };
+}
+
+type MergeDiagnostics = UsageDataset["local"]["merge"];
+
+function mergeEventDatasets(
+  datasets: UsageDataset[],
+  options: MergeUsageOptions & { pricing: PricingLoadResult },
+  overlap: MergeDiagnostics,
+): UsageDataset {
+  const primary = datasets[0];
+  const profile =
+    datasets.find((dataset) => dataset.profile?.fetched)?.profile ??
+    datasets.find((dataset) => dataset.profile)?.profile;
+  const cloudDataset =
+    datasets.find((dataset) => dataset.profile === profile) ??
+    datasets.find((dataset) => dataset.daily.some((day) => day.backendTokens !== undefined));
+  const profileResult: Parameters<typeof buildDataset>[0]["profileResult"] = profile
+    ? {
+        fetched: profile.fetched,
+        endpoint: profile.endpoint,
+        error: profile.error,
+        profile: {
+          summary: profile.summary,
+          dailyUsageBuckets:
+            cloudDataset?.daily
+              .filter((day) => day.backendTokens !== undefined)
+              .map((day) => ({ startDate: day.date, tokens: day.backendTokens! })) ?? null,
+        },
+      }
+    : { fetched: false, error: "No backend profile in portable inputs" };
+  const eventMap = new Map<string, TokenEvent>();
+
+  for (const event of datasets.flatMap((dataset) => dataset.local.events ?? [])) {
+    eventMap.set(event.eventId, event);
+  }
+
+  const capabilityEventMap = new Map<string, CapabilityUsageEvent>();
+
+  for (const event of datasets.flatMap((dataset) => dataset.local.capabilityEvents ?? [])) {
+    capabilityEventMap.set(event.eventId, event);
+  }
+
+  const coverage = mergeCoverage(datasets);
+  const cache = mergeCacheStats(datasets);
+  const parseErrors = uniqueParseErrors(datasets);
+  const analytics =
+    datasets.find((dataset) => dataset.analytics?.fetched && !dataset.analytics.error)?.analytics ??
+    datasets.find((dataset) => dataset.analytics)?.analytics;
+  const merged = buildDataset({
+    profileResult,
+    events: [...eventMap.values()],
+    capabilityEvents: [...capabilityEventMap.values()],
+    codexHomes: uniqueHomes(datasets),
+    sourceMode: datasets.every((dataset) => dataset.sourceMode === primary.sourceMode)
+      ? primary.sourceMode
+      : "hybrid",
+    from: null,
+    to: null,
+    timezone: options.timezone,
+    localStats: {
+      rolloutFiles: new Set([...eventMap.values()].map((event) => event.rolloutPath)).size,
+      sqliteDatabases: Math.max(0, ...datasets.map((dataset) => dataset.local.sqliteDatabases)),
+      sqliteThreads: Math.max(0, ...datasets.map((dataset) => dataset.local.sqliteThreads)),
+      parseErrors,
+      coverage,
+      cache,
+    },
+    pricing: options.pricing,
+    estimateModel: options.estimateModel ?? primary.pricing.estimateModel,
+    theme: options.theme ?? primary.theme,
+    themeChoice: options.themeChoice ?? primary.themeChoice,
+    availableThemes: options.availableThemes ?? primary.availableThemes,
+    analytics,
+  });
+  merged.sources = uniqueSources(datasets);
+  merged.local.merge = overlap;
+
+  return merged;
+}
+
+function inspectOverlap(datasets: UsageDataset[]): MergeDiagnostics {
+  const sourceIds = new Set<string>();
+  const eventIds = new Set<string>();
+  let duplicateSources = 0;
+  let duplicateEvents = 0;
+
+  for (const dataset of datasets) {
+    for (const source of dataset.sources) {
+      if (sourceIds.has(source.sourceId)) {
+        duplicateSources += 1;
+      } else {
+        sourceIds.add(source.sourceId);
+      }
+    }
+
+    for (const event of dataset.local.events ?? []) {
+      if (eventIds.has(event.eventId)) {
+        duplicateEvents += 1;
+      } else {
+        eventIds.add(event.eventId);
+      }
+    }
+  }
+
+  return { duplicateEvents, duplicateSources, legacyOverlaps: 0 };
+}
+
+function dedupeLegacyDatasets(datasets: UsageDataset[]): {
+  datasets: UsageDataset[];
+  legacyOverlaps: number;
+} {
+  const selected: UsageDataset[] = [];
+  const seenSources = new Set<string>();
+  let legacyOverlaps = 0;
+
+  for (const dataset of datasets) {
+    const ids = dataset.sources.map((source) => source.sourceId);
+
+    if (ids.some((id) => seenSources.has(id))) {
+      legacyOverlaps += 1;
+
+      continue;
+    }
+
+    selected.push(dataset);
+    ids.forEach((id) => seenSources.add(id));
+  }
+
+  return { datasets: selected, legacyOverlaps };
+}
+
+function uniqueSources(datasets: UsageDataset[]): UsageDataset["sources"] {
+  const sources = new Map<string, UsageDataset["sources"][number]>();
+
+  for (const source of datasets.flatMap((dataset) => dataset.sources)) {
+    sources.set(source.sourceId, source);
+  }
+
+  return [...sources.values()];
+}
+
+function mergeAttribution(datasets: UsageDataset[]): UsageDataset["local"]["attribution"] {
+  return datasets.reduce<UsageDataset["local"]["attribution"]>(
+    (result, dataset) => ({
+      totalTokens: result.totalTokens + dataset.local.attribution.totalTokens,
+      model: addAttributionMetric(result.model, dataset.local.attribution.model),
+      reasoningEffort: addAttributionMetric(
+        result.reasoningEffort,
+        dataset.local.attribution.reasoningEffort,
+      ),
+      serviceTier: addAttributionMetric(result.serviceTier, dataset.local.attribution.serviceTier),
+    }),
+    {
+      totalTokens: 0,
+      model: { completeTokens: 0, certainTokens: 0 },
+      reasoningEffort: { completeTokens: 0, certainTokens: 0 },
+      serviceTier: { completeTokens: 0, certainTokens: 0 },
+    },
+  );
+}
+
+function addAttributionMetric(
+  left: { completeTokens: number; certainTokens: number },
+  right: { completeTokens: number; certainTokens: number },
+): { completeTokens: number; certainTokens: number } {
+  return {
+    completeTokens: left.completeTokens + right.completeTokens,
+    certainTokens: left.certainTokens + right.certainTokens,
+  };
+}
+
+function mergeCoverage(datasets: UsageDataset[]): UsageDataset["local"]["coverage"] {
+  datasets = uniqueOperationalDatasets(datasets);
+  const statuses = datasets.map((dataset) => dataset.local.coverage.status);
+  const allUnavailable = statuses.every((status) => status === "unavailable");
+  const allComplete = statuses.every((status) => status === "complete");
+
+  return {
+    status: allUnavailable ? "unavailable" : allComplete ? "complete" : "partial",
+    discoveredFiles: datasets.reduce(
+      (sum, dataset) => sum + dataset.local.coverage.discoveredFiles,
+      0,
+    ),
+    parsedFiles: datasets.reduce((sum, dataset) => sum + dataset.local.coverage.parsedFiles, 0),
+    failedFiles: datasets.reduce((sum, dataset) => sum + dataset.local.coverage.failedFiles, 0),
+    malformedLines: datasets.reduce(
+      (sum, dataset) => sum + dataset.local.coverage.malformedLines,
+      0,
+    ),
+    missingRoots: [...new Set(datasets.flatMap((dataset) => dataset.local.coverage.missingRoots))],
+  };
+}
+
+function mergeCacheStats(datasets: UsageDataset[]): UsageDataset["local"]["cache"] {
+  datasets = uniqueOperationalDatasets(datasets);
+  return {
+    version: Math.max(0, ...datasets.map((dataset) => dataset.local.cache.version)),
+    hits: datasets.reduce((sum, dataset) => sum + dataset.local.cache.hits, 0),
+    misses: datasets.reduce((sum, dataset) => sum + dataset.local.cache.misses, 0),
+    invalidations: datasets.reduce((sum, dataset) => sum + dataset.local.cache.invalidations, 0),
+    reusedBytes: datasets.reduce((sum, dataset) => sum + dataset.local.cache.reusedBytes, 0),
+    readError: datasets.find((dataset) => dataset.local.cache.readError)?.local.cache.readError,
+    writeError: datasets.find((dataset) => dataset.local.cache.writeError)?.local.cache.writeError,
+  };
+}
+
+function uniqueOperationalDatasets(datasets: UsageDataset[]): UsageDataset[] {
+  const signatures = new Set<string>();
+  return datasets.filter((dataset) => {
+    const signature = dataset.sources
+      .map((source) => source.sourceId)
+      .sort()
+      .join("|");
+
+    if (signatures.has(signature)) {
+      return false;
+    }
+
+    signatures.add(signature);
+    return true;
+  });
+}
+
+function uniqueParseErrors(datasets: UsageDataset[]): UsageDataset["local"]["parseErrors"] {
+  const errors = new Map<string, UsageDataset["local"]["parseErrors"][number]>();
+
+  for (const error of datasets.flatMap((dataset) => dataset.local.parseErrors)) {
+    errors.set(`${error.path}|${error.line ?? ""}|${error.error}`, error);
+  }
+
+  return [...errors.values()];
 }
 
 function mergeDaily(
@@ -206,6 +462,7 @@ function mergeDaily(
       reasoningEfforts: mergeNumberRecords(days.map((day) => day.reasoningEfforts)),
       homes: mergeNumberRecords(days.map((day) => day.homes)),
       knownLocalCostUsd,
+      cacheSavingsUsd: days.reduce((sum, day) => sum + day.cacheSavingsUsd, 0),
       estimatedUnattributedCostUsd,
       estimatedCostUsd: knownLocalCostUsd + estimatedUnattributedCostUsd,
     };
@@ -424,12 +681,128 @@ function buildWeekly(daily: DailyUsage[]): WeeklyUsage[] {
   return [...weeks.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
 }
 
+function migrateUsageDataset(value: unknown, path: string, text: string): unknown {
+  if (!isRecord(value) || value.schemaVersion === 2) {
+    return value;
+  }
+
+  if (!isRecord(value.local) || !isRecord(value.summary) || !Array.isArray(value.daily)) {
+    return value;
+  }
+
+  const local = value.local;
+  const summary = value.summary;
+  const daily = value.daily.filter(isRecord);
+  const localKnownTokens = isNumber(summary.localKnownTokens)
+    ? summary.localKnownTokens
+    : daily.reduce(
+        (sum, day) =>
+          sum +
+          (isRecord(day.localTokens) && isNumber(day.localTokens.totalTokens)
+            ? day.localTokens.totalTokens
+            : 0),
+        0,
+      );
+  const cachedInputTokens = daily.reduce(
+    (sum, day) =>
+      sum +
+      (isRecord(day.localTokens) && isNumber(day.localTokens.cachedInputTokens)
+        ? day.localTokens.cachedInputTokens
+        : 0),
+    0,
+  );
+  const parseErrors = Array.isArray(local.parseErrors) ? local.parseErrors : [];
+  const codexHomes = Array.isArray(value.codexHomes) ? value.codexHomes.filter(isRecord) : [];
+  const fallbackId = legacyAggregateFingerprint(value, text);
+
+  value.schemaVersion = 1;
+  value.sources =
+    codexHomes.length > 0
+      ? codexHomes.map((home, index) => {
+          const homePath = typeof home.path === "string" ? home.path : `${path}#${index}`;
+
+          return {
+            sourceId: `portable-legacy:${createHash("sha256").update(homePath.toLocaleLowerCase()).digest("hex")}`,
+            kind: "portable-legacy",
+            label: typeof home.label === "string" ? home.label : basename(path),
+            path: typeof home.path === "string" ? home.path : undefined,
+            status: parseErrors.length > 0 ? "partial" : "complete",
+            rolloutFiles: 0,
+            tokenEvents: 0,
+            distinctSessions: 0,
+          };
+        })
+      : [
+          {
+            sourceId: `portable-legacy:${fallbackId}`,
+            kind: "portable-legacy",
+            label: basename(path),
+            status: parseErrors.length > 0 ? "partial" : "complete",
+            rolloutFiles: isNumber(local.rolloutFiles) ? local.rolloutFiles : 0,
+            tokenEvents: isNumber(local.tokenEvents) ? local.tokenEvents : 0,
+            distinctSessions: isNumber(local.sqliteThreads) ? local.sqliteThreads : 0,
+          },
+        ];
+  local.distinctSessions = isNumber(local.sqliteThreads) ? local.sqliteThreads : 0;
+  local.attribution = {
+    totalTokens: localKnownTokens,
+    model: { completeTokens: localKnownTokens, certainTokens: 0 },
+    reasoningEffort: { completeTokens: 0, certainTokens: 0 },
+    serviceTier: { completeTokens: 0, certainTokens: 0 },
+  };
+  local.coverage = {
+    status:
+      (isNumber(local.rolloutFiles) ? local.rolloutFiles : 0) === 0
+        ? "unavailable"
+        : parseErrors.length > 0
+          ? "partial"
+          : "complete",
+    discoveredFiles: isNumber(local.rolloutFiles) ? local.rolloutFiles : 0,
+    parsedFiles: isNumber(local.rolloutFiles) ? local.rolloutFiles : 0,
+    failedFiles: 0,
+    malformedLines: parseErrors.length,
+    missingRoots: [],
+  };
+  local.cache = { version: 0, hits: 0, misses: 0, invalidations: 0, reusedBytes: 0 };
+  local.merge = { duplicateEvents: 0, duplicateSources: 0, legacyOverlaps: 0 };
+  summary.cachedInputTokens = cachedInputTokens;
+  summary.cacheSavingsUsd = 0;
+
+  for (const day of daily) {
+    day.cacheSavingsUsd = isNumber(day.cacheSavingsUsd) ? day.cacheSavingsUsd : 0;
+  }
+
+  return value;
+}
+
+function legacyAggregateFingerprint(value: Record<string, unknown>, fallbackText: string): string {
+  const local = isRecord(value.local) ? value.local : {};
+  const daily = Array.isArray(value.daily)
+    ? value.daily.filter(isRecord).map((day) => ({
+        date: day.date,
+        localTokens: day.localTokens,
+        models: day.models,
+        homes: day.homes,
+      }))
+    : [];
+  const semanticIdentity = {
+    timezone: value.timezone,
+    dateRange: value.dateRange,
+    rolloutFiles: local.rolloutFiles,
+    tokenEvents: local.tokenEvents,
+    daily,
+  };
+  const serialized = daily.length > 0 ? JSON.stringify(semanticIdentity) : fallbackText;
+  return createHash("sha256").update(serialized).digest("hex");
+}
+
 function isUsageDataset(value: unknown): value is UsageDataset {
   if (!isRecord(value)) {
     return false;
   }
 
   return (
+    isNumber(value.schemaVersion) &&
     typeof value.generatedAt === "string" &&
     typeof value.timezone === "string" &&
     (value.sourceMode === "hybrid" ||
@@ -438,6 +811,8 @@ function isUsageDataset(value: unknown): value is UsageDataset {
     isDateRange(value.dateRange) &&
     Array.isArray(value.codexHomes) &&
     value.codexHomes.every(isCodexHome) &&
+    Array.isArray(value.sources) &&
+    value.sources.every(isUsageSource) &&
     (value.profile === undefined || isProfile(value.profile)) &&
     isLocalUsage(value.local) &&
     isPricing(value.pricing) &&
@@ -486,6 +861,20 @@ function isCodexHome(value: unknown): boolean {
   return isRecord(value) && typeof value.path === "string" && typeof value.label === "string";
 }
 
+function isUsageSource(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.sourceId === "string" &&
+    (value.kind === "codex-home" || value.kind === "portable-legacy") &&
+    typeof value.label === "string" &&
+    (value.path === undefined || typeof value.path === "string") &&
+    (value.status === "complete" || value.status === "partial" || value.status === "unavailable") &&
+    isNumber(value.rolloutFiles) &&
+    isNumber(value.tokenEvents) &&
+    isNumber(value.distinctSessions)
+  );
+}
+
 function isTokenBreakdown(value: unknown): value is TokenBreakdown {
   return (
     isRecord(value) &&
@@ -531,9 +920,80 @@ function isLocalUsage(value: unknown): boolean {
     value.parseErrors.every(isParseError) &&
     Array.isArray(value.modelUsage) &&
     value.modelUsage.every(isLocalModelUsage) &&
+    isNumber(value.distinctSessions) &&
+    isAttribution(value.attribution) &&
+    isCoverage(value.coverage) &&
+    isCacheStats(value.cache) &&
+    isMergeDiagnostics(value.merge) &&
+    (value.events === undefined ||
+      (Array.isArray(value.events) && value.events.every(isTokenEvent))) &&
     (value.capabilityEvents === undefined ||
       (Array.isArray(value.capabilityEvents) &&
         value.capabilityEvents.every(isCapabilityUsageEvent)))
+  );
+}
+
+function isTokenEvent(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.eventId === "string" &&
+    typeof value.homePath === "string" &&
+    typeof value.homeLabel === "string" &&
+    typeof value.rolloutPath === "string" &&
+    typeof value.threadId === "string" &&
+    typeof value.timestamp === "string" &&
+    isDate(value.date) &&
+    typeof value.model === "string" &&
+    isTokenBreakdown(value.breakdown)
+  );
+}
+
+function isAttribution(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isNumber(value.totalTokens) &&
+    isAttributionMetric(value.model) &&
+    isAttributionMetric(value.reasoningEffort) &&
+    isAttributionMetric(value.serviceTier)
+  );
+}
+
+function isAttributionMetric(value: unknown): boolean {
+  return isRecord(value) && isNumber(value.completeTokens) && isNumber(value.certainTokens);
+}
+
+function isCoverage(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    (value.status === "complete" || value.status === "partial" || value.status === "unavailable") &&
+    isNumber(value.discoveredFiles) &&
+    isNumber(value.parsedFiles) &&
+    isNumber(value.failedFiles) &&
+    isNumber(value.malformedLines) &&
+    Array.isArray(value.missingRoots) &&
+    value.missingRoots.every((root) => typeof root === "string")
+  );
+}
+
+function isCacheStats(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isNumber(value.version) &&
+    isNumber(value.hits) &&
+    isNumber(value.misses) &&
+    isNumber(value.invalidations) &&
+    isNumber(value.reusedBytes) &&
+    isOptionalString(value.readError) &&
+    isOptionalString(value.writeError)
+  );
+}
+
+function isMergeDiagnostics(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isNumber(value.duplicateEvents) &&
+    isNumber(value.duplicateSources) &&
+    isNumber(value.legacyOverlaps)
   );
 }
 
@@ -663,7 +1123,9 @@ function isSummary(value: unknown): boolean {
     isNumber(value.localKnownTokens) &&
     isNumber(value.unattributedTokens) &&
     isNumber(value.knownLocalCostUsd) &&
-    isNumber(value.estimatedCostUsd)
+    isNumber(value.estimatedCostUsd) &&
+    isNumber(value.cachedInputTokens) &&
+    isNumber(value.cacheSavingsUsd)
   );
 }
 
@@ -682,6 +1144,7 @@ function isDailyUsage(value: unknown): boolean {
     isNumberRecord(value.reasoningEfforts) &&
     isNumberRecord(value.homes) &&
     isNumber(value.knownLocalCostUsd) &&
+    isNumber(value.cacheSavingsUsd) &&
     isNumber(value.estimatedUnattributedCostUsd) &&
     isNumber(value.estimatedCostUsd)
   );

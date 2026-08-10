@@ -50,6 +50,8 @@ export type ThreadMetadata = {
   archived?: boolean;
 };
 
+export type AttributionProvenance = "observed" | "metadata" | "inferred" | "missing";
+
 export type TokenEvent = {
   eventId: string;
   homePath: string;
@@ -59,9 +61,13 @@ export type TokenEvent = {
   timestamp: string;
   date: string;
   model: string;
+  modelAttribution?: AttributionProvenance;
   reasoningEffort?: string;
+  reasoningEffortAttribution?: AttributionProvenance;
   serviceTier?: string;
   serviceTierInferred?: boolean;
+  serviceTierAttribution?: AttributionProvenance;
+  source?: string;
   planType?: string;
   breakdown: TokenBreakdown;
   modelContextWindow?: number;
@@ -236,6 +242,22 @@ export type LocalModelUsage = LocalUsageSlice & {
   serviceTiers: LocalServiceTierUsage[];
 };
 
+export type AttributionMetric = {
+  completeTokens: number;
+  certainTokens: number;
+};
+
+export type UsageSource = {
+  sourceId: string;
+  kind: "codex-home" | "portable-legacy";
+  label: string;
+  path?: string;
+  status: "complete" | "partial" | "unavailable";
+  rolloutFiles: number;
+  tokenEvents: number;
+  distinctSessions: number;
+};
+
 export type DailyUsage = {
   date: string;
   totalTokens: number;
@@ -248,6 +270,7 @@ export type DailyUsage = {
   reasoningEfforts: Record<string, number>;
   homes: Record<string, number>;
   knownLocalCostUsd: number;
+  cacheSavingsUsd: number;
   estimatedUnattributedCostUsd: number;
   estimatedCostUsd: number;
 };
@@ -262,6 +285,7 @@ export type WeeklyUsage = {
 };
 
 export type UsageDataset = {
+  schemaVersion: number;
   generatedAt: string;
   timezone: string;
   sourceMode: SourceMode;
@@ -270,6 +294,7 @@ export type UsageDataset = {
     to: string | null;
   };
   codexHomes: CodexHome[];
+  sources: UsageSource[];
   profile?: {
     fetched: boolean;
     endpoint?: string;
@@ -284,6 +309,36 @@ export type UsageDataset = {
     parseErrors: Array<{ path: string; line?: number; error: string }>;
     modelUsage: LocalModelUsage[];
     capabilityEvents: CapabilityUsageEvent[];
+    events?: TokenEvent[];
+    distinctSessions: number;
+    attribution: {
+      totalTokens: number;
+      model: AttributionMetric;
+      reasoningEffort: AttributionMetric;
+      serviceTier: AttributionMetric;
+    };
+    coverage: {
+      status: "complete" | "partial" | "unavailable";
+      discoveredFiles: number;
+      parsedFiles: number;
+      failedFiles: number;
+      malformedLines: number;
+      missingRoots: string[];
+    };
+    cache: {
+      version: number;
+      hits: number;
+      misses: number;
+      invalidations: number;
+      reusedBytes: number;
+      readError?: string;
+      writeError?: string;
+    };
+    merge: {
+      duplicateEvents: number;
+      duplicateSources: number;
+      legacyOverlaps: number;
+    };
   };
   pricing: {
     source: string;
@@ -306,6 +361,8 @@ export type UsageDataset = {
     unattributedTokens: number;
     knownLocalCostUsd: number;
     estimatedCostUsd: number;
+    cachedInputTokens: number;
+    cacheSavingsUsd: number;
   };
   daily: DailyUsage[];
   weekly: WeeklyUsage[];

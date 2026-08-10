@@ -100,6 +100,48 @@ test("mergeUsageDatasets adds local sources without duplicating cloud enrichment
   ).toEqual([capabilityEvent]);
 });
 
+test("mergeUsageDatasets deduplicates overlapping portable token events and source manifests", async () => {
+  const dataset = await createDataset({ home: "desktop", model: "gpt-5.5", tokens: 100 });
+  const distinct = await createDataset({ home: "laptop", model: "gpt-5.5", tokens: 50 });
+  const pricing = await loadPricing({ source: "bundled" });
+
+  const merged = mergeUsageDatasets(
+    [dataset, structuredClone(dataset), distinct, structuredClone(dataset)],
+    {
+      from: null,
+      to: null,
+      timezone: "Europe/Paris",
+      pricing,
+    },
+  );
+
+  expect(merged.summary.localKnownTokens).toBe(150);
+  expect(merged.local.distinctSessions).toBe(2);
+  expect(merged.sources).toHaveLength(2);
+  expect(merged.local.coverage.discoveredFiles).toBe(2);
+  expect(merged.local.coverage.parsedFiles).toBe(2);
+  expect(merged.local.merge).toMatchObject({ duplicateEvents: 2, duplicateSources: 2 });
+});
+
+test("mergeUsageDatasets surfaces conservative overlap handling for aggregate-only inputs", async () => {
+  const legacy = await createDataset({ home: "desktop", model: "gpt-5.5", tokens: 100 });
+  delete legacy.local.events;
+  const merged = mergeUsageDatasets([legacy, structuredClone(legacy)], {
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+  });
+
+  expect(merged.summary.localKnownTokens).toBe(100);
+  expect(merged.local.distinctSessions).toBe(1);
+  expect(merged.sources).toHaveLength(1);
+  expect(merged.local.merge).toEqual({
+    duplicateEvents: 0,
+    duplicateSources: 1,
+    legacyOverlaps: 1,
+  });
+});
+
 test("mergeUsageDatasets reprices imported service-tier breakdowns with the active catalog", async () => {
   const imported = await createDataset({
     home: "laptop",

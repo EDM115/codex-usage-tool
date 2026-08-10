@@ -555,6 +555,42 @@ export function estimateBreakdownCost(
   return inputCost + cachedCost + outputCost;
 }
 
+export function estimateCacheSavingsUsd(
+  breakdown: TokenBreakdown,
+  model: string,
+  pricing: ModelCatalog,
+  estimateModel?: string,
+  options: { date?: string; serviceTier?: string; modelContextWindow?: number } = {},
+): number {
+  const cached = Math.max(0, breakdown.cachedInputTokens);
+
+  if (cached === 0) {
+    return 0;
+  }
+
+  const date = options.date ?? new Date().toISOString().slice(0, 10);
+  const primaryModel = primaryModelAt(pricing, date);
+  const row =
+    pricingAt(pricing, model, date) ??
+    (estimateModel ? pricingAt(pricing, estimateModel, date) : undefined) ??
+    (primaryModel ? pricingAt(pricing, primaryModel, date) : undefined);
+
+  if (!row) {
+    return 0;
+  }
+
+  const tier = normalizePricingTier(options.serviceTier);
+  const contextPricing = row.tiers?.[tier] ?? row.tiers?.standard ?? { short: ratesFromRow(row) };
+  const useLongContext =
+    typeof options.modelContextWindow === "number" &&
+    options.modelContextWindow > LONG_CONTEXT_THRESHOLD &&
+    breakdown.inputTokens > LONG_CONTEXT_THRESHOLD;
+  const rates = useLongContext && contextPricing.long ? contextPricing.long : contextPricing.short;
+  const cachedRate = rates.cachedInputPerMillion ?? rates.inputPerMillion;
+
+  return (cached / 1_000_000) * Math.max(0, rates.inputPerMillion - cachedRate);
+}
+
 export function estimateUnattributedCost(
   tokens: number,
   _observedLocalCost: number,

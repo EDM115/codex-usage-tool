@@ -9,6 +9,7 @@ import { loadAuthFromHomes } from "./auth";
 import { resolveCodexHomes } from "./codex-homes";
 import { outputProgressWeights, writeOutputs } from "./export";
 import { loadPricing } from "./pricing";
+import { ROLLOUT_PARSE_CACHE_VERSION } from "./parse-cache";
 import { loadProfile } from "./profile-api";
 import { CliProgress } from "./progress";
 import { collectRolloutEvents } from "./rollouts";
@@ -134,14 +135,30 @@ async function main() {
             sqliteDatabases: 0,
             sqliteThreads: 0,
             parseErrors: [],
+            coverage: {
+              status: "unavailable" as const,
+              discoveredFiles: 0,
+              parsedFiles: 0,
+              failedFiles: 0,
+              malformedLines: 0,
+              missingRoots: [],
+            },
+            cache: {
+              version: ROLLOUT_PARSE_CACHE_VERSION,
+              hits: 0,
+              misses: 0,
+              invalidations: 0,
+              reusedBytes: 0,
+            },
           };
         })()
-      : collectRolloutEvents({
+      : await collectRolloutEvents({
           homes: codexHomes,
           timezone,
           from: options.from,
           to: options.to,
           progress,
+          cacheDir: resolve(".cache", "codex-usage-tool"),
         });
 
   progress.status(
@@ -183,6 +200,8 @@ async function main() {
       sqliteDatabases: local.sqliteDatabases,
       sqliteThreads: local.sqliteThreads,
       parseErrors: local.parseErrors,
+      coverage: local.coverage,
+      cache: local.cache,
     },
     pricing,
     estimateModel: options.estimateModel,
@@ -229,6 +248,41 @@ async function writeDataset(
   );
 
   if (!options.silent) {
+    if (dataset.sourceMode !== "backend" && dataset.local.coverage.status !== "complete") {
+      const coverage = dataset.local.coverage;
+      console.warn(
+        `Local coverage warning : ${coverage.status}; parsed ${coverage.parsedFiles}/${coverage.discoveredFiles}, failed ${coverage.failedFiles}, malformed lines ${coverage.malformedLines}`,
+      );
+    }
+
+    if (dataset.local.parseErrors.length > 0) {
+      for (const error of dataset.local.parseErrors.slice(0, 5)) {
+        console.warn(
+          `Local parse warning : ${error.path}${error.line === undefined ? "" : `:${error.line}`} : ${error.error}`,
+        );
+      }
+
+      if (dataset.local.parseErrors.length > 5) {
+        console.warn(
+          `Local parse warning : ${dataset.local.parseErrors.length - 5} more diagnostics are recorded in the portable JSON and HTML report`,
+        );
+      }
+    }
+
+    if (dataset.local.cache.readError) {
+      console.warn(`Parser cache read warning : ${dataset.local.cache.readError}`);
+    }
+
+    if (dataset.local.cache.writeError) {
+      console.warn(`Parser cache write warning : ${dataset.local.cache.writeError}`);
+    }
+
+    if (dataset.local.merge.legacyOverlaps > 0) {
+      console.warn(
+        `Portable overlap warning : ${dataset.local.merge.legacyOverlaps} legacy aggregate ${pluralize("overlap", dataset.local.merge.legacyOverlaps)} could only be handled conservatively because event identities were unavailable`,
+      );
+    }
+
     if (dataset.profile?.error) {
       console.warn(`Profile API warning : ${dataset.profile.error}`);
     }

@@ -32,11 +32,15 @@ export function subtractBreakdown(a: TokenBreakdown, b: TokenBreakdown): TokenBr
 }
 
 export function normalizeBreakdown(value: any): TokenBreakdown {
+  const inputTokens = numberFrom(value?.input_tokens ?? value?.inputTokens);
+  const outputTokens = numberFrom(value?.output_tokens ?? value?.outputTokens);
+  const reportedTotalTokens = numberFrom(value?.total_tokens ?? value?.totalTokens);
+
   return {
-    totalTokens: numberFrom(value?.total_tokens ?? value?.totalTokens),
-    inputTokens: numberFrom(value?.input_tokens ?? value?.inputTokens),
+    totalTokens: reportedTotalTokens > 0 ? reportedTotalTokens : inputTokens + outputTokens,
+    inputTokens,
     cachedInputTokens: numberFrom(value?.cached_input_tokens ?? value?.cachedInputTokens),
-    outputTokens: numberFrom(value?.output_tokens ?? value?.outputTokens),
+    outputTokens,
     reasoningOutputTokens: numberFrom(
       value?.reasoning_output_tokens ?? value?.reasoningOutputTokens,
     ),
@@ -199,7 +203,11 @@ export function dirExists(dir: string): boolean {
   }
 }
 
-export function walkFiles(root: string, predicate: (file: string) => boolean): string[] {
+export function walkFiles(
+  root: string,
+  predicate: (file: string) => boolean,
+  onError?: (path: string, error: unknown) => void,
+): string[] {
   const out: string[] = [];
 
   if (!dirExists(root)) {
@@ -214,7 +222,8 @@ export function walkFiles(root: string, predicate: (file: string) => boolean): s
 
     try {
       entries = readdirSync(current);
-    } catch {
+    } catch (error) {
+      onError?.(current, error);
       continue;
     }
 
@@ -224,7 +233,8 @@ export function walkFiles(root: string, predicate: (file: string) => boolean): s
 
       try {
         stats = statSync(full);
-      } catch {
+      } catch (error) {
+        onError?.(full, error);
         continue;
       }
 

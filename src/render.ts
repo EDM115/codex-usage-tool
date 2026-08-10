@@ -263,8 +263,9 @@ function renderArea(
     return "";
   }
 
-  const line = points.map((point) => `${point.x},${point.y}`).join(" ");
-  const area = `${points[0].x},${baseline} ${line} ${points.at(-1)!.x},${baseline}`;
+  const curve = smoothCurveCommands(points);
+  const line = `M ${points[0].x} ${points[0].y}${curve}`;
+  const area = `M ${points[0].x} ${baseline} L ${points[0].x} ${points[0].y}${curve} L ${points.at(-1)!.x} ${baseline} Z`;
   const circles = points
     .map(
       (point) =>
@@ -272,7 +273,25 @@ function renderArea(
     )
     .join("\n");
 
-  return `<polygon points="${area}" fill="${theme.colors.accent}" opacity="0.22"/><polyline points="${line}" fill="none" stroke="${theme.colors.accent}" stroke-width="3"/>${circles}`;
+  return `<path class="area" d="${area}" fill="${theme.colors.accent}" opacity="0.22"/><path class="line" d="${line}" fill="none" stroke="${theme.colors.accent}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${circles}`;
+}
+
+function smoothCurveCommands(points: Array<{ x: number; y: number }>): string {
+  let path = "";
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const previous = points[index - 1] ?? points[index];
+    const current = points[index];
+    const next = points[index + 1];
+    const following = points[index + 2] ?? next;
+    const control1X = current.x + (next.x - previous.x) / 6;
+    const control1Y = current.y + (next.y - previous.y) / 6;
+    const control2X = next.x - (following.x - current.x) / 6;
+    const control2Y = next.y - (following.y - current.y) / 6;
+    path += ` C ${control1X.toFixed(3)} ${control1Y.toFixed(3)} ${control2X.toFixed(3)} ${control2Y.toFixed(3)} ${next.x} ${next.y}`;
+  }
+
+  return path;
 }
 
 function valueMap(

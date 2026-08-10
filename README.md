@@ -16,9 +16,9 @@ The tool is designed for people who use Codex across several machines or surface
 
 ## What it produces
 
-- Interactive `usage-report.html` with token heatmaps, trend charts, WHAM dashboard breakdowns, hover details, and per-chart SVG/PNG downloads
+- Interactive `usage-report.html` with token heatmaps, smooth trend charts, WHAM dashboard breakdowns, local-session and prompt-cache metrics, coverage and attribution diagnostics, hover details, and per-chart SVG/PNG downloads
 - Static SVG/PNG heatmaps and charts for daily, weekly, and cumulative views
-- `usage-data.json` with the normalized dataset used by the report
+- Versioned `usage-data.json` with the normalized dataset, event identities, source manifests, distinct session counts, attribution completeness/certainty, local coverage, parse-cache statistics, and merge diagnostics used by the report
 - `cost-estimate.csv` for daily token and cost analysis
 - Reports styled from the first selected Codex home theme, including named theme fallbacks when the config only stores a theme name
 
@@ -36,8 +36,8 @@ Example of generated images can be found [here](https://github.com/EDM115/codex-
 The report combines several data sources and keeps their roles explicit :
 
 - **Profile API totals** from `/profiles/me` : authoritative daily total token usage when available
-- **Local `.codex` enrichment** from rollout JSONL files and SQLite thread databases : model, token breakdown, reasoning effort, source home, and local cost context
-- **Generated `usage-data.json` inputs** : portable normalized datasets that can be rendered again or combined with other machines without copying their `.codex` folders
+- **Local `.codex` enrichment** from streamed rollout JSONL files and SQLite thread databases : model, token breakdown, reasoning effort, source home, distinct sessions, prompt-cache savings at API-equivalent prices, attribution quality, and local cost context
+- **Generated `usage-data.json` inputs** : portable normalized datasets with source and event identities that can be rendered again or combined with other machines without copying their `.codex` folders
 - **WHAM dashboard analytics** from the Codex cloud dashboard : model turns, surface tokens, current and archived task samples, PR metadata, and task diff summaries
 - **Pricing metadata** from the live [OpenAI pricing reference](https://developers.openai.com/api/docs/pricing), combined with a bundled effective-dated history and [`models.dev`](https://models.dev/) fallback rows
 
@@ -96,8 +96,10 @@ Combine several shared datasets with this machine's local Codex history :
 bun usage generate --codex-home "$env:USERPROFILE\.codex" --usage-json "D:\Laptop\usage-data.json" --usage-json "D:\Workstation\usage-data.json" --out ./usage
 ```
 
-When at least one `--usage-json` is provided without an explicit `--codex-home` or `--codex-root`, automatic home discovery is disabled. This keeps the recipient's own Codex history out of the rebuilt report. Local data from every supplied input is added together, cloud profile and WHAM analytics remain a single enhancement snapshot so the same account totals are not counted once per machine.  
-Portable JSON keeps its original timezone because its daily buckets have already been computed. Every combined JSON must use the same timezone, an explicit `--timezone` must match it. When active pricing is loaded, each daily model and service-tier breakdown is repriced with the alias, default model, and price effective on that date before multi-day totals are rebuilt. `--from` and `--to` remain rejected with `--usage-json` because not every report section can be consistently re-filtered from the normalized aggregates. Generate the shared JSON with the wanted date range instead.
+When at least one `--usage-json` is provided without an explicit `--codex-home` or `--codex-root`, automatic home discovery is disabled. This keeps the recipient's own Codex history out of the rebuilt report. Current portable files are merged by event identity, so overlapping inputs do not count the same local event or source twice. Cloud profile and WHAM analytics remain a single enhancement snapshot so the same account totals are not counted once per machine.  
+Older aggregate-only JSON remains accepted and is migrated in memory without rewriting the source file. Exact event overlap cannot be reconstructed from those files; when their source manifests overlap, the later aggregate is skipped conservatively and `legacyOverlaps` is surfaced in JSON, CLI warnings, and the HTML report instead of claiming an exact merge.  
+Portable JSON keeps its original timezone because its daily buckets have already been computed. Every combined JSON must use the same timezone, an explicit `--timezone` must match it. When active pricing is loaded, each daily model and service-tier breakdown is repriced with the alias, default model, and price effective on that date before multi-day totals are rebuilt. `--from` and `--to` remain rejected with `--usage-json` because not every report section can be consistently re-filtered from the normalized aggregates. Generate the shared JSON with the wanted date range instead.  
+Local rollout files are read as streams. Parsed event manifests are cached under the gitignored `.cache/codex-usage-tool` directory using a versioned file-state key. An unchanged file is reused; a file whose size or modification time changed, including a growing active transcript, is invalidated and streamed again in full. Cached parse diagnostics are replayed too, so a warm scan cannot turn partial coverage into an apparently complete report.
 
 ## Commands
 
@@ -171,4 +173,4 @@ The HTML report is intentionally self-contained. Renderer regressions should be 
 Cost estimates are best-effort operational estimates, not billing statements. Explicit local models are resolved through the alias effective on their usage date. When a local event has no model, or backend totals contain tokens not covered by local rollouts, the tool selects the newest model released by that date and marked as eligible to be the primary Codex model. `--estimate-model` overrides this inference when a fixed assumption is preferable.  
 Bundled model definitions start on their documented release dates and bundled price periods remain effective until the next period for the same model.  
 Live pricing complements rather than replaces that history. If a fetched current rate differs from the active bundled rate, the new rate starts on the fetch date, so older usage keeps the older bundled price. Effective-dated custom JSON rows use `effectiveFrom` in `YYYY-MM-DD` format; legacy flat custom rows start on the report's fetch date.  
-Cached input, output, service tiers, long-context requests, and unattributed backend-only tokens all use the selected model's price effective on the usage date. Treat official OpenAI billing exports as authoritative for accounting.
+Cached input, output, service tiers, long-context requests, and unattributed backend-only tokens all use the selected model's price effective on the usage date. The report's cache-savings figure is the API-equivalent difference between uncached input and cached-input prices for the same dated model/tier; it is not subscription money returned. Treat official OpenAI billing exports as authoritative for accounting.
