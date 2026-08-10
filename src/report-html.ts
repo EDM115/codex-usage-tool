@@ -9,6 +9,8 @@ import type {
 
 import { readFileSync } from "node:fs";
 
+import { paymentMonthTotals } from "./payments";
+import { rangeForPreset, reportRuntimeSource } from "./report-runtime";
 import { compactNumber, escapeHtml, money, pluralize } from "./util";
 
 const CODEX_ICON_DATA_URI = `data:image/webp;base64,${readFileSync(
@@ -125,12 +127,13 @@ export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
 export function renderReportHtml(dataset: UsageDataset): string {
   const dataJson = JSON.stringify(dataset).replaceAll("</", "<\\/");
   const modelRowsJson = JSON.stringify(buildReportModelRows(dataset)).replaceAll("</", "<\\/");
-  const reportDates = [
-    ...dataset.daily.map((day) => day.date),
-    ...(dataset.local.capabilityEvents ?? []).map((event) => event.date),
-  ].sort();
-  const reportFrom = dataset.dateRange.from ?? reportDates[0] ?? "";
-  const reportTo = dataset.dateRange.to ?? reportDates.at(-1) ?? "";
+  const paymentMonths = paymentMonthTotals(dataset.payments);
+  const paymentMonthsJson = JSON.stringify(paymentMonths).replaceAll("</", "<\\/");
+  const paymentEntryMonths = Object.keys(paymentMonths).sort();
+  const reportDates = dataset.daily.map((day) => day.date).sort();
+  const reportRange = rangeForPreset(reportDates, "30d", paymentEntryMonths);
+  const reportFrom = reportRange.from;
+  const reportTo = reportRange.to;
   const pricingModels = dataset.pricing.models ?? Object.keys(MODEL_PROGRESS_COLORS);
   const fallbackColors = Object.values(MODEL_PROGRESS_COLORS);
   const activeModelProgressColors = Object.fromEntries(
@@ -179,12 +182,14 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .select-control { position: relative; min-width: 0; }
     .select-control select { width: 100%; height: 38px; appearance: none; padding-right: 30px; }
     .control-chevron { position: absolute; right: 10px; top: 50%; width: 12px; height: 12px; color: var(--muted); pointer-events: none; transform: translateY(-50%); }
-    .date-control { position: relative; min-width: 0; }
-    .date-control > input[type="text"] { width: 100%; height: 38px; padding-right: 38px; font-variant-numeric: tabular-nums; }
-    .date-control > input[type="date"] { position: absolute; z-index: 2; top: 0; right: 0; width: 38px; height: 38px; margin: 0; padding: 0; opacity: 0; cursor: pointer; }
-    .date-calendar-icon { position: absolute; top: 50%; right: 11px; width: 16px; height: 16px; color: var(--muted); pointer-events: none; transform: translateY(-50%); }
-    .date-control > input[aria-invalid="true"] { border-color: var(--warning); }
-    .toolbar-meta { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 8px; }
+    .date-range-control { position: relative; min-width: 0; height: 38px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 4px; padding: 2px 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); font-variant-numeric: tabular-nums; }
+    .date-boundary { min-width: 0; height: 30px; padding: 3px 4px; overflow: hidden; border: 0; background: transparent; text-overflow: ellipsis; white-space: nowrap; }
+    .date-boundary:hover { color: var(--accent2); }
+    .date-range-separator { color: var(--muted); }
+    .date-range-control > input[type="date"] { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; opacity: 0; pointer-events: none; }
+    .date-range-control > input[type="date"][aria-invalid="true"] { outline: 2px solid var(--warning); }
+    .date-entry-coverage { grid-column: 1 / -1; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .toolbar-meta { grid-column: 3; grid-row: 2; display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 8px; }
     .theme-picker-popover { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: min(320px, calc(100vw - 32px)); padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 34px rgba(0,0,0,.4); }
     .theme-picker-popover[hidden] { display: none; }
     .theme-search { width: 100%; }
@@ -248,6 +253,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .model-section h4 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
     .overall-sections { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
     .overall-sections .row { font-size: 12px; }
+    .composition-stack { display: flex; width: 100%; height: 16px; overflow: hidden; border-radius: 999px; background: var(--panel2); }
+    .composition-segment { min-width: 0; height: 100%; cursor: help; }
+    .composition-legend { display: grid; gap: 5px; }
+    .composition-legend-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 7px; align-items: center; color: var(--muted); font-size: 12px; cursor: help; }
+    .composition-swatch { width: 9px; height: 9px; border-radius: 2px; }
+    .composition-value { color: var(--text); text-align: right; white-space: nowrap; }
     .dashboard-export { width: 1100px; min-height: 520px; padding: 18px; background: var(--panel); color: var(--text); font: 14px/1.45 var(--font-ui); }
     .heatmap { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 14px); gap: 4px; width: max-content; min-height: 122px; }
     .cell { width: 14px; height: 14px; border-radius: 3px; background: var(--cell0); }
@@ -266,6 +277,25 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .area { fill: var(--accent); opacity: 0.22; }
     .hit { fill: transparent; pointer-events: all; }
     .chart-dot { fill: var(--accent); }
+    .roi-stats { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 1px; margin-bottom: 14px; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: var(--line); }
+    .roi-stat { min-width: 0; padding: 12px; background: var(--bg); }
+    .roi-stat strong { display: block; margin-bottom: 3px; font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .roi-stat span { color: var(--muted); }
+    .roi-status { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--muted); }
+    .roi-status-dot { width: 9px; height: 9px; border-radius: 50%; background: #f1fa8c; }
+    .roi-message { margin-bottom: 12px; }
+    .roi-legend { display: flex; gap: 18px; align-items: center; margin-top: 8px; color: var(--muted); font-size: 12px; }
+    .roi-legend span { display: inline-flex; gap: 6px; align-items: center; }
+    .roi-legend i { width: 18px; height: 3px; border-radius: 999px; }
+    .roi-spend-line, .roi-value-line, .roi-percent-line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+    .roi-spend-line { stroke: #ff5555; }
+    .roi-value-line { stroke: #50fa7b; }
+    .roi-percent-line { stroke: #f1fa8c; stroke-opacity: .55; }
+    .roi-spend-dot { fill: #ff5555; }
+    .roi-value-dot { fill: #50fa7b; }
+    .roi-percent-dot { fill: #f1fa8c; fill-opacity: .55; }
+    .roi-percent-axis { fill: #f1fa8c; }
+    .roi-equal-dot { fill: #f1fa8c; }
     .breakdown-grid { display: grid; grid-template-columns: minmax(0, 2.15fr) minmax(280px, .85fr); gap: 14px; min-width: 0; align-items: start; }
     .breakdown-sidebar { display: grid; gap: 14px; min-width: 0; }
     .breakdown-panel { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--bg); min-width: 0; overflow: hidden; }
@@ -307,6 +337,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       .toolbar { margin-top: 14px; }
       .theme-picker-popover { right: auto; left: 0; }
       .stats { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+      .roi-stats { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
       .section-head { display: grid; }
       .section-actions { justify-content: flex-start; }
       .download-panel { right: auto; left: 0; }
@@ -316,6 +347,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       main { padding-inline: 16px; }
       .toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
       .theme-picker, .toolbar-meta { grid-column: 1 / -1; }
+      .toolbar-meta { grid-row: auto; }
     }
   </style>
 </head>
@@ -336,8 +368,9 @@ export function renderReportHtml(dataset: UsageDataset): string {
         </div>
         <label class="select-control"><select id="mode" aria-label="Chart time mode"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="cumulative">Cumulative</option></select>${controlChevron()}</label>
         <label class="select-control"><select id="chartStyle" aria-label="Chart style"><option value="auto">Auto chart</option><option value="bar">Bar</option><option value="area">Line/area</option></select>${controlChevron()}</label>
-        ${dateControl("from", "Start date", reportFrom)}
-        ${dateControl("to", "End date", reportTo)}
+        <label class="select-control"><select id="rangePreset" aria-label="Report date range"><option value="7d">7d</option><option value="30d" selected>30d</option><option value="90d">90d</option><option value="all">All time</option><option value="custom" hidden>Custom</option></select>${controlChevron()}</label>
+        ${dateRangeControl(reportFrom, reportTo)}
+        ${dateEntryCoverage(reportDates, paymentEntryMonths)}
         <div class="toolbar-meta"><label class="toggle-control"><input id="rawCounts" type="checkbox">Exact counts</label>${githubLink()}</div>
       </div>
     </header>
@@ -351,6 +384,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       ${stat("estimated API cost", dataset.summary.estimatedCostUsd, "money")}
       ${stat("API-equivalent cache savings", dataset.summary.cacheSavingsUsd, "money")}
       ${stat("local sessions", dataset.local.distinctSessions)}
+      ${stat("longest turn", dataset.summary.longestRunningTurnSec ?? 0, "duration")}
       ${stat("dashboard turns", dataset.analytics?.totals?.turns ?? 0)}
     </section>
 
@@ -380,6 +414,29 @@ export function renderReportHtml(dataset: UsageDataset): string {
     <section class="section">
       <div class="section-head">
         <div class="section-title">
+          <h2>Return on investment</h2>
+          <p class="section-copy">Selected-range subscription spend compared with API-equivalent usage value</p>
+        </div>
+        <div class="section-actions">${downloadMenu("roi")}</div>
+      </div>
+      <p id="roiUnavailable" class="roi-message warning" hidden>Payment history unavailable. Provide --payments-json or generate with live payment API access.</p>
+      <p id="roiPartial" class="roi-message warning" hidden>Payment history is partial; known values may be incomplete.</p>
+      <div id="roiContent">
+        <div class="roi-stats">
+          <div class="roi-stat"><strong id="roiPaid">—</strong><span>Amount paid</span></div>
+          <div class="roi-stat"><strong id="roiValue">—</strong><span>Estimated API value</span></div>
+          <div class="roi-stat"><strong id="roiCoverage">—</strong><span>Value coverage</span></div>
+          <div class="roi-stat"><strong id="roiPercent">—</strong><span>Conventional ROI</span></div>
+        </div>
+        <div id="roiStatus" class="roi-status"><span id="roiStatusDot" class="roi-status-dot"></span><span id="roiStatusText">Waiting for selected range</span></div>
+        <svg id="roiChart" class="chart" role="img" aria-label="Subscription spend and API-equivalent value by month"></svg>
+        <div class="roi-legend"><span><i style="background:#ff5555"></i>Amount paid</span><span><i style="background:#50fa7b"></i>Estimated API value</span><span><i style="background:#f1fa8c"></i>Conventional ROI curve</span></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div class="section-title">
           <h2>Usage breakdown</h2>
           <p class="section-copy">Local model usage enriched with matching WHAM metrics, plus cloud surface and task metadata</p>
         </div>
@@ -395,7 +452,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       <div><strong>Local coverage :</strong> ${coverageSummary(dataset)}</div>
       <div><strong>Attribution completeness / certainty :</strong> ${attributionSummary(dataset)}</div>
       <div><strong>Parser cache :</strong> v${dataset.local.cache.version}, ${dataset.local.cache.hits} ${pluralize("hit", dataset.local.cache.hits)}, ${dataset.local.cache.misses} ${pluralize("miss", dataset.local.cache.misses)}, ${dataset.local.cache.invalidations} ${pluralize("invalidation", dataset.local.cache.invalidations)}, ${compactNumber(dataset.local.cache.reusedBytes)} reused bytes</div>
-        <div><strong>Prompt cache :</strong> ${compactNumber(dataset.summary.cachedInputTokens)} cached input tokens; ${money(dataset.summary.cacheSavingsUsd)} API-equivalent savings versus uncached input pricing.</div>
+        <div><strong>Prompt cache :</strong> ${compactNumber(dataset.summary.cachedInputTokens)} cached input tokens, ${money(dataset.summary.cacheSavingsUsd)} API-equivalent savings versus uncached input pricing</div>
       <div id="themeNote"><strong>Theme :</strong> <span id="themeNoteValue">${escapeHtml(dataset.themeChoice)} from ${escapeHtml(dataset.theme.source)}</span></div>
       <div><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.source)}${dataset.pricing.estimateModel ? ` using ${escapeHtml(dataset.pricing.estimateModel)} as the explicit missing-model override` : " using the historical primary model for each usage date"}</div>
       ${dataset.local.coverage.status !== "complete" ? `<div class="warning"><strong>Local coverage warning :</strong> output is ${escapeHtml(dataset.local.coverage.status)}; local totals may be incomplete.</div>` : ""}
@@ -411,19 +468,38 @@ export function renderReportHtml(dataset: UsageDataset): string {
   <div id="tooltip" class="tooltip"></div>
   <script id="usage-data" type="application/json">${dataJson}</script>
   <script id="model-rows" type="application/json">${modelRowsJson}</script>
+  <script id="payment-months" type="application/json">${paymentMonthsJson}</script>
   <script>
+    ${reportRuntimeSource()}
     const dataset = JSON.parse(document.getElementById('usage-data').textContent);
     const reportModels = JSON.parse(document.getElementById('model-rows').textContent);
+    const paymentMonths = JSON.parse(document.getElementById('payment-months').textContent);
+    const reportDates = dataset.daily.map(function (day) { return day.date; });
+    const paymentEntryMonths = Object.keys(paymentMonths).sort();
     const modeEl = document.getElementById('mode');
     const chartStyleEl = document.getElementById('chartStyle');
-    const fromEl = document.getElementById('from');
-    const toEl = document.getElementById('to');
+    const rangePresetEl = document.getElementById('rangePreset');
+    const fromDateButton = document.getElementById('fromDateButton');
+    const toDateButton = document.getElementById('toDateButton');
+    const fromDateDisplay = document.getElementById('fromDateDisplay');
+    const toDateDisplay = document.getElementById('toDateDisplay');
     const fromPickerEl = document.getElementById('fromPicker');
     const toPickerEl = document.getElementById('toPicker');
     const rawCountsEl = document.getElementById('rawCounts');
     const tooltip = document.getElementById('tooltip');
     const heatmap = document.getElementById('heatmap');
     const chart = document.getElementById('chart');
+    const roiContent = document.getElementById('roiContent');
+    const roiUnavailable = document.getElementById('roiUnavailable');
+    const roiPartial = document.getElementById('roiPartial');
+    const roiPaid = document.getElementById('roiPaid');
+    const roiValue = document.getElementById('roiValue');
+    const roiCoverage = document.getElementById('roiCoverage');
+    const roiPercent = document.getElementById('roiPercent');
+    const roiStatus = document.getElementById('roiStatus');
+    const roiStatusDot = document.getElementById('roiStatusDot');
+    const roiStatusText = document.getElementById('roiStatusText');
+    const roiChart = document.getElementById('roiChart');
     const analyticsBreakdown = document.getElementById('analyticsBreakdown');
     let fromDateValue = fromPickerEl.value;
     let toDateValue = toPickerEl.value;
@@ -502,6 +578,17 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return /fast|priority/i.test(String(mode || '')) ? theme.colors.accent : mixHex(theme.colors.accent, '#ffffff', 0.20);
     }
 
+    function compositionColor(kind) {
+      const series = theme.colors.series || [];
+      if (kind === 'input') return series[2] || theme.colors.accent;
+      if (kind === 'output') return series[4] || theme.colors.accent2;
+      if (kind === 'cached') return series[3] || theme.colors.accent;
+      if (kind === 'uncached') return theme.colors.accent;
+      if (kind === 'visible') return theme.colors.accent2;
+      if (kind === 'reasoning') return series[6] || mixHex(theme.colors.accent, '#ffffff', 0.30);
+      return theme.colors.muted;
+    }
+
     function meterWidth(value, maximum) {
       if (!(value > 0)) return '0';
       return 'max(2px, ' + (value / Math.max(1, maximum) * 100) + '%)';
@@ -546,6 +633,27 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return exact(value || 0, 0);
     }
 
+    function duration(value) {
+      if (!Number.isFinite(value) || value <= 0) return 'unavailable';
+      let remaining = Math.floor(value);
+      const units = [
+        ['d', 86400],
+        ['h', 3600],
+        ['min', 60],
+        ['s', 1]
+      ];
+      const parts = [];
+      units.forEach(function (unit) {
+        if (parts.length >= 2) return;
+        const amount = Math.floor(remaining / unit[1]);
+        if (amount > 0) {
+          parts.push(exact(amount, 0) + ' ' + unit[0]);
+          remaining -= amount * unit[1];
+        }
+      });
+      return parts.join(' ') || 'unavailable';
+    }
+
     function percent(value) {
       const amount = Number.isFinite(value) ? value : 0;
       const locales = browserLocales();
@@ -557,6 +665,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
       }
 
       return fallbackExact(amount, 1, 0) + ' %';
+    }
+
+    function signedPercent(value) {
+      if (value == null || !Number.isFinite(value)) return 'N/A';
+      return (value > 0 ? '+' : '') + percent(value);
     }
 
     function money(value) {
@@ -602,7 +715,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     function renderStats() {
       document.querySelectorAll('[data-stat-value]').forEach(function (el) {
         const value = Number(el.dataset.statValue);
-        el.textContent = el.dataset.statKind === 'money' ? money(value) : compact(value);
+        el.textContent = el.dataset.statKind === 'money' ? money(value) : el.dataset.statKind === 'duration' ? duration(value) : compact(value);
       });
     }
 
@@ -734,24 +847,26 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return parts.length === 3 ? parts[2] + '/' + parts[1] + '/' + parts[0] : '';
     }
 
-    function parseDisplayDate(value) {
-      const trimmed = String(value || '').trim();
-      if (!trimmed) return '';
-      const match = new RegExp('^([0-9]{2})/([0-9]{2})/([0-9]{4})$').exec(trimmed);
-      if (!match) return null;
-      const day = Number(match[1]);
-      const month = Number(match[2]);
-      const year = Number(match[3]);
-      const date = new Date(Date.UTC(year, month - 1, day));
-      if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
-      return match[3] + '-' + match[2] + '-' + match[1];
-    }
-
     function clearDateErrors() {
-      [fromEl, toEl].forEach(function (el) {
+      [fromPickerEl, toPickerEl].forEach(function (el) {
         el.setCustomValidity('');
         el.removeAttribute('aria-invalid');
       });
+      fromDateButton.removeAttribute('aria-invalid');
+      toDateButton.removeAttribute('aria-invalid');
+    }
+
+    function updateDateDisplays() {
+      fromPickerEl.value = fromDateValue;
+      toPickerEl.value = toDateValue;
+      fromDateDisplay.textContent = formatDisplayDate(fromDateValue) || 'Start';
+      toDateDisplay.textContent = formatDisplayDate(toDateValue) || 'End';
+    }
+
+    function setCustomRange() {
+      const custom = rangePresetEl.querySelector('option[value="custom"]');
+      if (custom) custom.hidden = false;
+      rangePresetEl.value = 'custom';
     }
 
     function commitDateValue(kind, value, source) {
@@ -762,32 +877,42 @@ export function renderReportHtml(dataset: UsageDataset): string {
       if (nextFrom && nextTo && nextFrom > nextTo) {
         source.setCustomValidity('Start date must be on or before end date');
         source.setAttribute('aria-invalid', 'true');
-        return;
+        (kind === 'from' ? fromDateButton : toDateButton).setAttribute('aria-invalid', 'true');
+        source.reportValidity();
+        return false;
       }
 
       if (kind === 'from') {
         fromDateValue = value;
-        fromPickerEl.value = value;
-        fromEl.value = formatDisplayDate(value);
       } else {
         toDateValue = value;
-        toPickerEl.value = value;
-        toEl.value = formatDisplayDate(value);
       }
 
+      updateDateDisplays();
+      setCustomRange();
+      render();
+      return true;
+    }
+
+    function applyPreset(preset) {
+      if (preset === 'custom') return;
+      const range = rangeForPreset(reportDates, preset, paymentEntryMonths);
+      clearDateErrors();
+      fromDateValue = range.from;
+      toDateValue = range.to;
+      updateDateDisplays();
       render();
     }
 
-    function readDisplayDate(kind, input) {
-      const value = parseDisplayDate(input.value);
-
-      if (value === null) {
-        input.setCustomValidity('Use DD/MM/YYYY');
-        input.setAttribute('aria-invalid', 'true');
-        return;
-      }
-
-      commitDateValue(kind, value, input);
+    function openCalendar(picker) {
+      try {
+        if (typeof picker.showPicker === 'function') {
+          picker.showPicker();
+          return;
+        }
+      } catch {}
+      picker.focus();
+      picker.click();
     }
 
     function filteredDaily() {
@@ -820,7 +945,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     }
 
     function tipFor(day) {
-      return day.date + '\\nTotal : ' + exact(day.displayValue, 0) + ' tokens\\nLocal : ' + exact(day.localTokens.totalTokens, 0) + '\\nBackend-only : ' + exact(day.unattributedTokens, 0) + '\\nCost : ' + money(day.estimatedCostUsd);
+      return day.date + '\\nTotal : ' + compact(day.displayValue) + ' tokens\\nLocal : ' + compact(day.localTokens.totalTokens) + '\\nBackend-only : ' + compact(day.unattributedTokens) + '\\nCost : ' + money(day.estimatedCostUsd);
     }
 
     function renderHeatmap() {
@@ -897,6 +1022,130 @@ export function renderReportHtml(dataset: UsageDataset): string {
       }
 
       chart.querySelectorAll('.hit').forEach(bindTip);
+    }
+
+    function renderRoi() {
+      const hasPaymentEvidence = (dataset.payments.sources || []).length > 0 || Object.keys(paymentMonths).length > 0;
+      const partial = !dataset.payments.complete || Boolean(dataset.payments.error);
+      roiPartial.hidden = !hasPaymentEvidence || !partial;
+
+      if (!hasPaymentEvidence) {
+        roiUnavailable.textContent = 'Payment history unavailable. Provide --payments-json or generate with live payment API access.';
+        roiUnavailable.hidden = false;
+        roiContent.hidden = true;
+        roiChart.innerHTML = '';
+        return;
+      }
+      if (!fromDateValue || !toDateValue) {
+        roiUnavailable.textContent = 'No usage dates are available for the ROI range.';
+        roiUnavailable.hidden = false;
+        roiContent.hidden = true;
+        roiChart.innerHTML = '';
+        return;
+      }
+
+      roiUnavailable.hidden = true;
+      roiContent.hidden = false;
+      const metrics = buildRoiMetrics(filteredDaily(), paymentMonths, fromDateValue, toDateValue);
+      roiPaid.textContent = money(metrics.amountPaid);
+      roiValue.textContent = money(metrics.estimatedApiValue);
+      roiCoverage.textContent = metrics.valueCoveragePercent == null ? 'N/A' : percent(metrics.valueCoveragePercent);
+      roiPercent.textContent = signedPercent(metrics.conventionalRoiPercent);
+      roiCoverage.style.color = metrics.color;
+      roiPercent.style.color = metrics.color;
+      roiStatus.style.color = metrics.color;
+      roiStatusDot.style.background = metrics.color;
+      roiStatusText.textContent = metrics.status === 'positive' ? 'API-equivalent value exceeds spend' : metrics.status === 'negative' ? 'Spend exceeds API-equivalent value' : 'Spend and API-equivalent value are equal after cent rounding';
+      renderRoiChart(metrics);
+    }
+
+    function renderRoiChart(metrics) {
+      const months = metrics.monthly;
+      const monthsWithEvidence = new Set(filteredDaily().map(function (day) { return day.date.slice(0, 7); }));
+      Object.keys(paymentMonths).forEach(function (month) { monthsWithEvidence.add(month); });
+      const width = 920, height = 330, left = 78, right = 78, top = 30, bottom = 48;
+      const chartW = width - left - right, chartH = height - top - bottom;
+      const maximum = Math.max(1, ...months.flatMap(function (month) { return [month.amountPaid, month.estimatedApiValue]; }));
+      const roiValues = months.map(function (month) { return month.conventionalRoiPercent; }).filter(function (value) { return value != null && Number.isFinite(value); });
+      let roiMinimum = Math.min(0, ...roiValues);
+      let roiMaximum = Math.max(0, ...roiValues);
+      if (roiMinimum === roiMaximum) {
+        roiMinimum -= 1;
+        roiMaximum += 1;
+      }
+      roiChart.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+      roiChart.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      roiChart.innerHTML = '';
+
+      for (const fraction of [0, .25, .5, .75, 1]) {
+        const y = top + chartH - fraction * chartH;
+        const roiTick = roiMinimum + (roiMaximum - roiMinimum) * fraction;
+        roiChart.insertAdjacentHTML('beforeend', '<line x1="'+left+'" x2="'+(width-right)+'" y1="'+y+'" y2="'+y+'" class="grid"/><text x="'+(left-10)+'" y="'+(y+4)+'" text-anchor="end" class="axis">'+escapeText(money(maximum*fraction))+'</text><text x="'+(width-right+10)+'" y="'+(y+4)+'" text-anchor="start" class="axis roi-percent-axis">'+escapeText(signedPercent(roiTick))+'</text>');
+      }
+
+      const pointsFor = function (key) {
+        return months.map(function (month, index) {
+          const x = months.length <= 1 ? left + chartW / 2 : left + index / (months.length - 1) * chartW;
+          const y = top + chartH - month[key] / maximum * chartH;
+          return { x: x, y: y, month: month };
+        });
+      };
+      const spendPoints = pointsFor('amountPaid');
+      const valuePoints = pointsFor('estimatedApiValue');
+      const evidenceSegments = function (points) {
+        const segments = [];
+        let current = [];
+        points.forEach(function (point) {
+          if (!monthsWithEvidence.has(point.month.month)) {
+            if (current.length) segments.push(current);
+            current = [];
+            return;
+          }
+          current.push(point);
+        });
+        if (current.length) segments.push(current);
+        return segments;
+      };
+      const monthIndexes = new Map(months.map(function (month, index) { return [month.month, index]; }));
+      const roiSegments = roiCurveSegments(metrics.monthly).flatMap(function (segment) {
+        const points = segment.map(function (month) {
+          const index = monthIndexes.get(month.month);
+          const x = months.length <= 1 ? left + chartW / 2 : left + index / (months.length - 1) * chartW;
+          const y = top + chartH - (month.conventionalRoiPercent - roiMinimum) / (roiMaximum - roiMinimum) * chartH;
+          return { x: x, y: y, month: month };
+        });
+        return evidenceSegments(points);
+      });
+      roiSegments.forEach(function (segment) {
+        roiChart.insertAdjacentHTML('beforeend', '<path class="roi-percent-line" aria-label="Conventional ROI curve" d="'+smoothPath(segment).line+'"/>');
+      });
+      evidenceSegments(spendPoints).forEach(function (segment) { roiChart.insertAdjacentHTML('beforeend', '<path class="roi-spend-line" d="'+smoothPath(segment).line+'"/>'); });
+      evidenceSegments(valuePoints).forEach(function (segment) { roiChart.insertAdjacentHTML('beforeend', '<path class="roi-value-line" d="'+smoothPath(segment).line+'"/>'); });
+
+      const monthLabelStep = Math.max(1, Math.ceil(months.length / 8));
+      months.forEach(function (month, index) {
+        const spend = spendPoints[index];
+        const value = valuePoints[index];
+        if (!monthsWithEvidence.has(month.month)) {
+          if (index % monthLabelStep === 0 || index === months.length - 1) {
+            roiChart.insertAdjacentHTML('beforeend', '<text x="'+value.x+'" y="'+(height-17)+'" text-anchor="middle" class="axis">'+escapeText(month.month)+'</text>');
+          }
+          return;
+        }
+        const equalClass = month.status === 'break-even' ? ' roi-equal-dot' : '';
+        const coverage = month.valueCoveragePercent == null ? 'N/A' : percent(month.valueCoveragePercent);
+        const roi = signedPercent(month.conventionalRoiPercent);
+        const tip = month.month + '\\nAmount paid : ' + money(month.amountPaid) + '\\nEstimated API value : ' + money(month.estimatedApiValue) + '\\nValue coverage : ' + coverage + '\\nConventional ROI : ' + roi;
+        const roiY = month.conventionalRoiPercent == null ? null : top + chartH - (month.conventionalRoiPercent - roiMinimum) / (roiMaximum - roiMinimum) * chartH;
+        const roiDot = roiY == null ? '' : '<circle class="roi-percent-dot" cx="'+value.x+'" cy="'+roiY+'" r="4"/>';
+        const hitTarget = function (x, y) { return '<circle class="hit" cx="'+x+'" cy="'+y+'" r="13" data-tip="'+escapeText(tip)+'"/>'; };
+        const roiHit = roiY == null ? '' : hitTarget(value.x, roiY);
+        roiChart.insertAdjacentHTML('beforeend', roiDot+'<circle class="roi-spend-dot'+equalClass+'" cx="'+spend.x+'" cy="'+spend.y+'" r="4"/><circle class="roi-value-dot'+equalClass+'" cx="'+value.x+'" cy="'+value.y+'" r="4"/>'+roiHit+hitTarget(spend.x, spend.y)+hitTarget(value.x, value.y));
+        if (index % monthLabelStep === 0 || index === months.length - 1) {
+          roiChart.insertAdjacentHTML('beforeend', '<text x="'+value.x+'" y="'+(height-17)+'" text-anchor="middle" class="axis">'+escapeText(month.month)+'</text>');
+        }
+      });
+      roiChart.querySelectorAll('[data-tip]').forEach(bindTip);
     }
 
     function emptyBreakdown() {
@@ -1193,7 +1442,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       }
 
       if (row.source !== 'local') {
-        tip += '\\nDashboard turns : ' + exact(row.turns, 0) + '\\nThreads : ' + exact(row.threads, 0) + '\\nCredits : ' + exact(row.credits, 2);
+        tip += '\\nDashboard turns : ' + compact(row.turns) + '\\nThreads : ' + compact(row.threads) + '\\nCredits : ' + exact(row.credits, 2);
       }
 
       return tip;
@@ -1204,7 +1453,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         return '';
       }
 
-      return '\\nTotal tokens : ' + exact(breakdown.totalTokens, 0) + '\\nInput : ' + exact(breakdown.inputTokens, 0) + '\\nCached input : ' + exact(breakdown.cachedInputTokens, 0) + '\\nOutput : ' + exact(breakdown.outputTokens, 0) + '\\nReasoning output : ' + exact(breakdown.reasoningOutputTokens, 0);
+      return '\\nTotal tokens : ' + compact(breakdown.totalTokens) + '\\nInput : ' + compact(breakdown.inputTokens) + '\\nCached input : ' + compact(breakdown.cachedInputTokens) + '\\nOutput : ' + compact(breakdown.outputTokens) + '\\nReasoning output : ' + compact(breakdown.reasoningOutputTokens);
     }
 
     function modelVariantsByName(variants) {
@@ -1268,11 +1517,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
           if (tier.credits) tip += '\\nMatching WHAM credits : ' + exact(tier.credits, 2);
 
           if (tier.inferredTokens) {
-            tip += '\\nInferred tier tokens : ' + exact(tier.inferredTokens, 0) + '\\nEarlier same-model events were backfilled from the first subsequently recorded tier';
+            tip += '\\nInferred tier tokens : ' + compact(tier.inferredTokens) + '\\nEarlier same-model events were backfilled from the first subsequently recorded tier';
           }
         } else {
           tip += '\\nSource : WHAM speed enrichment';
-          if (tier.totalTokens) tip += '\\nEstimated tokens : ' + exact(tier.totalTokens, 0) + '\\nEstimated cost : ' + money(tier.costUsd);
+          if (tier.totalTokens) tip += '\\nEstimated tokens : ' + compact(tier.totalTokens) + '\\nEstimated cost : ' + money(tier.costUsd);
           tip += '\\nVariant credits : ' + exact(tier.credits, 2) + '\\n' + tier.estimateSource;
         }
 
@@ -1297,12 +1546,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
     function capabilityTip(row) {
       const evidenceLabels = { injection: 'Injections', tool_call: 'Plugin tool calls', skill_file_read: 'SKILL.md reads' };
-      let tip = (row.kind === 'plugin' ? 'Plugin · ' : 'Skill · ') + row.name + '\\nUses : ' + exact(row.count, 0) + '\\nEvidence :';
+      let tip = (row.kind === 'plugin' ? 'Plugin · ' : 'Skill · ') + row.name + '\\nUses : ' + compact(row.count) + '\\nEvidence :';
       Object.keys(row.evidenceCounts).forEach(function (evidenceType) {
-        tip += '\\n- ' + (evidenceLabels[evidenceType] || evidenceType) + ' : ' + exact(row.evidenceCounts[evidenceType], 0);
+        tip += '\\n- ' + (evidenceLabels[evidenceType] || evidenceType) + ' : ' + compact(row.evidenceCounts[evidenceType]);
       });
-      tip += '\\nConfidence : ' + exact(row.confidenceCounts.high || 0, 0) + ' high';
-      if (row.confidenceCounts.medium) tip += ', ' + exact(row.confidenceCounts.medium, 0) + ' medium';
+      tip += '\\nConfidence : ' + compact(row.confidenceCounts.high || 0) + ' high';
+      if (row.confidenceCounts.medium) tip += ', ' + compact(row.confidenceCounts.medium) + ' medium';
 
       return tip;
     }
@@ -1338,12 +1587,24 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const overall = overallUsageRows(rows, variantsByModel);
       const reasoningRows = overall.reasoningRows;
       const modeRows = overall.modeRows;
+      const composition = summarizeTokenComposition(filteredDaily());
+      const tokenRows = [
+        { label: 'Input', tokens: composition.input, color: compositionColor('input') },
+        { label: 'Output', tokens: composition.output, color: compositionColor('output') },
+        { label: 'Unknown', tokens: composition.unknown, color: compositionColor('unknown'), detail: 'Backend-only : ' + compact(composition.backendOnly) + '\\nResidual local total : ' + compact(composition.localResidual) }
+      ];
+      const inputWarning = composition.cacheCounterExcess ? '\\nCounter mismatch : cached input exceeds input by ' + compact(composition.cacheCounterExcess) + ' tokens; the displayed cached segment is clamped.' : '';
+      const inputRows = [
+        { label: 'Cached input', tokens: composition.cachedInput, color: compositionColor('cached') },
+        { label: 'Uncached input', tokens: composition.uncachedInput, color: compositionColor('uncached') }
+      ];
+      const outputWarning = composition.reasoningCounterExcess ? '\\nCounter mismatch : reasoning output exceeds output by ' + compact(composition.reasoningCounterExcess) + ' tokens; the displayed reasoning segment is clamped.' : '';
+      const outputRows = [
+        { label: 'Visible output', tokens: composition.visibleOutput, color: compositionColor('visible') },
+        { label: 'Reasoning output', tokens: composition.reasoningOutput, color: compositionColor('reasoning') }
+      ];
 
-      if (!reasoningRows.length && !modeRows.length) {
-        return '';
-      }
-
-      return '<div class="overall-sections">' + overallSection('Overall thinking effort', reasoningRows, 'reasoning', 'Exact local totals across models') + overallSection('Overall mode mix', modeRows, 'mode', 'Local tiers, with WHAM estimates only for models without local tier evidence') + '</div>';
+      return '<div class="overall-sections">' + overallSection('Overall thinking effort', reasoningRows, 'reasoning', 'Exact local totals across models') + overallSection('Overall mode mix', modeRows, 'mode', 'Local tiers, with WHAM estimates only for models without local tier evidence') + compositionChart('Token composition', tokenRows, 'Exact local input/output plus undistributed backend-only and residual local totals') + compositionChart('Input details', inputRows, 'Cached input is a subset of exact local input' + inputWarning) + compositionChart('Output details', outputRows, 'Reasoning output is a subset of exact local output' + outputWarning) + '</div>';
     }
 
     function overallSection(titleText, rows, colorKind, sourceText) {
@@ -1354,9 +1615,25 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const total = rows.reduce(function (sum, row) { return sum + row.totalTokens; }, 0) || 1;
       return '<div class="model-section"><h4>'+escapeText(titleText)+'</h4>' + rows.map(function (row) {
         const color = colorKind === 'reasoning' ? reasoningColor(row.label) : modeColor(row.label);
-        const tip = titleText + ' / ' + row.label + '\\nSource : ' + sourceText + '\\nTokens : ' + exact(row.totalTokens, 0) + '\\nEstimated cost : ' + money(row.costUsd) + (row.estimated ? '\\nContains WHAM-estimated mode allocation' : '');
+        const tip = titleText + ' / ' + row.label + '\\nSource : ' + sourceText + '\\nTokens : ' + compact(row.totalTokens) + '\\nEstimated cost : ' + money(row.costUsd) + (row.estimated ? '\\nContains WHAM-estimated mode allocation' : '');
         return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.label)+'</div><div class="row-value">'+escapeText(compact(row.totalTokens) + ' tokens · ' + money(row.costUsd))+'</div><div class="meter"><span style="width:'+meterWidth(row.totalTokens, total)+'; background:'+color+'"></span></div></div>';
       }).join('') + '</div>';
+    }
+
+    function compositionChart(titleText, rows, sourceText) {
+      const total = rows.reduce(function (sum, row) { return sum + row.tokens; }, 0);
+      const denominator = total || 1;
+      const segments = rows.map(function (row) {
+        const share = row.tokens / denominator * 100;
+        const tip = titleText + ' / ' + row.label + '\\nSource : ' + sourceText + '\\nTokens : ' + compact(row.tokens) + '\\nShare : ' + percent(share) + (row.detail ? '\\n' + row.detail : '');
+        return '<div class="composition-segment" role="img" aria-label="'+escapeText(row.label + ' ' + compact(row.tokens) + ' tokens')+'" data-tip="'+escapeText(tip)+'" style="flex-basis:'+share+'%; background:'+row.color+'"></div>';
+      }).join('');
+      const legend = rows.map(function (row) {
+        const share = row.tokens / denominator * 100;
+        const tip = titleText + ' / ' + row.label + '\\nSource : ' + sourceText + '\\nTokens : ' + compact(row.tokens) + '\\nShare : ' + percent(share) + (row.detail ? '\\n' + row.detail : '');
+        return '<div class="composition-legend-row" data-tip="'+escapeText(tip)+'"><span class="composition-swatch" style="background:'+row.color+'"></span><span>'+escapeText(row.label)+'</span><span class="composition-value">'+escapeText(compact(row.tokens) + ' tokens · ' + percent(share))+'</span></div>';
+      }).join('');
+      return '<div class="model-section composition-section"><h4>'+escapeText(titleText)+'</h4><div class="composition-stack">'+segments+'</div><div class="composition-legend">'+legend+'</div></div>';
     }
 
     function surfacePanel(rows) {
@@ -1366,7 +1643,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         const color = surfaceColor(row.surface);
         const text = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : percent(row.percent)) + ' - ' + compact(row.turns) + ' turns';
         const surfaceCost = totalSurfaceTokens ? dataset.summary.estimatedCostUsd * row.textTotalTokens / totalSurfaceTokens : 0;
-        const tip = row.surface + '\\nTokens : ' + exact(row.textTotalTokens, 0) + '\\nInput : ' + exact(row.inputTokens, 0) + '\\nCached input : ' + exact(row.cachedInputTokens, 0) + '\\nOutput : ' + exact(row.outputTokens, 0) + '\\nTurns : ' + exact(row.turns, 0) + '\\nThreads : ' + exact(row.threads, 0) + '\\nCredits : ' + exact(row.credits, 2) + (row.textTotalTokens ? '\\nEstimated overall cost share : ' + money(surfaceCost) : '');
+        const tip = row.surface + '\\nTokens : ' + compact(row.textTotalTokens) + '\\nInput : ' + compact(row.inputTokens) + '\\nCached input : ' + compact(row.cachedInputTokens) + '\\nOutput : ' + compact(row.outputTokens) + '\\nTurns : ' + compact(row.turns) + '\\nThreads : ' + compact(row.threads) + '\\nCredits : ' + exact(row.credits, 2) + (row.textTotalTokens ? '\\nEstimated overall cost share : ' + money(surfaceCost) : '');
         const meter = row.textTotalTokens && totalSurfaceTokens ? '<div class="meter"><span style="width:'+meterWidth(row.textTotalTokens, totalSurfaceTokens)+'; background:'+color+'"></span></div>' : '';
         return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.surface)+'</div><div class="row-value">'+escapeText(text)+'</div>'+meter+'</div>';
       }).join('') + '</div></div>';
@@ -1380,9 +1657,9 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const archived = tasks.archivedCount == null ? '' : ' - ' + compact(tasks.archivedCount) + ' archived sample' + (tasks.archivedHasMore ? '+' : '');
       const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
       const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
-      const envs = (tasks.currentByEnvironment || []).map(function (row) { return '<span>'+escapeText(row.environment)+' ('+exact(row.count, 0)+')</span>'; }).join('') || '<span>none</span>';
+      const envs = (tasks.currentByEnvironment || []).map(function (row) { return '<span>'+escapeText(row.environment)+' ('+compact(row.count)+')</span>'; }).join('') || '<span>none</span>';
       const recent = (tasks.recent || []).map(function (task) {
-        const meta = task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : '') + (task.pullRequests ? ' - ' + task.pullRequests + ' PR' : '');
+        const meta = task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : '') + (task.pullRequests ? ' - ' + compact(task.pullRequests) + ' PR' : '');
         return '<div class="task-item" data-tip="'+escapeText(task.title + '\\n' + meta)+'"><div class="task-title">'+escapeText(task.title)+'</div><div class="task-meta">'+escapeText(meta)+'</div></div>';
       }).join('');
 
@@ -1408,6 +1685,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     function render() {
       renderStats();
       renderHeatmap(); renderChart();
+      renderRoi();
       renderAnalytics();
     }
 
@@ -1429,6 +1707,18 @@ export function renderReportHtml(dataset: UsageDataset): string {
       style.textContent = chartCss();
       clone.insertBefore(style, clone.firstChild);
 
+      return '<?xml version="1.0" encoding="UTF-8"?>\\n' + new XMLSerializer().serializeToString(clone);
+    }
+
+    function serializedRoiSvg() {
+      const clone = roiChart.cloneNode(true);
+      clone.querySelectorAll('.hit').forEach(function (el) { el.remove(); });
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      clone.setAttribute('width', '920');
+      clone.setAttribute('height', '330');
+      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      style.textContent = '.grid{stroke:'+theme.colors.line+'}.axis{fill:'+theme.colors.muted+';font-size:11px}.roi-percent-axis{fill:#f1fa8c}.roi-spend-line{fill:none;stroke:#ff5555;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.roi-value-line{fill:none;stroke:#50fa7b;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.roi-percent-line{fill:none;stroke:#f1fa8c;stroke-opacity:.55;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.roi-spend-dot{fill:#ff5555}.roi-value-dot{fill:#50fa7b}.roi-percent-dot{fill:#f1fa8c;fill-opacity:.55}.roi-equal-dot{fill:#f1fa8c}text{font-family:'+theme.fonts.ui+'}svg{background:'+theme.colors.bg+'}';
+      clone.insertBefore(style, clone.firstChild);
       return '<?xml version="1.0" encoding="UTF-8"?>\\n' + new XMLSerializer().serializeToString(clone);
     }
 
@@ -1458,7 +1748,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const width = 1100;
       const height = Math.max(560, analyticsBreakdown.scrollHeight + 72);
       const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export"><h2 style="margin:0 0 12px;font-size:18px;color:'+theme.colors.text+'">Usage Breakdown</h2>' + clone.outerHTML + '</div>';
-      const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.capability-section{padding-top:12px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;min-width:0}.row-label,.task-title,.task-meta{overflow-wrap:anywhere}.row-value{text-align:right;font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
+      const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.capability-section{padding-top:12px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;min-width:0}.row-label,.task-title,.task-meta{overflow-wrap:anywhere}.row-value{text-align:right;font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.composition-stack{display:flex;width:100%;height:16px;overflow:hidden;border-radius:999px;background:'+theme.colors.panel2+'}.composition-segment{height:100%}.composition-legend{display:grid;gap:5px}.composition-legend-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:7px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.composition-swatch{width:9px;height:9px;border-radius:2px}.composition-value{color:'+theme.colors.text+';text-align:right}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
 
       return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
     }
@@ -1472,7 +1762,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const tasks = analytics.tasks;
       const variantsByModel = modelVariantsByName(variants);
       const overall = overallUsageRows(models, variantsByModel);
-      const modelLineCount = models.reduce(function (sum, row) { return sum + 1 + (row.reasoningEfforts || []).length + serviceTierRows(row, variantsByModel.get(row.model) || []).length + ((row.reasoningEfforts || []).length ? 1 : 0) + (serviceTierRows(row, variantsByModel.get(row.model) || []).length ? 1 : 0); }, 0) + capabilities.length + (capabilities.length ? 2 : 0) + overall.reasoningRows.length + overall.modeRows.length + 4;
+      const composition = summarizeTokenComposition(filteredDaily());
+      const modelLineCount = models.reduce(function (sum, row) { return sum + 1 + (row.reasoningEfforts || []).length + serviceTierRows(row, variantsByModel.get(row.model) || []).length + ((row.reasoningEfforts || []).length ? 1 : 0) + (serviceTierRows(row, variantsByModel.get(row.model) || []).length ? 1 : 0); }, 0) + capabilities.length + (capabilities.length ? 2 : 0) + overall.reasoningRows.length + overall.modeRows.length + 14;
       const width = 1400;
       const margin = 28;
       const gap = 18;
@@ -1644,6 +1935,53 @@ export function renderReportHtml(dataset: UsageDataset): string {
       drawOverallRows('Overall thinking effort', overall.reasoningRows, 'reasoning');
       drawOverallRows('Overall mode mix', overall.modeRows, 'mode');
 
+      function drawCompositionStack(titleText, rows) {
+        y += 4;
+        section(modelX + 16, y, titleText);
+        y += 18;
+        const total = rows.reduce(function (sum, row) { return sum + row.tokens; }, 0);
+        const denominator = total || 1;
+        const stackX = modelX + 16;
+        const stackWidth = mainWidth - 32;
+        roundRect(stackX, y, stackWidth, 14, 7, theme.colors.panel2, '');
+        let offset = 0;
+        rows.forEach(function (row) {
+          const width = stackWidth * row.tokens / denominator;
+          if (width > 0) {
+            ctx.fillStyle = row.color;
+            ctx.fillRect(stackX + offset, y, width, 14);
+          }
+          offset += width;
+        });
+        y += 30;
+        rows.forEach(function (row) {
+          ctx.fillStyle = row.color;
+          ctx.fillRect(stackX, y - 8, 9, 9);
+          ctx.font = font('500', 12);
+          ctx.fillStyle = theme.colors.muted;
+          ctx.fillText(row.label, stackX + 16, y);
+          ctx.textAlign = 'right';
+          ctx.fillStyle = theme.colors.text;
+          ctx.fillText(compact(row.tokens) + ' tokens · ' + percent(row.tokens / denominator * 100), modelX + mainWidth - 16, y);
+          ctx.textAlign = 'left';
+          y += 20;
+        });
+      }
+
+      drawCompositionStack('Token composition', [
+        { label: 'Input', tokens: composition.input, color: compositionColor('input') },
+        { label: 'Output', tokens: composition.output, color: compositionColor('output') },
+        { label: 'Unknown', tokens: composition.unknown, color: compositionColor('unknown') }
+      ]);
+      drawCompositionStack('Input details', [
+        { label: 'Cached input', tokens: composition.cachedInput, color: compositionColor('cached') },
+        { label: 'Uncached input', tokens: composition.uncachedInput, color: compositionColor('uncached') }
+      ]);
+      drawCompositionStack('Output details', [
+        { label: 'Visible output', tokens: composition.visibleOutput, color: compositionColor('visible') },
+        { label: 'Reasoning output', tokens: composition.reasoningOutput, color: compositionColor('reasoning') }
+      ]);
+
       y = panelY + 34;
       title(sideX + 16, y, 'Surfaces');
       y += 34;
@@ -1697,7 +2035,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     }
 
     async function download(target, kind) {
-      const name = target === 'heatmap' ? 'codex-usage-heatmap' : target === 'dashboard' ? 'codex-usage-dashboard' : 'codex-usage-chart';
+      const name = target === 'heatmap' ? 'codex-usage-heatmap' : target === 'dashboard' ? 'codex-usage-dashboard' : target === 'roi' ? 'codex-usage-roi' : 'codex-usage-chart';
 
       if (target === 'dashboard' && kind === 'png') {
         saveDashboardAsPng(name + '.png');
@@ -1705,7 +2043,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         return;
       }
 
-      const svg = target === 'heatmap' ? serializedHeatmapSvg() : target === 'dashboard' ? serializedDashboardSvg() : serializedChartSvg();
+      const svg = target === 'heatmap' ? serializedHeatmapSvg() : target === 'dashboard' ? serializedDashboardSvg() : target === 'roi' ? serializedRoiSvg() : serializedChartSvg();
 
       if (kind === 'svg') {
         saveBlob(new Blob([svg], {type:'image/svg+xml;charset=utf-8'}), name + '.svg');
@@ -1746,10 +2084,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
     modeEl.addEventListener('change', render);
     chartStyleEl.addEventListener('change', render);
-    fromEl.addEventListener('input', function () { readDisplayDate('from', fromEl); });
-    toEl.addEventListener('input', function () { readDisplayDate('to', toEl); });
-    fromPickerEl.addEventListener('input', function () { commitDateValue('from', fromPickerEl.value, fromEl); });
-    toPickerEl.addEventListener('input', function () { commitDateValue('to', toPickerEl.value, toEl); });
+    rangePresetEl.addEventListener('change', function () { applyPreset(rangePresetEl.value); });
+    fromDateButton.addEventListener('click', function () { openCalendar(fromPickerEl); });
+    toDateButton.addEventListener('click', function () { openCalendar(toPickerEl); });
+    fromPickerEl.addEventListener('input', function () { commitDateValue('from', fromPickerEl.value, fromPickerEl); });
+    toPickerEl.addEventListener('input', function () { commitDateValue('to', toPickerEl.value, toPickerEl); });
     rawCountsEl.addEventListener('change', render);
     themePickerButton.addEventListener('click', function () {
       if (themePickerPopover.hidden) openThemePicker(); else closeThemePicker(false);
@@ -1829,11 +2168,29 @@ export function formatGeneratedAt(timestamp: string, timezone: string): string {
   }
 }
 
-function dateControl(id: "from" | "to", label: string, value: string): string {
-  const displayValue = value ? value.split("-").reverse().join("/") : "";
-  const pickerLabel = `Choose ${label.toLowerCase()}`;
+function dateRangeControl(from: string, to: string): string {
+  const displayFrom = from ? from.split("-").reverse().join("/") : "Start";
+  const displayTo = to ? to.split("-").reverse().join("/") : "End";
+  return `<div class="date-range-control" role="group" aria-label="Selected date range"><button id="fromDateButton" class="date-boundary" type="button" aria-label="Choose start date"><span id="fromDateDisplay">${escapeHtml(displayFrom)}</span></button><span class="date-range-separator" aria-hidden="true">—</span><button id="toDateButton" class="date-boundary" type="button" aria-label="Choose end date"><span id="toDateDisplay">${escapeHtml(displayTo)}</span></button><input id="fromPicker" type="date" value="${escapeHtml(from)}" aria-label="Start date"><input id="toPicker" type="date" value="${escapeHtml(to)}" aria-label="End date"></div>`;
+}
 
-  return `<div class="date-control"><input id="${id}" type="text" value="${escapeHtml(displayValue)}" aria-label="${escapeHtml(label)}" placeholder="DD/MM/YYYY" inputmode="numeric" autocomplete="off"><svg class="date-calendar-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/></svg><input id="${id}Picker" type="date" value="${escapeHtml(value)}" aria-label="${escapeHtml(pickerLabel)}"></div>`;
+function dateEntryCoverage(reportDates: string[], paymentMonths: string[]): string {
+  const rows: string[] = [];
+  if (reportDates.length > 0) {
+    rows.push(
+      `Usage entries : ${displayIsoDay(reportDates[0])} – ${displayIsoDay(reportDates.at(-1)!)}`,
+    );
+  }
+  if (paymentMonths.length > 0) {
+    rows.push(
+      `Payment entries : ${escapeHtml(paymentMonths[0])} – ${escapeHtml(paymentMonths.at(-1)!)}`,
+    );
+  }
+  return rows.length > 0 ? `<div class="date-entry-coverage">${rows.join(" · ")}</div>` : "";
+}
+
+function displayIsoDay(value: string): string {
+  return escapeHtml(value.split("-").reverse().join("/"));
 }
 
 function cssVars(theme: UsageTheme): string {
@@ -1874,9 +2231,42 @@ function themeColorScheme(bg: string): "dark" | "light" {
   return (red * 0.299 + green * 0.587 + blue * 0.114) / 255 > 0.58 ? "light" : "dark";
 }
 
-function stat(label: string, value: number, kind: "number" | "money" = "number"): string {
-  const display = kind === "money" ? money(value) : compactNumber(value);
+function stat(
+  label: string,
+  value: number,
+  kind: "number" | "money" | "duration" = "number",
+): string {
+  const display =
+    kind === "money"
+      ? money(value)
+      : kind === "duration"
+        ? formatDuration(value)
+        : compactNumber(value);
   return `<div class="stat"><strong data-stat-value="${value}" data-stat-kind="${kind}">${escapeHtml(display)}</strong><span>${escapeHtml(label)}</span></div>`;
+}
+
+function formatDuration(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "unavailable";
+  }
+  let remaining = Math.floor(value);
+  const parts: string[] = [];
+  for (const [label, seconds] of [
+    ["d", 86_400],
+    ["h", 3_600],
+    ["min", 60],
+    ["s", 1],
+  ] as const) {
+    if (parts.length >= 2) {
+      break;
+    }
+    const amount = Math.floor(remaining / seconds);
+    if (amount > 0) {
+      parts.push(`${amount} ${label}`);
+      remaining -= amount * seconds;
+    }
+  }
+  return parts.join(" ") || "unavailable";
 }
 
 function sourceSummary(dataset: UsageDataset): string {
@@ -1884,7 +2274,7 @@ function sourceSummary(dataset: UsageDataset): string {
     return "none recorded";
   }
 
-  const sources = dataset.sources.map((source) => escapeHtml(source.label)).join("; ");
+  const sources = dataset.sources.map((source) => escapeHtml(source.label)).join(", ");
   const merge = dataset.local.merge;
   return `${dataset.sources.length} ${pluralize("source", dataset.sources.length)} : ${sources}. Merge diagnostics : ${merge.duplicateEvents} duplicate ${pluralize("event", merge.duplicateEvents)}, ${merge.duplicateSources} duplicate ${pluralize("source", merge.duplicateSources)}, ${merge.legacyOverlaps} legacy ${pluralize("overlap", merge.legacyOverlaps)}`;
 }
@@ -1893,9 +2283,9 @@ function coverageSummary(dataset: UsageDataset): string {
   const coverage = dataset.local.coverage;
   const missing =
     coverage.missingRoots.length > 0
-      ? `; missing roots : ${coverage.missingRoots.map(escapeHtml).join(", ")}`
-      : "; no missing roots";
-  return `${escapeHtml(coverage.status)}; parsed ${coverage.parsedFiles}/${coverage.discoveredFiles} discovered files; ${coverage.failedFiles} failed ${pluralize("file", coverage.failedFiles)}; ${coverage.malformedLines} malformed ${pluralize("line", coverage.malformedLines)}${missing}`;
+      ? `, missing roots : ${coverage.missingRoots.map(escapeHtml).join(", ")}`
+      : ", no missing roots";
+  return `${escapeHtml(coverage.status)}, parsed ${coverage.parsedFiles}/${coverage.discoveredFiles} discovered files, ${coverage.failedFiles} failed ${pluralize("file", coverage.failedFiles)}, ${coverage.malformedLines} malformed ${pluralize("line", coverage.malformedLines)}${missing}`;
 }
 
 function attributionSummary(dataset: UsageDataset): string {
@@ -1906,7 +2296,7 @@ function attributionSummary(dataset: UsageDataset): string {
     metric("model", dataset.local.attribution.model),
     metric("reasoning effort", dataset.local.attribution.reasoningEffort),
     metric("service tier", dataset.local.attribution.serviceTier),
-  ].join("; ");
+  ].join(", ");
 }
 
 function percentage(value: number, total: number): string {
@@ -1927,7 +2317,7 @@ function parseDiagnostics(dataset: UsageDataset): string {
   return `<details class="diagnostics warning"><summary>Local parse diagnostics (${dataset.local.parseErrors.length})</summary><ol>${rows}</ol></details>`;
 }
 
-function downloadMenu(target: "heatmap" | "chart" | "dashboard"): string {
+function downloadMenu(target: "heatmap" | "chart" | "dashboard" | "roi"): string {
   return `<details class="download-menu"><summary aria-label="Download" title="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`;
 }
 

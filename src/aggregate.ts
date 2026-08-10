@@ -4,6 +4,7 @@ import type {
   CodexHome,
   DailyUsage,
   LocalModelUsage,
+  PaymentHistory,
   SourceMode,
   TokenBreakdown,
   TokenEvent,
@@ -19,6 +20,7 @@ import { createHash } from "node:crypto";
 
 import { primaryModelAt, resolveModelAt } from "./model-catalog";
 import { ROLLOUT_PARSE_CACHE_VERSION } from "./parse-cache";
+import { emptyPaymentHistory } from "./payments";
 import {
   estimateBreakdownCost,
   estimateCacheSavingsUsd,
@@ -68,6 +70,7 @@ export function buildDataset(args: {
   themeChoice: ThemeChoice;
   availableThemes: UsageThemeOption[];
   analytics?: WhamAnalytics;
+  payments?: PaymentHistory;
 }): UsageDataset {
   const backendByDate = new Map<string, number>();
 
@@ -179,7 +182,7 @@ export function buildDataset(args: {
   const coverage = args.localStats.coverage ?? defaultCoverage(args.localStats);
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAt: new Date().toISOString(),
     timezone: args.timezone,
     sourceMode: args.sourceMode,
@@ -235,6 +238,7 @@ export function buildDataset(args: {
     themeChoice: args.themeChoice,
     availableThemes: args.availableThemes,
     analytics: args.analytics,
+    payments: args.payments ?? emptyPaymentHistory(),
     summary,
     daily,
     weekly,

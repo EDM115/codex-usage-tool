@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { buildDataset } from "../src/aggregate";
+import { emptyPaymentHistory } from "../src/payments";
 import { loadPricing } from "../src/pricing";
 import { renderCapabilitiesPieSvg, renderChartSvg } from "../src/render";
 import { buildReportModelRows, renderReportHtml, type ReportModelRow } from "../src/report-html";
@@ -731,6 +732,8 @@ test("buildDataset keeps backend totals authoritative and local details enriched
         timestamp: "2026-06-27T08:00:00.000Z",
         date: "2026-06-27",
         model: "gpt-5",
+        reasoningEffort: "high",
+        serviceTier: "default",
         breakdown: {
           inputTokens: 100,
           cachedInputTokens: 0,
@@ -1039,7 +1042,10 @@ test("buildDataset distinguishes attribution completeness from certainty and rep
     ...resolveUsageThemes([]),
   });
 
-  expect(dataset.schemaVersion).toBe(2);
+  expect(dataset.schemaVersion).toBe(3);
+  expect((dataset as UsageDataset & { payments?: unknown }).payments).toEqual(
+    emptyPaymentHistory(),
+  );
   expect(dataset.sources).toHaveLength(1);
   expect(dataset.local.distinctSessions).toBe(2);
   expect(dataset.local.attribution.model).toEqual({ completeTokens: 170, certainTokens: 120 });
@@ -1167,6 +1173,10 @@ test("report model rows keep local models authoritative and add cloud enrichment
 
 test("renderHtmlReport emits parseable runtime scripts", async () => {
   const pricing = await loadPricing({ source: "bundled" });
+  const payments = emptyPaymentHistory();
+  payments.complete = true;
+  payments.overrides = { "2025-02": 31, "2026-06": 30 };
+  payments.sources = [{ kind: "json", label: "payments.json", status: "complete" }];
   const dataset = buildDataset({
     profileResult: { fetched: false, error: "offline" },
     events: [
@@ -1269,6 +1279,7 @@ test("renderHtmlReport emits parseable runtime scripts", async () => {
     pricing,
     estimateModel: "gpt-5",
     ...resolveUsageThemes([]),
+    payments,
   });
   dataset.generatedAt = "2026-07-10T13:33:11.042Z";
 
@@ -1315,12 +1326,25 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
     "Generated at 2026-01-10 14:33:11.042 UTC+01:00 (Europe/Paris)",
   );
   expect(html).toContain('id="rawCounts"');
-  expect(html).toContain('id="from" type="text" value="27/06/2026"');
-  expect(html).toContain('id="fromPicker" type="date" value="2026-06-27"');
-  expect(html).toContain('id="to" type="text" value="28/06/2026"');
-  expect(html).toContain('id="toPicker" type="date" value="2026-06-28"');
-  expect(html).toContain('placeholder="DD/MM/YYYY"');
-  expect(html).toContain("function parseDisplayDate");
+  expect(html).toContain('id="rangePreset"');
+  expect(html).toContain('<option value="30d" selected>30d</option>');
+  expect(html).toContain('<option value="custom" hidden>Custom</option>');
+  expect(html).toContain('class="date-range-control"');
+  expect(html).toContain('id="fromPicker" type="date" value="2026-05-29"');
+  expect(html).toContain('id="toPicker" type="date" value="2026-06-27"');
+  const fromPicker = html.match(/<input id="fromPicker"[^>]+>/)?.[0] ?? "";
+  const toPicker = html.match(/<input id="toPicker"[^>]+>/)?.[0] ?? "";
+  expect(fromPicker).not.toContain(" min=");
+  expect(fromPicker).not.toContain(" max=");
+  expect(toPicker).not.toContain(" min=");
+  expect(toPicker).not.toContain(" max=");
+  expect(html).toContain('class="date-entry-coverage"');
+  expect(html).toContain("Usage entries : 27/06/2026 – 27/06/2026");
+  expect(html).toContain("Payment entries : 2025-02 – 2026-06");
+  expect(html).toContain("rangeForPreset(reportDates, preset, paymentEntryMonths)");
+  expect(html).not.toContain('placeholder="DD/MM/YYYY"');
+  expect(html).toContain("function applyPreset");
+  expect(html).toContain("function openCalendar");
   expect(html).toContain("function filteredReportModels");
   expect(html).toContain("function filteredCapabilityRows");
   expect(html).toContain("function capabilitySection");
@@ -1347,8 +1371,10 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
     "estimated API cost",
     "API-equivalent cache savings",
     "local sessions",
+    "longest turn",
     "dashboard turns",
   ]);
+  expect(summaryCards).toContain('data-stat-kind="duration"');
   expect(html).toContain("Local coverage");
   expect(html).toContain("Attribution completeness / certainty");
   expect(html).toContain(
@@ -1373,6 +1399,69 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(notes).not.toContain(`[${dataset.sources[0].sourceId}`);
   expect(notes).not.toContain("This is a pricing comparison, not subscription money returned.");
   expect(html).toContain("function smoothPath");
+  const roiIndex = html.indexOf("<h2>Return on investment</h2>");
+  const breakdownIndex = html.indexOf("<h2>Usage breakdown</h2>");
+  expect(roiIndex).toBeGreaterThan(0);
+  expect(roiIndex).toBeLessThan(breakdownIndex);
+  expect(html).toContain('id="roiChart"');
+  expect(html).toContain('data-download-target="roi"');
+  expect(html).toContain("Value coverage");
+  expect(html).toContain("Conventional ROI");
+  expect(html).toContain("#50fa7b");
+  expect(html).toContain("#ff5555");
+  expect(html).toContain("#f1fa8c");
+  expect(html).toContain("Conventional ROI curve");
+  expect(html).toContain('class="roi-percent-line"');
+  expect(html).toContain('class="axis roi-percent-axis"');
+  expect(html).toContain("roiCurveSegments(metrics.monthly)");
+  expect(html).toContain("const monthLabelStep = Math.max(1, Math.ceil(months.length / 8))");
+  expect(html).toContain("index % monthLabelStep === 0 || index === months.length - 1");
+  expect(html).toContain(".roi-percent-line{fill:none;stroke:#f1fa8c");
+  expect(html).toContain("function serializedRoiSvg");
+  const unavailableDataset = structuredClone(dataset);
+  unavailableDataset.payments = emptyPaymentHistory();
+  expect(renderReportHtml(unavailableDataset)).toContain(
+    "Payment history unavailable. Provide --payments-json or generate with live payment API access.",
+  );
+  const partialDataset = structuredClone(dataset);
+  partialDataset.payments.complete = false;
+  partialDataset.payments.error = "Payment API stopped after one page.";
+  partialDataset.payments.sources = [
+    { kind: "api", label: "transaction history", status: "partial" },
+  ];
+  expect(renderReportHtml(partialDataset)).toContain(
+    "Payment history is partial; known values may be incomplete.",
+  );
+  const tooltipFunctions = html.slice(
+    html.indexOf("    function tipFor"),
+    html.indexOf("    function bindTip"),
+  );
+  expect(tooltipFunctions).toContain("'\\nTotal : ' + compact(day.displayValue)");
+  expect(tooltipFunctions).toContain("'\\nDashboard turns : ' + compact(row.turns)");
+  expect(tooltipFunctions).toContain("'\\nTotal tokens : ' + compact(breakdown.totalTokens)");
+  expect(tooltipFunctions).toContain("'\\nUses : ' + compact(row.count)");
+  expect(tooltipFunctions).toContain("'\\nTokens : ' + compact(row.textTotalTokens)");
+  const overallFunctions = html.slice(
+    html.indexOf("    function overallPanels"),
+    html.indexOf("    function surfacePanel"),
+  );
+  const overallHeadings = [
+    "Overall thinking effort",
+    "Overall mode mix",
+    "Token composition",
+    "Input details",
+    "Output details",
+  ];
+  for (let index = 1; index < overallHeadings.length; index += 1) {
+    expect(overallFunctions.indexOf(overallHeadings[index - 1])).toBeLessThan(
+      overallFunctions.indexOf(overallHeadings[index]),
+    );
+  }
+  expect(html).toContain("function compositionChart");
+  expect(html).toContain("function drawCompositionStack");
+  expect(html).toContain("drawCompositionStack('Token composition'");
+  expect(html).toContain("drawCompositionStack('Input details'");
+  expect(html).toContain("drawCompositionStack('Output details'");
   expect(html).toContain('class="report-title"');
   expect(html).toContain('class="breakdown-sidebar"');
   expect(html).toContain('class="model-details"');

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import type { CliOptions, SourceMode, PricingSource, UsageDataset } from "./types";
+import type { CliOptions, PaymentHistory, SourceMode, PricingSource, UsageDataset } from "./types";
 
 import { resolve } from "node:path";
 
@@ -8,6 +8,7 @@ import { loadWhamAnalytics } from "./analytics-api";
 import { loadAuthFromHomes } from "./auth";
 import { resolveCodexHomes } from "./codex-homes";
 import { outputProgressWeights, writeOutputs } from "./export";
+import { loadPayments } from "./payments";
 import { loadPricing } from "./pricing";
 import { ROLLOUT_PARSE_CACHE_VERSION } from "./parse-cache";
 import { loadProfile } from "./profile-api";
@@ -62,6 +63,21 @@ async function main() {
   progress.step(`Pricing table : ${pricing.source}`);
 
   if (codexHomes.length === 0) {
+    progress.status(
+      options.paymentsJson ? "Reading payment override JSON" : "No payment override input",
+    );
+    const payments = options.paymentsJson
+      ? await loadPayments({
+          paymentsJson: options.paymentsJson,
+          noApi: true,
+          baseUrl: options.baseUrl,
+          auth: null,
+        })
+      : undefined;
+    progress.step(
+      payments ? paymentStatus(payments) : "No payment override input",
+      payments ? "success" : "neutral",
+    );
     const themeResolution = resolveImportedTheme(importedDatasets, options.theme);
     progress.step(`Theme : ${themeResolution?.themeChoice ?? importedDatasets[0].themeChoice}`);
     progress.status("Merging imported usage datasets");
@@ -72,6 +88,7 @@ async function main() {
       ...themeResolution,
       pricing,
       estimateModel: options.estimateModel,
+      payments,
     });
     progress.step("Dataset built from usage JSON");
     await writeDataset(dataset, options, progress);
@@ -83,6 +100,27 @@ async function main() {
   progress.step(
     auth ? "Auth material found" : "No auth material found",
     auth ? "success" : "neutral",
+  );
+  progress.status(
+    options.paymentsJson
+      ? "Reading payment overrides and transaction history"
+      : options.noApi
+        ? "Skipping payment API because --no-api is set"
+        : "Fetching payment transaction history",
+  );
+  const payments = await loadPayments({
+    paymentsJson: options.paymentsJson,
+    noApi: options.noApi,
+    baseUrl: options.baseUrl,
+    auth,
+  });
+  progress.step(
+    paymentStatus(payments),
+    payments.complete
+      ? "success"
+      : payments.sources.length === 0 || options.noApi
+        ? "neutral"
+        : "failure",
   );
   progress.status("Resolving report theme");
   const themeResolution = resolveUsageThemes(codexHomes, options.theme);
@@ -207,6 +245,7 @@ async function main() {
     estimateModel: options.estimateModel,
     ...themeResolution,
     analytics,
+    payments: importedDatasets.length === 0 ? payments : undefined,
   });
   const dataset =
     importedDatasets.length > 0
@@ -216,6 +255,7 @@ async function main() {
           timezone,
           pricing,
           estimateModel: options.estimateModel,
+          payments,
         })
       : currentDataset;
   progress.step("Dataset built");
@@ -359,6 +399,7 @@ export function parseArgs(args: string[]): CliOptions {
     estimateModel: undefined,
     noPng: false,
     silent: false,
+    paymentsJson: undefined,
   };
 
   if (args.length === 0) {
@@ -422,6 +463,10 @@ export function parseArgs(args: string[]): CliOptions {
         break;
       case "--profile-json":
         options.profileJson = next();
+
+        break;
+      case "--payments-json":
+        options.paymentsJson = next();
 
         break;
       case "--no-api":
@@ -490,6 +535,7 @@ function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
       1, // Resolve the requested Codex homes (none for imported-only reports)
       1, // Read the usage JSON inputs
       1, // Load the pricing table
+      1, // Read an optional payment override without discovering local auth
       1, // Resolve the report theme
       1, // Merge imported datasets
       ...outputProgressWeights({
@@ -513,6 +559,7 @@ function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
     1, // Read optional usage JSON inputs
     1, // Load the pricing table
     1, // Read locally available authentication material
+    1, // Fetch payment history or read explicit monthly overrides
     1, // Resolve the report theme
     1, // Fetch or read profile data
     ...localWeights,
@@ -566,7 +613,8 @@ Data options :
   --usage-json <path>        Add a generated usage-data.json, repeatable
   --source <mode>            hybrid (default) | backend | local
   --profile-json <path>      Use a saved /profiles/me JSON response
-  --no-api                   Disable Profile API calls
+  --payments-json <path>     Override monthly USD spend with a {"YYYY-MM": amount} JSON object
+  --no-api                   Disable Profile, WHAM analytics, and payment API calls
   --base-url <url>           Default : https://chatgpt.com/backend-api
 
 Filters :
@@ -592,8 +640,31 @@ Examples :
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --out outputs\\codex-usage
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --codex-home D:\\Laptop\\.codex --from 2026-01-01
   bun usage generate --usage-json D:\\Shared\\usage-data.json --out outputs\\codex-usage
+  bun usage generate --usage-json D:\\Shared\\usage-data.json --payments-json D:\\Shared\\payments.json --no-api
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --usage-json D:\\Laptop\\usage-data.json
 `;
+}
+
+function paymentStatus(history: PaymentHistory): string {
+  const hasApi = history.sources.some(
+    (source) => source.kind === "api" && source.status === "complete",
+  );
+  const hasJson = history.sources.some((source) => source.kind === "json");
+
+  if (history.complete && hasApi && hasJson) {
+    return "Payment history ready with explicit monthly overrides";
+  }
+  if (history.complete && hasApi) {
+    return "Payment transaction history ready";
+  }
+  if (history.complete && hasJson) {
+    return "Payment monthly overrides ready";
+  }
+  if (history.error) {
+    return `Payment history unavailable or partial : ${history.error}`;
+  }
+
+  return "Payment history skipped";
 }
 
 if (import.meta.main) {

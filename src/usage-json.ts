@@ -2,6 +2,7 @@ import type {
   CapabilityUsageEvent,
   DailyUsage,
   LocalModelUsage,
+  PaymentHistory,
   TokenBreakdown,
   TokenEvent,
   UsageDataset,
@@ -17,6 +18,7 @@ import { basename, resolve } from "node:path";
 
 import { buildDataset } from "./aggregate";
 import { primaryModelAt, resolveModelAt } from "./model-catalog";
+import { emptyPaymentHistory, mergePaymentHistories } from "./payments";
 import { estimateBreakdownCost, estimateUnattributedCost, type PricingLoadResult } from "./pricing";
 import { addBreakdown, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util";
 
@@ -29,6 +31,7 @@ export type MergeUsageOptions = {
   availableThemes?: UsageThemeOption[];
   pricing?: PricingLoadResult;
   estimateModel?: string;
+  payments?: PaymentHistory;
 };
 
 export function loadUsageDatasets(paths: string[]): UsageDataset[] {
@@ -81,9 +84,18 @@ export function mergeUsageDatasets(
   }
 
   const overlap = inspectOverlap(datasets);
+  const payments = mergePaymentHistories(
+    datasets.map((dataset) => dataset.payments),
+    options.payments,
+  );
 
   if (options.pricing && datasets.every((dataset) => Array.isArray(dataset.local.events))) {
-    return mergeEventDatasets(datasets, { ...options, pricing: options.pricing }, overlap);
+    return mergeEventDatasets(
+      datasets,
+      { ...options, pricing: options.pricing },
+      overlap,
+      payments,
+    );
   }
 
   const legacySelection = dedupeLegacyDatasets(datasets);
@@ -105,7 +117,7 @@ export function mergeUsageDatasets(
   const lifetimeFromDaily = daily.reduce((sum, day) => sum + day.totalTokens, 0);
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAt: new Date().toISOString(),
     timezone: options.timezone,
     sourceMode: datasets.every((dataset) => dataset.sourceMode === primary.sourceMode)
@@ -150,6 +162,7 @@ export function mergeUsageDatasets(
     themeChoice: options.themeChoice ?? primary.themeChoice,
     availableThemes: options.availableThemes ?? primary.availableThemes,
     analytics,
+    payments,
     summary: {
       lifetimeTokens: profile?.summary.lifetimeTokens ?? lifetimeFromDaily,
       peakDailyTokens: Math.max(0, ...daily.map((day) => day.localTokens.totalTokens)),
@@ -174,6 +187,7 @@ function mergeEventDatasets(
   datasets: UsageDataset[],
   options: MergeUsageOptions & { pricing: PricingLoadResult },
   overlap: MergeDiagnostics,
+  payments: PaymentHistory,
 ): UsageDataset {
   const primary = datasets[0];
   const profile =
@@ -239,6 +253,7 @@ function mergeEventDatasets(
     themeChoice: options.themeChoice ?? primary.themeChoice,
     availableThemes: options.availableThemes ?? primary.availableThemes,
     analytics,
+    payments,
   });
   merged.sources = uniqueSources(datasets);
   merged.local.merge = overlap;
@@ -682,7 +697,21 @@ function buildWeekly(daily: DailyUsage[]): WeeklyUsage[] {
 }
 
 function migrateUsageDataset(value: unknown, path: string, text: string): unknown {
-  if (!isRecord(value) || value.schemaVersion === 2) {
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  if (isNumber(value.schemaVersion) && value.schemaVersion > 3) {
+    throw new Error(`Unsupported usage JSON schema version ${value.schemaVersion} in ${path}`);
+  }
+
+  if (value.schemaVersion === 3) {
+    return value;
+  }
+
+  if (value.schemaVersion === 2) {
+    value.schemaVersion = 3;
+    value.payments = emptyPaymentHistory();
     return value;
   }
 
@@ -715,7 +744,8 @@ function migrateUsageDataset(value: unknown, path: string, text: string): unknow
   const codexHomes = Array.isArray(value.codexHomes) ? value.codexHomes.filter(isRecord) : [];
   const fallbackId = legacyAggregateFingerprint(value, text);
 
-  value.schemaVersion = 1;
+  value.schemaVersion = 3;
+  value.payments = emptyPaymentHistory();
   value.sources =
     codexHomes.length > 0
       ? codexHomes.map((home, index) => {
@@ -802,7 +832,7 @@ function isUsageDataset(value: unknown): value is UsageDataset {
   }
 
   return (
-    isNumber(value.schemaVersion) &&
+    value.schemaVersion === 3 &&
     typeof value.generatedAt === "string" &&
     typeof value.timezone === "string" &&
     (value.sourceMode === "hybrid" ||
@@ -821,6 +851,7 @@ function isUsageDataset(value: unknown): value is UsageDataset {
     Array.isArray(value.availableThemes) &&
     value.availableThemes.every(isThemeOption) &&
     (value.analytics === undefined || isAnalytics(value.analytics)) &&
+    isPaymentHistory(value.payments) &&
     isSummary(value.summary) &&
     Array.isArray(value.daily) &&
     value.daily.every(isDailyUsage) &&
@@ -873,6 +904,84 @@ function isUsageSource(value: unknown): boolean {
     isNumber(value.tokenEvents) &&
     isNumber(value.distinctSessions)
   );
+}
+
+function isPaymentHistory(value: unknown): value is PaymentHistory {
+  if (
+    !isRecord(value) ||
+    value.currency !== "USD" ||
+    typeof value.fetched !== "boolean" ||
+    typeof value.complete !== "boolean"
+  ) {
+    return false;
+  }
+  if (
+    (value.endpoint !== undefined && value.endpoint !== "/payments/transaction-history") ||
+    (value.error !== undefined && (typeof value.error !== "string" || value.error.length > 240))
+  ) {
+    return false;
+  }
+  if (
+    !Array.isArray(value.transactions) ||
+    !value.transactions.every(isPaymentTransaction) ||
+    new Set(value.transactions.map((transaction) => transaction.fingerprint)).size !==
+      value.transactions.length
+  ) {
+    return false;
+  }
+  if (
+    !isRecord(value.overrides) ||
+    !Object.entries(value.overrides).every(
+      ([month, amount]) => isPaymentMonth(month) && isNumber(amount),
+    )
+  ) {
+    return false;
+  }
+  if (!Array.isArray(value.sources) || !value.sources.every(isPaymentSource)) {
+    return false;
+  }
+  if (
+    !isRecord(value.diagnostics) ||
+    !isNonNegativeInteger(value.diagnostics.pages) ||
+    !isNonNegativeInteger(value.diagnostics.skippedTransactions) ||
+    !isNonNegativeInteger(value.diagnostics.duplicateTransactions) ||
+    typeof value.diagnostics.repeatedCursor !== "boolean"
+  ) {
+    return false;
+  }
+  const expectedComplete =
+    value.sources.length > 0 &&
+    value.sources.every((source) => isRecord(source) && source.status === "complete") &&
+    value.error === undefined;
+  return value.complete === expectedComplete;
+}
+
+function isPaymentTransaction(value: unknown): value is PaymentHistory["transactions"][number] {
+  return (
+    isRecord(value) &&
+    typeof value.fingerprint === "string" &&
+    /^[0-9a-f]{64}$/.test(value.fingerprint) &&
+    isPaymentMonth(value.month) &&
+    isNumber(value.amountUsd)
+  );
+}
+
+function isPaymentSource(value: unknown): value is PaymentHistory["sources"][number] {
+  return (
+    isRecord(value) &&
+    (value.kind === "api" || value.kind === "json") &&
+    typeof value.label === "string" &&
+    value.label.length > 0 &&
+    (value.status === "complete" || value.status === "partial" || value.status === "unavailable")
+  );
+}
+
+function isPaymentMonth(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return isNumber(value) && Number.isInteger(value);
 }
 
 function isTokenBreakdown(value: unknown): value is TokenBreakdown {

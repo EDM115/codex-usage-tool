@@ -284,6 +284,35 @@ export type WeeklyUsage = {
   estimatedCostUsd: number;
 };
 
+export type PaymentTransactionFact = {
+  fingerprint: string;
+  month: string;
+  amountUsd: number;
+};
+
+export type PaymentSource = {
+  kind: "api" | "json";
+  label: string;
+  status: "complete" | "partial" | "unavailable";
+};
+
+export type PaymentHistory = {
+  currency: "USD";
+  fetched: boolean;
+  complete: boolean;
+  endpoint?: string;
+  error?: string;
+  transactions: PaymentTransactionFact[];
+  overrides: Record<string, number>;
+  sources: PaymentSource[];
+  diagnostics: {
+    pages: number;
+    skippedTransactions: number;
+    duplicateTransactions: number;
+    repeatedCursor: boolean;
+  };
+};
+
 export type UsageDataset = {
   schemaVersion: number;
   generatedAt: string;
@@ -351,6 +380,7 @@ export type UsageDataset = {
   themeChoice: ThemeChoice;
   availableThemes: UsageThemeOption[];
   analytics?: WhamAnalytics;
+  payments: PaymentHistory;
   summary: {
     lifetimeTokens: number;
     peakDailyTokens: number;
@@ -387,5 +417,6 @@ export type CliOptions = {
   noPng: boolean;
   silent: boolean;
   analyticsJson?: string;
+  paymentsJson?: string;
   theme?: ThemeChoice;
 };

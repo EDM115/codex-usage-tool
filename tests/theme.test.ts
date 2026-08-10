@@ -111,6 +111,15 @@ test("CLI accepts repeated usage JSON inputs alongside Codex homes", () => {
   expect(options.codexHomes).toEqual(["desktop/.codex"]);
 });
 
+test("CLI accepts a payment override JSON independently of API mode", () => {
+  expect(parseArgs(["generate", "--payments-json", "payments.json", "--no-api"]).paymentsJson).toBe(
+    "payments.json",
+  );
+  expect(() => parseArgs(["generate", "--payments-json"])).toThrow(
+    "--payments-json requires a value",
+  );
+});
+
 test("CLI rejects date filters that cannot be applied faithfully to usage JSON", () => {
   expect(() =>
     parseArgs(["generate", "--usage-json", "usage-data.json", "--from", "2026-07-01"]),

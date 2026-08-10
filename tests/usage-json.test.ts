@@ -5,10 +5,11 @@ import { join, resolve } from "node:path";
 
 import { buildDataset } from "../src/aggregate";
 import { writeOutputs } from "../src/export";
+import { emptyPaymentHistory, paymentMonthTotals } from "../src/payments";
 import { loadPricing } from "../src/pricing";
 import type { ProgressSink } from "../src/progress";
 import { resolveUsageThemes } from "../src/theme";
-import type { CapabilityUsageEvent, TokenEvent, UsageDataset } from "../src/types";
+import type { CapabilityUsageEvent, PaymentHistory, TokenEvent, UsageDataset } from "../src/types";
 import { loadUsageDatasets, mergeUsageDatasets } from "../src/usage-json";
 
 test("loadUsageDatasets reads generated datasets and identifies invalid inputs", async () => {
@@ -40,6 +41,82 @@ test("loadUsageDatasets rejects malformed metrics and unsafe theme CSS", async (
 
   expect(() => loadUsageDatasets([malformedPath])).toThrow("expected a generated usage-data.json");
   expect(() => loadUsageDatasets([unsafePath])).toThrow("expected a generated usage-data.json");
+});
+
+test("loadUsageDatasets migrates version 2 payment history in memory", async () => {
+  const source = await createDataset({ home: "legacy", model: "gpt-5", tokens: 100 });
+  source.schemaVersion = 2;
+  delete (source as unknown as { payments?: PaymentHistory }).payments;
+  const root = join(tmpdir(), `codex-usage-payment-migration-${crypto.randomUUID()}`);
+  mkdirSync(root, { recursive: true });
+  const path = join(root, "usage-data.json");
+  writeFileSync(path, JSON.stringify(source));
+
+  const loaded = loadUsageDatasets([path])[0] as UsageDataset & { payments: PaymentHistory };
+  expect(loaded.schemaVersion).toBe(3);
+  expect(loaded.payments).toEqual(emptyPaymentHistory());
+  expect(JSON.parse(readFileSync(path, "utf8")).payments).toBeUndefined();
+});
+
+test("loadUsageDatasets rejects malformed version 3 payment history", async () => {
+  const source = await createDataset({ home: "invalid-payment", model: "gpt-5", tokens: 100 });
+  (source as UsageDataset & { payments: unknown }).payments = {
+    ...emptyPaymentHistory(),
+    transactions: [{ fingerprint: "raw-invoice-id", month: "2026-06", amountUsd: 24 }],
+  };
+  const root = join(tmpdir(), `codex-usage-payment-validation-${crypto.randomUUID()}`);
+  mkdirSync(root, { recursive: true });
+  const path = join(root, "usage-data.json");
+  writeFileSync(path, JSON.stringify(source));
+
+  expect(() => loadUsageDatasets([path])).toThrow("expected a generated usage-data.json");
+});
+
+test("mergeUsageDatasets deduplicates payment transactions by fingerprint", async () => {
+  const first = await createDataset({ home: "first", model: "gpt-5", tokens: 100 });
+  const second = await createDataset({ home: "second", model: "gpt-5", tokens: 100 });
+  const fingerprint = "a".repeat(64);
+  (first as UsageDataset & { payments: PaymentHistory }).payments = paymentHistoryWithFact(
+    fingerprint,
+    "2026-06",
+    24,
+  );
+  (second as UsageDataset & { payments: PaymentHistory }).payments = paymentHistoryWithFact(
+    fingerprint,
+    "2026-06",
+    24,
+  );
+
+  const merged = mergeUsageDatasets([first, second], {
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+  }) as UsageDataset & { payments: PaymentHistory };
+  expect(paymentMonthTotals(merged.payments)).toEqual({ "2026-06": 24 });
+});
+
+test("current payment overrides beat imported overrides and first import wins conflicts", async () => {
+  const first = await createDataset({ home: "first", model: "gpt-5", tokens: 100 });
+  const second = await createDataset({ home: "second", model: "gpt-5", tokens: 100 });
+  (first as UsageDataset & { payments: PaymentHistory }).payments = paymentHistoryWithOverride(
+    "2026-06",
+    24,
+  );
+  (second as UsageDataset & { payments: PaymentHistory }).payments = paymentHistoryWithOverride(
+    "2026-06",
+    119.87,
+  );
+  const options = { from: null, to: null, timezone: "Europe/Paris" };
+  const imported = mergeUsageDatasets([first, second], options) as UsageDataset & {
+    payments: PaymentHistory;
+  };
+  const current = mergeUsageDatasets([first, second], {
+    ...options,
+    payments: paymentHistoryWithOverride("2026-06", 42),
+  } as Parameters<typeof mergeUsageDatasets>[1]) as UsageDataset & { payments: PaymentHistory };
+
+  expect(paymentMonthTotals(imported.payments)["2026-06"]).toBe(24);
+  expect(paymentMonthTotals(current.payments)["2026-06"]).toBe(42);
 });
 
 test("mergeUsageDatasets adds local sources without duplicating cloud enrichment", async () => {
@@ -234,10 +311,12 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
   const root = join(tmpdir(), `codex-usage-json-cli-${crypto.randomUUID()}`);
   const outDir = join(root, "report");
   const inputPath = join(root, "usage-data.json");
+  const paymentsPath = join(root, "payments.json");
   mkdirSync(root, { recursive: true });
   const shared = await createDataset({ home: "shared", model: "gpt-5", tokens: 100 });
   shared.timezone = "America/New_York";
   writeFileSync(inputPath, JSON.stringify(shared));
+  writeFileSync(paymentsPath, JSON.stringify({ "2026-06": 42 }));
 
   const child = Bun.spawnSync({
     cmd: [
@@ -246,6 +325,8 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
       "generate",
       "--usage-json",
       inputPath,
+      "--payments-json",
+      paymentsPath,
       "--out",
       outDir,
       "--pricing-source",
@@ -277,6 +358,12 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
   expect(rebuilt.summary.localKnownTokens).toBe(100);
   expect(rebuilt.codexHomes).toEqual([{ path: "shared", label: "shared" }]);
   expect(rebuilt.timezone).toBe("America/New_York");
+  expect(rebuilt.schemaVersion).toBe(3);
+  expect(rebuilt.payments.overrides).toEqual({ "2026-06": 42 });
+  expect(rebuilt.payments.sources).toEqual([
+    { kind: "json", label: "payments.json", status: "complete" },
+  ]);
+  expect(rebuilt.payments.endpoint).toBeUndefined();
 }, 15_000);
 
 test("writeOutputs writes the HTML report before generating image artifacts", async () => {
@@ -379,4 +466,24 @@ async function createDataset(args: {
         }
       : undefined,
   });
+}
+
+function paymentHistoryWithFact(
+  fingerprint: string,
+  month: string,
+  amountUsd: number,
+): PaymentHistory {
+  const history = emptyPaymentHistory();
+  history.complete = true;
+  history.transactions = [{ fingerprint, month, amountUsd }];
+  history.sources = [{ kind: "api", label: "transaction history", status: "complete" }];
+  return history;
+}
+
+function paymentHistoryWithOverride(month: string, amountUsd: number): PaymentHistory {
+  const history = emptyPaymentHistory();
+  history.complete = true;
+  history.overrides = { [month]: amountUsd };
+  history.sources = [{ kind: "json", label: "payments.json", status: "complete" }];
+  return history;
 }
