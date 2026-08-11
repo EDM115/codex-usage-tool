@@ -1414,10 +1414,45 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(html).toContain('class="roi-percent-line"');
   expect(html).toContain('class="axis roi-percent-axis"');
   expect(html).toContain("roiCurveSegments(metrics.monthly)");
-  expect(html).toContain("const monthLabelStep = Math.max(1, Math.ceil(months.length / 8))");
-  expect(html).toContain("index % monthLabelStep === 0 || index === months.length - 1");
+  expect(html).toContain("const monthLabelIndexes = new Set(sampleLabelIndexes(months.length, 8))");
   expect(html).toContain(".roi-percent-line{fill:none;stroke:#f1fa8c");
   expect(html).toContain("function serializedRoiSvg");
+  const roiExportRuntime = html.slice(
+    html.indexOf("    function serializedRoiSvg()"),
+    html.indexOf("    function serializedHeatmapSvg()"),
+  );
+  expect(roiExportRuntime).toContain("Amount paid");
+  expect(roiExportRuntime).toContain("Estimated API value");
+  expect(roiExportRuntime).toContain("Conventional ROI");
+  const usageChartRuntime = html.slice(
+    html.indexOf("    function renderChart()"),
+    html.indexOf("    function renderRoi()"),
+  );
+  expect(usageChartRuntime).toContain("dateLabelIndexes");
+  expect(usageChartRuntime).toContain("day.date");
+  const heatmapExportRuntime = html.slice(
+    html.indexOf("    function serializedHeatmapSvg()"),
+    html.indexOf("    function serializedDashboardSvg()"),
+  );
+  expect(heatmapExportRuntime).toContain("Less");
+  expect(heatmapExportRuntime).toContain("More");
+  expect(heatmapExportRuntime).not.toContain(
+    "Less to more daily token intensity. Hover cells in the HTML report for details.",
+  );
+  const dashboardExportRuntime = html.slice(
+    html.indexOf("    function serializedDashboardSvg()"),
+    html.indexOf("    async function download(target, kind)"),
+  );
+  expect(dashboardExportRuntime).not.toContain("PNG export rendered directly from report data");
+  expect(dashboardExportRuntime).not.toContain("ctx.fillText('Usage breakdown'");
+  expect(dashboardExportRuntime).not.toContain("function fit(");
+  expect(dashboardExportRuntime).not.toContain("<h2");
+  expect(dashboardExportRuntime).toContain("function wrapCanvasLines(");
+  expect(dashboardExportRuntime).toContain("split(/\\s+/)");
+  expect(dashboardExportRuntime).toContain("function drawMeterFill(");
+  expect(dashboardExportRuntime).toContain("ctx.clip()");
+  expect(dashboardExportRuntime).toContain("const contentBottom");
+  expect(dashboardExportRuntime).toContain(".overall-sections");
   const unavailableDataset = structuredClone(dataset);
   unavailableDataset.payments = emptyPaymentHistory();
   expect(renderReportHtml(unavailableDataset)).toContain(

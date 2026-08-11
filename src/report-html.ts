@@ -1001,6 +1001,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       }
 
       const style = chartStyleEl.value === 'auto' ? (modeEl.value === 'daily' ? 'bar' : 'area') : chartStyleEl.value;
+      const dateLabelIndexes = new Set(sampleLabelIndexes(days.length, 8));
 
       if (style === 'bar') {
         const step = chartW / Math.max(1, days.length);
@@ -1024,6 +1025,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
           pts.forEach(function (p) { chart.insertAdjacentHTML('beforeend', '<circle class="chart-dot" cx="'+p.x+'" cy="'+p.y+'" r="3"></circle><circle class="hit" cx="'+p.x+'" cy="'+p.y+'" r="10" data-tip="'+escapeText(tipFor(p.day))+'"></circle>'); });
         }
       }
+
+      days.forEach(function (day, index) {
+        if (!dateLabelIndexes.has(index)) return;
+        const x = days.length <= 1 ? left + chartW / 2 : left + index / (days.length - 1) * chartW;
+        chart.insertAdjacentHTML('beforeend', '<text x="'+x+'" y="'+(height-14)+'" text-anchor="middle" class="axis">'+escapeText(day.date)+'</text>');
+      });
 
       chart.querySelectorAll('.hit').forEach(bindTip);
     }
@@ -1126,12 +1133,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
       evidenceSegments(spendPoints).forEach(function (segment) { roiChart.insertAdjacentHTML('beforeend', '<path class="roi-spend-line" d="'+smoothPath(segment).line+'"/>'); });
       evidenceSegments(valuePoints).forEach(function (segment) { roiChart.insertAdjacentHTML('beforeend', '<path class="roi-value-line" d="'+smoothPath(segment).line+'"/>'); });
 
-      const monthLabelStep = Math.max(1, Math.ceil(months.length / 8));
+      const monthLabelIndexes = new Set(sampleLabelIndexes(months.length, 8));
       months.forEach(function (month, index) {
         const spend = spendPoints[index];
         const value = valuePoints[index];
         if (!monthsWithEvidence.has(month.month)) {
-          if (index % monthLabelStep === 0 || index === months.length - 1) {
+          if (monthLabelIndexes.has(index)) {
             roiChart.insertAdjacentHTML('beforeend', '<text x="'+value.x+'" y="'+(height-17)+'" text-anchor="middle" class="axis">'+escapeText(month.month)+'</text>');
           }
           return;
@@ -1145,7 +1152,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         const hitTarget = function (x, y) { return '<circle class="hit" cx="'+x+'" cy="'+y+'" r="13" data-tip="'+escapeText(tip)+'"/>'; };
         const roiHit = roiY == null ? '' : hitTarget(value.x, roiY);
         roiChart.insertAdjacentHTML('beforeend', roiDot+'<circle class="roi-spend-dot'+equalClass+'" cx="'+spend.x+'" cy="'+spend.y+'" r="4"/><circle class="roi-value-dot'+equalClass+'" cx="'+value.x+'" cy="'+value.y+'" r="4"/>'+roiHit+hitTarget(spend.x, spend.y)+hitTarget(value.x, value.y));
-        if (index % monthLabelStep === 0 || index === months.length - 1) {
+        if (monthLabelIndexes.has(index)) {
           roiChart.insertAdjacentHTML('beforeend', '<text x="'+value.x+'" y="'+(height-17)+'" text-anchor="middle" class="axis">'+escapeText(month.month)+'</text>');
         }
       });
@@ -1719,19 +1726,22 @@ export function renderReportHtml(dataset: UsageDataset): string {
       clone.querySelectorAll('.hit').forEach(function (el) { el.remove(); });
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       clone.setAttribute('width', '920');
-      clone.setAttribute('height', '330');
+      clone.setAttribute('height', '360');
+      clone.setAttribute('viewBox', '0 0 920 360');
       const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-      style.textContent = '.grid{stroke:'+theme.colors.line+'}.axis{fill:'+theme.colors.muted+';font-size:11px}.roi-percent-axis{fill:#f1fa8c}.roi-spend-line{fill:none;stroke:#ff5555;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.roi-value-line{fill:none;stroke:#50fa7b;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.roi-percent-line{fill:none;stroke:#f1fa8c;stroke-opacity:.55;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.roi-spend-dot{fill:#ff5555}.roi-value-dot{fill:#50fa7b}.roi-percent-dot{fill:#f1fa8c;fill-opacity:.55}.roi-equal-dot{fill:#f1fa8c}text{font-family:'+theme.fonts.ui+'}svg{background:'+theme.colors.bg+'}';
+      style.textContent = '.grid{stroke:'+theme.colors.line+'}.axis{fill:'+theme.colors.muted+';font-size:11px}.roi-percent-axis{fill:#f1fa8c}.roi-spend-line{fill:none;stroke:#ff5555;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.roi-value-line{fill:none;stroke:#50fa7b;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.roi-percent-line{fill:none;stroke:#f1fa8c;stroke-opacity:.55;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}.roi-spend-dot{fill:#ff5555}.roi-value-dot{fill:#50fa7b}.roi-percent-dot{fill:#f1fa8c;fill-opacity:.55}.roi-equal-dot{fill:#f1fa8c}.roi-export-legend{fill:'+theme.colors.muted+';font-size:12px}text{font-family:'+theme.fonts.ui+'}svg{background:'+theme.colors.bg+'}';
       clone.insertBefore(style, clone.firstChild);
+      clone.insertAdjacentHTML('beforeend', '<g><line x1="78" x2="96" y1="343" y2="343" stroke="#ff5555" stroke-width="3" stroke-linecap="round"/><text class="roi-export-legend" x="103" y="348">Amount paid</text><line x1="250" x2="268" y1="343" y2="343" stroke="#50fa7b" stroke-width="3" stroke-linecap="round"/><text class="roi-export-legend" x="275" y="348">Estimated API value</text><line x1="470" x2="488" y1="343" y2="343" stroke="#f1fa8c" stroke-opacity=".55" stroke-width="3" stroke-linecap="round"/><text class="roi-export-legend" x="495" y="348">Conventional ROI</text></g>');
       return '<?xml version="1.0" encoding="UTF-8"?>\\n' + new XMLSerializer().serializeToString(clone);
     }
 
     function serializedHeatmapSvg() {
       const days = values();
-      const cell = 14, gap = 4, left = 14, top = 18, footer = 38;
+      const cell = 14, gap = 4, left = 14, top = 18;
       const cols = Math.max(1, Math.ceil(days.length / 7));
-      const width = left + cols * (cell + gap) + 12;
-      const height = top + 7 * (cell + gap) + footer;
+      const width = Math.max(220, left + cols * (cell + gap) + 12);
+      const legendY = top + 7 * cell + 6 * gap + 14;
+      const height = legendY + 28;
       const max = Math.max(1, ...days.map(function (day) { return day.displayValue; }));
       let body = '<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'"><style>'+heatmapCss()+'</style>';
       days.forEach(function (day, index) {
@@ -1741,7 +1751,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
         const color = theme.colors.cells[level];
         body += '<rect class="cell" x="'+(left + col * (cell + gap))+'" y="'+(top + row * (cell + gap))+'" width="'+cell+'" height="'+cell+'" rx="3" fill="'+color+'"><title>'+escapeText(tipFor(day))+'</title></rect>';
       });
-      body += '<text class="label" x="'+left+'" y="'+(height - 12)+'">Less to more daily token intensity. Hover cells in the HTML report for details.</text></svg>';
+      const legendWidth = theme.colors.cells.length * 18;
+      const legendX = width - legendWidth - 42;
+      body += '<text class="label" x="'+(legendX-8)+'" y="'+(legendY+12)+'" text-anchor="end">Less</text>';
+      theme.colors.cells.forEach(function (color, index) { body += '<rect class="cell" x="'+(legendX+index*18)+'" y="'+legendY+'" width="14" height="14" rx="3" fill="'+color+'"/>'; });
+      body += '<text class="label" x="'+(legendX+legendWidth+4)+'" y="'+(legendY+12)+'">More</text></svg>';
 
       return '<?xml version="1.0" encoding="UTF-8"?>\\n' + body;
     }
@@ -1750,9 +1764,9 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const clone = analyticsBreakdown.cloneNode(true);
       clone.querySelectorAll('[data-tip]').forEach(function (el) { el.removeAttribute('data-tip'); });
       const width = 1100;
-      const height = Math.max(560, analyticsBreakdown.scrollHeight + 72);
-      const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export"><h2 style="margin:0 0 12px;font-size:18px;color:'+theme.colors.text+'">Usage Breakdown</h2>' + clone.outerHTML + '</div>';
-      const css = '<style>.dashboard-export{box-sizing:border-box;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.capability-section{padding-top:12px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:10px;align-items:center;min-width:0}.row-label,.task-title,.task-meta{overflow-wrap:anywhere}.row-value{text-align:right;font-variant-numeric:tabular-nums}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.composition-stack{display:flex;width:100%;height:16px;overflow:hidden;border-radius:999px;background:'+theme.colors.panel2+'}.composition-segment{height:100%}.composition-legend{display:grid;gap:5px}.composition-legend-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:7px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.composition-swatch{width:9px;height:9px;border-radius:2px}.composition-value{color:'+theme.colors.text+';text-align:right}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
+      const height = Math.max(520, analyticsBreakdown.scrollHeight + 36);
+      const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export">' + clone.outerHTML + '</div>';
+      const css = '<style>.dashboard-export{box-sizing:border-box;width:1100px;padding:18px;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows,.overall-sections{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.capability-section{padding-top:12px;border-top:1px solid '+theme.colors.line+'}.overall-sections{gap:12px;padding-top:14px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,auto);gap:10px;align-items:center;min-width:0}.row-label,.row-value,.task-title,.task-meta,.composition-value{overflow-wrap:anywhere}.row-value{max-width:360px;text-align:right;font-variant-numeric:tabular-nums;white-space:normal}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;min-width:7px;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.composition-stack{display:flex;width:100%;height:16px;overflow:hidden;border-radius:999px;background:'+theme.colors.panel2+'}.composition-segment{height:100%}.composition-legend{display:grid;gap:5px}.composition-legend-row{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,auto);gap:7px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.composition-swatch{width:9px;height:9px;border-radius:2px}.composition-value{max-width:360px;color:'+theme.colors.text+';text-align:right}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
 
       return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
     }
@@ -1768,42 +1782,56 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const overall = overallUsageRows(models, variantsByModel);
       const composition = summarizeTokenComposition(filteredDaily());
       const modelLineCount = models.reduce(function (sum, row) { return sum + 1 + (row.reasoningEfforts || []).length + serviceTierRows(row, variantsByModel.get(row.model) || []).length + ((row.reasoningEfforts || []).length ? 1 : 0) + (serviceTierRows(row, variantsByModel.get(row.model) || []).length ? 1 : 0); }, 0) + capabilities.length + (capabilities.length ? 2 : 0) + overall.reasoningRows.length + overall.modeRows.length + 14;
-      const width = 1400;
+      const width = 1600;
       const margin = 28;
       const gap = 18;
-      const mainWidth = 900;
+      const mainWidth = 1040;
       const sideWidth = width - margin * 2 - gap - mainWidth;
-      const surfaceHeight = Math.max(220, 82 + surfaces.length * 42);
-      const taskLineCount = tasks ? 4 + (tasks.currentByEnvironment || []).length + Math.min(8, (tasks.recent || []).length) : 2;
-      const taskHeight = Math.max(300, 100 + taskLineCount * 44);
-      const panelHeight = Math.max(620, 112 + modelLineCount * 36, surfaceHeight + gap + taskHeight);
-      const height = panelHeight + 96;
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
+      const layer = document.createElement('canvas');
+      layer.width = width;
+      layer.height = Math.max(1400, 300 + modelLineCount * 58);
+      let ctx = layer.getContext('2d');
 
       function font(weight, size) { return weight + ' ' + size + 'px ' + theme.fonts.ui; }
 
       function text(value) { return value == null ? '' : String(value); }
 
-      function fit(value, maxWidth) {
-        let out = text(value);
+      function wrapCanvasLines(value, maxWidth) {
+        const words = text(value).split(/\\s+/).filter(Boolean);
+        const lines = [];
+        let current = '';
 
-        if (ctx.measureText(out).width <= maxWidth) return out;
-
-        while (out.length > 1 && ctx.measureText(out + '...').width > maxWidth) out = out.slice(0, -1);
-
-        return out + '...';
+        words.forEach(function (word) {
+          const candidate = current ? current + ' ' + word : word;
+          if (ctx.measureText(candidate).width <= maxWidth) {
+            current = candidate;
+            return;
+          }
+          if (current) lines.push(current);
+          current = '';
+          let part = '';
+          [...word].forEach(function (character) {
+            if (part && ctx.measureText(part + character).width > maxWidth) {
+              lines.push(part);
+              part = character;
+            } else {
+              part += character;
+            }
+          });
+          current = part;
+        });
+        if (current) lines.push(current);
+        return lines.length ? lines : [''];
       }
 
       function roundRect(x, y, w, h, r, fill, stroke) {
+        const radius = Math.max(0, Math.min(r, w / 2, h / 2));
         ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.arcTo(x + w, y, x + w, y + h, r);
-        ctx.arcTo(x + w, y + h, x, y + h, r);
-        ctx.arcTo(x, y + h, x, y, r);
-        ctx.arcTo(x, y, x + w, y, r);
+        ctx.moveTo(x + radius, y);
+        ctx.arcTo(x + w, y, x + w, y + h, radius);
+        ctx.arcTo(x + w, y + h, x, y + h, radius);
+        ctx.arcTo(x, y + h, x, y, radius);
+        ctx.arcTo(x, y, x + w, y, radius);
         ctx.closePath();
         ctx.fillStyle = fill;
         ctx.fill();
@@ -1827,55 +1855,81 @@ export function renderReportHtml(dataset: UsageDataset): string {
         ctx.fillText(value.toUpperCase(), x, y);
       }
 
+      function separator(x, y, w) {
+        ctx.strokeStyle = theme.colors.line;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + w, y);
+        ctx.stroke();
+      }
+
+      function drawMeterFill(x, y, width, height, color) {
+        if (width <= 0) return;
+        if (width <= height) {
+          ctx.beginPath();
+          ctx.arc(x + height / 2, y + height / 2, height / 2, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.fill();
+          return;
+        }
+        roundRect(x, y, width, height, height / 2, color, '');
+      }
+
       function barRow(x, y, w, label, valueText, value, max, color, options) {
         const indent = options && options.indent ? options.indent : 0;
         const muted = options && options.muted;
-        const rowH = options && options.small ? 32 : 42;
-        ctx.font = font(muted ? '500' : '650', options && options.small ? 12 : 13);
+        const small = options && options.small;
+        const fontSize = small ? 12 : 13;
+        const lineHeight = small ? 15 : 17;
+        const meterHeight = small ? 5 : 7;
+        const valueWidth = Math.min(380, Math.max(150, w * .44));
+        const labelWidth = Math.max(100, w - indent - valueWidth - 20);
+        ctx.font = font(muted ? '500' : '650', fontSize);
+        const labelLines = wrapCanvasLines(label, labelWidth);
+        const valueLines = wrapCanvasLines(valueText, valueWidth);
+        const lineCount = Math.max(labelLines.length, valueLines.length);
         ctx.fillStyle = muted ? theme.colors.muted : theme.colors.text;
-        ctx.fillText(fit(label, w - 150 - indent), x + indent, y);
+        labelLines.forEach(function (line, index) { ctx.fillText(line, x + indent, y + index * lineHeight); });
         ctx.textAlign = 'right';
         ctx.fillStyle = theme.colors.text;
-        ctx.fillText(fit(valueText, 140), x + w, y);
+        valueLines.forEach(function (line, index) { ctx.fillText(line, x + w, y + index * lineHeight); });
         ctx.textAlign = 'left';
-        if (options && options.noMeter) return rowH;
-        const barY = y + (options && options.small ? 9 : 12);
-        roundRect(x + indent, barY, w - indent, options && options.small ? 5 : 7, 4, theme.colors.panel2, '');
+        const textHeight = lineCount * lineHeight;
+        if (options && options.noMeter) return textHeight + 8;
+        const barY = y + textHeight + 3;
+        roundRect(x + indent, barY, w - indent, meterHeight, meterHeight / 2, theme.colors.panel2, '');
         const proportionalWidth = Math.min(w - indent, (w - indent) * value / Math.max(1, max));
-        const fillWidth = value > 0 ? Math.max(2, proportionalWidth) : 0;
-        if (fillWidth > 0) roundRect(x + indent, barY, fillWidth, options && options.small ? 5 : 7, 4, color, '');
-        return rowH;
+        drawMeterFill(x + indent, barY, value > 0 ? proportionalWidth : 0, meterHeight, color);
+        return textHeight + meterHeight + lineHeight + 3;
       }
 
       function taskText(x, y, w, label, value) {
         ctx.font = font('650', 13);
         ctx.fillStyle = theme.colors.text;
-        ctx.fillText(fit(label, w), x, y);
+        const labelLines = wrapCanvasLines(label, w);
+        labelLines.forEach(function (line, index) { ctx.fillText(line, x, y + index * 17); });
         ctx.font = font('500', 12);
         ctx.fillStyle = theme.colors.muted;
-        ctx.fillText(fit(value, w), x, y + 18);
-        return 44;
+        const valueLines = wrapCanvasLines(value, w);
+        const valueY = y + labelLines.length * 17 + 2;
+        valueLines.forEach(function (line, index) { ctx.fillText(line, x, valueY + index * 16); });
+        return labelLines.length * 17 + valueLines.length * 16 + 12;
       }
 
-      ctx.fillStyle = theme.colors.panel;
-      ctx.fillRect(0, 0, width, height);
-      ctx.font = font('750', 22);
-      ctx.fillStyle = theme.colors.text;
-      ctx.fillText('Usage breakdown', margin, 42);
-      ctx.font = font('500', 13);
-      ctx.fillStyle = theme.colors.muted;
-      ctx.fillText('PNG export rendered directly from report data', margin, 64);
-      const panelY = 78;
+      const panelY = margin;
       const modelX = margin;
       const sideX = margin + mainWidth + gap;
-      roundRect(modelX, panelY, mainWidth, panelHeight, 8, theme.colors.bg, theme.colors.line);
-      roundRect(sideX, panelY, sideWidth, surfaceHeight, 8, theme.colors.bg, theme.colors.line);
-      roundRect(sideX, panelY + surfaceHeight + gap, sideWidth, taskHeight, 8, theme.colors.bg, theme.colors.line);
       let y = panelY + 34;
       title(modelX + 16, y, 'Models');
       y += 34;
       const totalModelTokens = Math.max(1, models.reduce(function (sum, row) { return sum + row.localTokens; }, 0));
-      models.forEach(function (row) {
+      models.forEach(function (row, modelIndex) {
+        if (modelIndex > 0) {
+          y += 8;
+          separator(modelX + 16, y, mainWidth - 32);
+          y += 22;
+        }
         const color = modelColor(row.model);
         const value = row.localTokens || row.turns || row.credits;
         const valueText = modelValueText(row);
@@ -1926,7 +1980,9 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
       function drawOverallRows(titleText, rows, colorKind) {
         if (!rows.length) return;
-        y += 4;
+        y += 8;
+        separator(modelX + 16, y, mainWidth - 32);
+        y += 18;
         section(modelX + 16, y, titleText);
         y += 22;
         const total = rows.reduce(function (sum, row) { return sum + row.totalTokens; }, 0) || 1;
@@ -1940,14 +1996,18 @@ export function renderReportHtml(dataset: UsageDataset): string {
       drawOverallRows('Overall mode mix', overall.modeRows, 'mode');
 
       function drawCompositionStack(titleText, rows) {
-        y += 4;
+        y += 8;
+        separator(modelX + 16, y, mainWidth - 32);
+        y += 18;
         section(modelX + 16, y, titleText);
         y += 18;
         const total = rows.reduce(function (sum, row) { return sum + row.tokens; }, 0);
         const denominator = total || 1;
         const stackX = modelX + 16;
         const stackWidth = mainWidth - 32;
+        ctx.save();
         roundRect(stackX, y, stackWidth, 14, 7, theme.colors.panel2, '');
+        ctx.clip();
         let offset = 0;
         rows.forEach(function (row) {
           const width = stackWidth * row.tokens / denominator;
@@ -1957,6 +2017,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
           }
           offset += width;
         });
+        ctx.restore();
         y += 30;
         rows.forEach(function (row) {
           ctx.fillStyle = row.color;
@@ -1986,48 +2047,66 @@ export function renderReportHtml(dataset: UsageDataset): string {
         { label: 'Reasoning output', tokens: composition.reasoningOutput, color: compositionColor('reasoning') }
       ]);
 
-      y = panelY + 34;
-      title(sideX + 16, y, 'Surfaces');
-      y += 34;
+      const modelContentBottom = y + 20;
+      let sideY = panelY + 34;
+      title(sideX + 16, sideY, 'Surfaces');
+      sideY += 34;
       const totalSurfaceTokens = surfaces.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0) || 1;
       surfaces.forEach(function (row) {
         const valueText = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : percent(row.percent)) + ' - ' + compact(row.turns) + ' turns';
-        y += barRow(sideX + 16, y, sideWidth - 32, row.surface, valueText, row.textTotalTokens, totalSurfaceTokens, surfaceColor(row.surface), { noMeter: !row.textTotalTokens });
+        sideY += barRow(sideX + 16, sideY, sideWidth - 32, row.surface, valueText, row.textTotalTokens, totalSurfaceTokens, surfaceColor(row.surface), { noMeter: !row.textTotalTokens });
       });
-      y = panelY + surfaceHeight + gap + 34;
-      title(sideX + 16, y, 'Cloud tasks (current snapshot)');
-      y += 34;
+      const surfaceBottom = Math.max(panelY + 150, sideY + 18);
+      const taskPanelY = surfaceBottom + gap;
+      sideY = taskPanelY + 34;
+      title(sideX + 16, sideY, 'Cloud tasks (current snapshot)');
+      sideY += 34;
       if (!tasks) {
         ctx.font = font('500', 13);
         ctx.fillStyle = theme.colors.muted;
-        ctx.fillText('No task list response was available', sideX + 16, y);
+        ctx.fillText('No task list response was available', sideX + 16, sideY);
+        sideY += 28;
       } else {
         const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
         const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
         const archived = tasks.archivedCount == null ? 'not fetched' : compact(tasks.archivedCount) + (tasks.archivedHasMore ? '+' : '');
-        y += taskText(sideX + 16, y, sideWidth - 32, 'Current tasks', compact(tasks.currentCount) + ' current - ' + archived + ' archived samples');
-        y += taskText(sideX + 16, y, sideWidth - 32, 'Pull requests', compact(pr.total) + ' total, ' + compact(pr.merged) + ' merged, ' + compact(pr.open) + ' open');
-        y += taskText(sideX + 16, y, sideWidth - 32, 'Diff sample', '+' + compact(diff.linesAdded) + ' / -' + compact(diff.linesRemoved) + ' across ' + compact(diff.filesModified) + ' files');
+        sideY += taskText(sideX + 16, sideY, sideWidth - 32, 'Current tasks', compact(tasks.currentCount) + ' current - ' + archived + ' archived samples');
+        sideY += taskText(sideX + 16, sideY, sideWidth - 32, 'Pull requests', compact(pr.total) + ' total, ' + compact(pr.merged) + ' merged, ' + compact(pr.open) + ' open');
+        sideY += taskText(sideX + 16, sideY, sideWidth - 32, 'Diff sample', '+' + compact(diff.linesAdded) + ' / -' + compact(diff.linesRemoved) + ' across ' + compact(diff.filesModified) + ' files');
         const environments = tasks.currentByEnvironment || [];
         if (!environments.length) {
-          y += taskText(sideX + 16, y, sideWidth - 32, 'Environments', 'none');
+          sideY += taskText(sideX + 16, sideY, sideWidth - 32, 'Environments', 'none');
         } else {
           environments.forEach(function (environment, index) {
-            y += taskText(sideX + 16, y, sideWidth - 32, index === 0 ? 'Environments' : '', environment.environment + ' (' + compact(environment.count) + ')');
+            sideY += taskText(sideX + 16, sideY, sideWidth - 32, index === 0 ? 'Environments' : '', environment.environment + ' (' + compact(environment.count) + ')');
           });
         }
         const recent = (tasks.recent || []).slice(0, 8);
 
         if (recent.length) {
-          y += 8;
-          section(sideX + 16, y, 'Recent tasks');
-          y += 24;
+          sideY += 8;
+          separator(sideX + 16, sideY, sideWidth - 32);
+          sideY += 18;
+          section(sideX + 16, sideY, 'Recent tasks');
+          sideY += 24;
           recent.forEach(function (task) {
-            y += taskText(sideX + 16, y, sideWidth - 32, task.title, task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : ''));
+            sideY += taskText(sideX + 16, sideY, sideWidth - 32, task.title, task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : ''));
           });
         }
       }
 
+      const taskBottom = Math.max(taskPanelY + 180, sideY + 18);
+      const contentBottom = Math.max(modelContentBottom, taskBottom);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = contentBottom + margin;
+      ctx = canvas.getContext('2d');
+      ctx.fillStyle = theme.colors.panel;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      roundRect(modelX, panelY, mainWidth, modelContentBottom - panelY, 8, theme.colors.bg, theme.colors.line);
+      roundRect(sideX, panelY, sideWidth, surfaceBottom - panelY, 8, theme.colors.bg, theme.colors.line);
+      roundRect(sideX, taskPanelY, sideWidth, taskBottom - taskPanelY, 8, theme.colors.bg, theme.colors.line);
+      ctx.drawImage(layer, 0, 0);
       return canvas;
     }
 

@@ -210,6 +210,17 @@ test("roiCurveSegments keeps payment-only ROI points and leaves gaps where spend
   ).toEqual([["2026-05"], ["2026-07"]]);
 });
 
+test("chart label sampling anchors both edges without crowding the final tick", () => {
+  const sampleLabelIndexes = new Function(
+    `${reportRuntimeSource()}\nreturn typeof __codexReportRuntime.sampleLabelIndexes === "function" ? __codexReportRuntime.sampleLabelIndexes : null;`,
+  )() as ((itemCount: number, maxLabels: number) => number[]) | null;
+
+  expect(sampleLabelIndexes).not.toBeNull();
+  expect(sampleLabelIndexes?.(30, 8)).toEqual([0, 4, 8, 12, 16, 20, 24, 29]);
+  expect(sampleLabelIndexes?.(7, 8)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  expect(sampleLabelIndexes?.(0, 8)).toEqual([]);
+});
+
 test("reportRuntimeSource evaluates the exact exported helpers", () => {
   const runtime = new Function(
     `${reportRuntimeSource()}\nreturn { rangeForPreset, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments };`,

@@ -4,7 +4,7 @@ import type { UsageDataset } from "./types";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { renderCapabilitiesPieSvg, renderChartSvg, renderHeatmapSvg } from "./render";
+import { renderCapabilitiesPieSvg, renderChartSvg, renderHeatmapSvg, renderRoiSvg } from "./render";
 import { renderReportHtml } from "./report-html";
 import { ensureDir } from "./util";
 
@@ -32,15 +32,15 @@ export async function writeOutputs(
   files.push(dataPath);
   options.progress?.step("Generated JSON data");
 
-  const csvPath = join(outDir, "cost-estimate.csv");
-  writeFileSync(csvPath, costCsv(dataset), "utf8");
-  files.push(csvPath);
-  options.progress?.step("Generated CSV estimate");
-
   const htmlPath = join(outDir, "usage-report.html");
   writeFileSync(htmlPath, renderReportHtml(dataset), "utf8");
   files.push(htmlPath);
   options.progress?.step("Generated HTML report");
+
+  const csvPath = join(outDir, "cost-estimate.csv");
+  writeFileSync(csvPath, costCsv(dataset), "utf8");
+  files.push(csvPath);
+  options.progress?.step("Generated CSV estimate");
 
   const svgOutputs: SvgOutput[] = [];
 
@@ -62,23 +62,7 @@ export async function writeOutputs(
         plannedSvg,
       );
 
-      const chart = renderChartSvg(dataset, mode);
-      const chartPath = join(outDir, `chart-${mode}.svg`);
-      writeFileSync(chartPath, chart, "utf8");
-      files.push(chartPath);
-      svgOutputs.push({ path: chartPath, svg: chart });
-      svgIndex += 1;
-      options.progress?.statusProgress(
-        `Generating SVG ${svgIndex}/${plannedSvg}`,
-        svgIndex,
-        plannedSvg,
-      );
-
       for (const style of ["bar", "area"] as const) {
-        if (style === "bar" && mode === "cumulative") {
-          continue;
-        }
-
         const styledChart = renderChartSvg(dataset, mode, style);
         const styledPath = join(outDir, `${style}-${mode}.svg`);
         writeFileSync(styledPath, styledChart, "utf8");
@@ -92,6 +76,18 @@ export async function writeOutputs(
         );
       }
     }
+
+    const roi = renderRoiSvg(dataset);
+    const roiPath = join(outDir, "roi.svg");
+    writeFileSync(roiPath, roi, "utf8");
+    files.push(roiPath);
+    svgOutputs.push({ path: roiPath, svg: roi });
+    svgIndex += 1;
+    options.progress?.statusProgress(
+      `Generating SVG ${svgIndex}/${plannedSvg}`,
+      svgIndex,
+      plannedSvg,
+    );
 
     const capabilitiesPie = renderCapabilitiesPieSvg(dataset);
     const capabilitiesPiePath = join(outDir, "skills-plugins-pie.svg");
@@ -163,7 +159,7 @@ export function outputProgressWeights(options: {
 }
 
 function svgOutputCount(): number {
-  return 12;
+  return 11;
 }
 
 async function tryWritePng(

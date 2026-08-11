@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-tool",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "description": "Generate self-contained Codex usage reports from local .codex files and dashboard APIs",
   "homepage": "https://github.com/EDM115/codex-usage-tool#readme",
@@ -36,7 +36,6 @@
   "scripts": {
     "demo": "bun scripts/generate-demo.ts",
     "demo:report": "bun scripts/generate-demo.ts --report",
-    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "usage": "bun src/cli.ts"
   },

@@ -72,6 +72,25 @@ export function rangeForPreset(
   return { from: formatUtcDay(addUtcDays(parseUtcDay(newestCodex), -(days - 1))), to: newestCodex };
 }
 
+export function sampleLabelIndexes(itemCount: number, maxLabels: number): number[] {
+  const count = Math.max(0, Math.floor(itemCount));
+  const limit = Math.max(1, Math.floor(maxLabels));
+  if (count === 0) {
+    return [];
+  }
+  if (count <= limit) {
+    return Array.from({ length: count }, (_, index) => index);
+  }
+  if (limit === 1) {
+    return [count - 1];
+  }
+
+  const lastIndex = count - 1;
+  return Array.from({ length: limit }, (_, index) =>
+    index === limit - 1 ? lastIndex : Math.floor((index * lastIndex) / (limit - 1)),
+  );
+}
+
 export function summarizeTokenComposition(days: DailyUsage[]): TokenComposition {
   let input = 0;
   let output = 0;
@@ -203,11 +222,12 @@ export function reportRuntimeSource(): string {
     roiColorFor,
     roiPercentages,
     rangeForPreset,
+    sampleLabelIndexes,
     summarizeTokenComposition,
     buildRoiMetrics,
     roiCurveSegments,
   ];
-  return `const __codexReportRuntime = (() => {\n${functions.map((fn) => fn.toString()).join("\n")}\nreturn { rangeForPreset, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments };\n})();\nconst { rangeForPreset, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments } = __codexReportRuntime;`;
+  return `const __codexReportRuntime = (() => {\n${functions.map((fn) => fn.toString()).join("\n")}\nreturn { rangeForPreset, sampleLabelIndexes, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments };\n})();\nconst { rangeForPreset, sampleLabelIndexes, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments } = __codexReportRuntime;`;
 }
 
 function isIsoDay(value: string): boolean {

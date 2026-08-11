@@ -284,7 +284,7 @@ async function writeDataset(
   }
 
   console.log(
-    `Total tokens : ${compactNumber(dataset.summary.lifetimeTokens)}, local enriched : ${compactNumber(dataset.summary.localKnownTokens)}, estimated cost : ${money(dataset.summary.estimatedCostUsd)}`,
+    `Total tokens : ${compactNumber(dataset.summary.lifetimeTokens)}, local enriched : ${compactNumber(dataset.summary.localKnownTokens)}, estimated cost : ${money(dataset.summary.estimatedCostUsd)}, estimated cache savings : ${money(dataset.summary.cacheSavingsUsd)}`,
   );
 
   if (!options.silent) {

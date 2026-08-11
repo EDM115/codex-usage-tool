@@ -346,12 +346,16 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
     "usage-report.html",
     "heatmap-daily.svg",
     "heatmap-daily.png",
-    "chart-daily.svg",
-    "chart-daily.png",
+    "bar-daily.svg",
+    "bar-daily.png",
+    "area-daily.svg",
+    "area-daily.png",
+    "roi.svg",
+    "roi.png",
     "skills-plugins-pie.svg",
     "skills-plugins-pie.png",
   ]) {
-    expect(existsSync(join(outDir, file))).toBe(true);
+    expect(existsSync(join(outDir, file)), file).toBe(true);
   }
 
   const rebuilt = JSON.parse(readFileSync(join(outDir, "usage-data.json"), "utf8")) as UsageDataset;
@@ -387,9 +391,9 @@ test("writeOutputs writes the HTML report before generating image artifacts", as
 
   expect(steps).toEqual([
     "Generated JSON data",
-    "Generated CSV estimate",
     "Generated HTML report",
-    "Generated 12 SVG",
+    "Generated CSV estimate",
+    "Generated 11 SVG",
   ]);
 });
 

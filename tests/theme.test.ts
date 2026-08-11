@@ -6,9 +6,10 @@ import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 
 import { buildDataset } from "../src/aggregate";
+import { emptyPaymentHistory } from "../src/payments";
 import { parseArgs } from "../src/cli";
 import { loadPricing } from "../src/pricing";
-import { renderChartSvg, renderHeatmapSvg } from "../src/render";
+import { renderChartSvg, renderHeatmapSvg, renderRoiSvg } from "../src/render";
 import {
   BUILTIN_CODEX_THEMES,
   EDM115_THEME,
@@ -150,4 +151,99 @@ test("batch SVG renderers use the CLI-selected dataset theme", async () => {
     expect(svg).toContain(resolution.theme.colors.text);
     expect(svg).toContain(resolution.theme.colors.accent);
   }
+});
+
+test("batch heatmap and trend exports align partial weeks and retain compact axis context", async () => {
+  const pricing = await loadPricing({ source: "bundled" });
+  const dates = Array.from({ length: 30 }, (_, index) =>
+    new Date(Date.UTC(2026, 5, 27 + index)).toISOString().slice(0, 10),
+  );
+  const dataset = buildDataset({
+    profileResult: { fetched: false, error: "offline" },
+    events: dates.map((date, index) => ({
+      eventId: `event-${index}`,
+      homePath: "home",
+      homeLabel: "home",
+      rolloutPath: `home/${date}.jsonl`,
+      threadId: `thread-${index}`,
+      timestamp: `${date}T08:00:00.000Z`,
+      date,
+      model: "gpt-5.5",
+      breakdown: {
+        inputTokens: 90 + index,
+        cachedInputTokens: 20,
+        outputTokens: 10,
+        reasoningOutputTokens: 2,
+        totalTokens: 100 + index,
+      },
+    })),
+    codexHomes: [{ path: "home", label: "home" }],
+    sourceMode: "local",
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    localStats: { rolloutFiles: dates.length, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
+    pricing,
+    estimateModel: "gpt-5.5",
+    ...resolveUsageThemes([]),
+  });
+
+  const heatmap = renderHeatmapSvg(dataset, "daily");
+  expect(heatmap).toContain('height="204"');
+  expect(heatmap).toContain('<rect x="42" y="34"');
+  expect(heatmap).toContain(">Less</text>");
+  expect(heatmap).toContain(">More</text>");
+  expect(heatmap).not.toContain("Profile totals are authoritative");
+
+  const chart = renderChartSvg(dataset, "daily", "bar");
+  expect(chart).toContain(">2026-07-01</text>");
+  expect(chart).not.toContain(">2026-07-25</text>");
+  expect(chart).toContain(">2026-07-26</text>");
+});
+
+test("batch ROI export includes payment-only months and its own legend", async () => {
+  const pricing = await loadPricing({ source: "bundled" });
+  const payments = emptyPaymentHistory();
+  payments.complete = true;
+  payments.overrides = { "2026-06": 24, "2026-07": 100 };
+  payments.sources = [{ kind: "json", label: "payments.json", status: "complete" }];
+  const dataset = buildDataset({
+    profileResult: { fetched: false, error: "offline" },
+    events: [
+      {
+        eventId: "event-july",
+        homePath: "home",
+        homeLabel: "home",
+        rolloutPath: "home/2026-07-10.jsonl",
+        threadId: "thread-july",
+        timestamp: "2026-07-10T08:00:00.000Z",
+        date: "2026-07-10",
+        model: "gpt-5.5",
+        breakdown: {
+          inputTokens: 900_000,
+          cachedInputTokens: 200_000,
+          outputTokens: 100_000,
+          reasoningOutputTokens: 20_000,
+          totalTokens: 1_000_000,
+        },
+      },
+    ],
+    codexHomes: [{ path: "home", label: "home" }],
+    sourceMode: "local",
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    localStats: { rolloutFiles: 1, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
+    pricing,
+    estimateModel: "gpt-5.5",
+    payments,
+    ...resolveUsageThemes([]),
+  });
+
+  const roi = renderRoiSvg(dataset);
+  expect(roi).toContain(">2026-06</text>");
+  expect(roi).toContain(">2026-07</text>");
+  expect(roi).toContain("Amount paid");
+  expect(roi).toContain("Estimated API value");
+  expect(roi).toContain("Conventional ROI");
 });

@@ -1,6 +1,13 @@
 import type { DailyUsage, UsageDataset, UsageTheme } from "./types";
 
-import { compactNumber, escapeHtml, money, pluralize } from "./util";
+import { paymentMonthTotals } from "./payments";
+import {
+  buildRoiMetrics,
+  roiCurveSegments,
+  sampleLabelIndexes,
+  type RoiMonthMetrics,
+} from "./report-runtime";
+import { compactNumber, escapeHtml, money } from "./util";
 
 export function renderCapabilitiesPieSvg(dataset: UsageDataset): string {
   const theme = dataset.theme;
@@ -146,17 +153,17 @@ export function renderHeatmapSvg(
   const left = 42;
   const values = valueMap(dataset.daily, mode);
   const max = Math.max(1, ...values.map((day) => day.value));
-  const weeks = Math.ceil(dataset.daily.length / 7);
-  const width = Math.max(820, left + weeks * (cell + gap) + 34);
-  const footerY = top + 7 * (cell + gap) + 32;
-  const height = footerY + 70;
+  const columns = Math.max(1, Math.ceil(values.length / 7));
+  const width = Math.max(820, left + columns * (cell + gap) + 34);
+  const gridHeight = 7 * cell + 6 * gap;
+  const legendY = top + gridHeight + 16;
+  const height = legendY + 32;
   const rects = values
     .map((day, index) => {
-      const date = new Date(`${day.date}T00:00:00Z`);
-      const weekday = date.getUTCDay();
+      const row = index % 7;
       const col = Math.floor(index / 7);
       const x = left + col * (cell + gap);
-      const y = top + weekday * (cell + gap);
+      const y = top + row * (cell + gap);
       const fill = colorFor(day.value, max, colors);
 
       return `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="3" fill="${fill}">
@@ -164,7 +171,6 @@ export function renderHeatmapSvg(
     </rect>`;
     })
     .join("\n");
-  const sourceText = `Profile totals are authoritative when available. Local rollout detail comes from ${dataset.codexHomes.length} .codex ${pluralize("source", dataset.codexHomes.length)}. Theme : ${theme.name}.`;
 
   return svgWrap(
     width,
@@ -173,8 +179,7 @@ export function renderHeatmapSvg(
     `
     <text x="${left}" y="22" class="title">Codex token activity - ${mode}</text>
     ${rects}
-    ${textLines(sourceText, left, footerY, Math.max(48, Math.floor((width - left - 250) / 6.2)), "muted")}
-    ${legend(width - 190, footerY - 12, colors)}
+    ${legend(width - 190, legendY, colors)}
   `,
   );
 }
@@ -238,6 +243,14 @@ export function renderChartSvg(
           })
           .join("\n")
       : renderArea(points, pad.top + chartH, theme);
+  const xLabelIndexes = new Set(sampleLabelIndexes(points.length, 8));
+  const xTicks = points
+    .filter((_, index) => xLabelIndexes.has(index))
+    .map(
+      (point) =>
+        `<text x="${point.x}" y="${height - 18}" text-anchor="middle" class="axis">${escapeHtml(point.label)}</text>`,
+    )
+    .join("\n");
 
   return svgWrap(
     width,
@@ -248,8 +261,143 @@ export function renderChartSvg(
     ${yTicks}
     ${body}
     <line x1="${pad.left}" x2="${width - pad.right}" y1="${pad.top + chartH}" y2="${pad.top + chartH}" class="axis-line"/>
-    <text x="${pad.left}" y="${height - 18}" class="muted">${escapeHtml(series[0]?.label ?? "")}</text>
-    <text x="${width - pad.right}" y="${height - 18}" text-anchor="end" class="muted">${escapeHtml(series.at(-1)?.label ?? "")}</text>
+    ${xTicks}
+  `,
+  );
+}
+
+export function renderRoiSvg(dataset: UsageDataset): string {
+  const theme = dataset.theme;
+  const payments = paymentMonthTotals(dataset.payments);
+  const usageDates = dataset.daily.map((day) => day.date).sort();
+  const paymentMonths = Object.keys(payments).sort();
+  const from = [usageDates[0], paymentMonths[0] ? `${paymentMonths[0]}-01` : undefined]
+    .filter((value): value is string => Boolean(value))
+    .sort()[0];
+  const to = [usageDates.at(-1), paymentMonths.at(-1) ? monthEnd(paymentMonths.at(-1)!) : undefined]
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1);
+  const width = 920;
+  const height = 390;
+
+  if (!from || !to) {
+    return svgWrap(
+      width,
+      height,
+      theme,
+      `<text x="42" y="28" class="title">Return on investment</text><text x="${width / 2}" y="${height / 2}" text-anchor="middle" class="muted">No usage or payment history to chart</text>`,
+    );
+  }
+
+  const metrics = buildRoiMetrics(dataset.daily, payments, from, to);
+  const months = metrics.monthly;
+  const evidenceMonths = new Set([
+    ...dataset.daily.map((day) => day.date.slice(0, 7)),
+    ...paymentMonths,
+  ]);
+  const pad = { left: 78, right: 78, top: 42, bottom: 80 };
+  const chartW = width - pad.left - pad.right;
+  const chartH = height - pad.top - pad.bottom;
+  const maximum = Math.max(1, ...months.flatMap((month) => [month.amountPaid, month.estimatedApiValue]));
+  const roiValues = months
+    .map((month) => month.conventionalRoiPercent)
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  let roiMinimum = Math.min(0, ...roiValues);
+  let roiMaximum = Math.max(0, ...roiValues);
+
+  if (roiMinimum === roiMaximum) {
+    roiMinimum -= 1;
+    roiMaximum += 1;
+  }
+
+  const xFor = (index: number) =>
+    months.length <= 1 ? pad.left + chartW / 2 : pad.left + (index / (months.length - 1)) * chartW;
+  const moneyYFor = (value: number) => pad.top + chartH - (value / maximum) * chartH;
+  const roiYFor = (value: number) =>
+    pad.top + chartH - ((value - roiMinimum) / (roiMaximum - roiMinimum)) * chartH;
+  const pointsFor = (key: "amountPaid" | "estimatedApiValue") =>
+    months.map((month, index) => ({ x: xFor(index), y: moneyYFor(month[key]), month }));
+  const evidenceSegments = (points: Array<{ x: number; y: number; month: RoiMonthMetrics }>) => {
+    const segments: Array<Array<{ x: number; y: number; month: RoiMonthMetrics }>> = [];
+    let current: Array<{ x: number; y: number; month: RoiMonthMetrics }> = [];
+
+    for (const point of points) {
+      if (!evidenceMonths.has(point.month.month)) {
+        if (current.length) segments.push(current);
+        current = [];
+      } else {
+        current.push(point);
+      }
+    }
+
+    if (current.length) segments.push(current);
+    return segments;
+  };
+  const spendPoints = pointsFor("amountPaid");
+  const valuePoints = pointsFor("estimatedApiValue");
+  const monthIndexes = new Map(months.map((month, index) => [month.month, index]));
+  const roiSegments = roiCurveSegments(months).flatMap((segment) =>
+    evidenceSegments(
+      segment.map((month) => ({
+        x: xFor(monthIndexes.get(month.month)!),
+        y: roiYFor(month.conventionalRoiPercent!),
+        month,
+      })),
+    ),
+  );
+  const grid = [0, 0.25, 0.5, 0.75, 1]
+    .map((fraction) => {
+      const y = pad.top + chartH - fraction * chartH;
+      const roiTick = roiMinimum + (roiMaximum - roiMinimum) * fraction;
+      return `<line x1="${pad.left}" x2="${width - pad.right}" y1="${y}" y2="${y}" class="grid"/><text x="${pad.left - 10}" y="${y + 4}" text-anchor="end" class="axis">${escapeHtml(money(maximum * fraction))}</text><text x="${width - pad.right + 10}" y="${y + 4}" class="roi-axis">${escapeHtml(signedPercent(roiTick))}</text>`;
+    })
+    .join("\n");
+  const roiPaths = roiSegments
+    .map((segment) => `<path class="roi-percent-line" d="M ${segment[0].x} ${segment[0].y}${smoothCurveCommands(segment)}"/>`)
+    .join("\n");
+  const spendPaths = evidenceSegments(spendPoints)
+    .map((segment) => `<path class="roi-spend-line" d="M ${segment[0].x} ${segment[0].y}${smoothCurveCommands(segment)}"/>`)
+    .join("\n");
+  const valuePaths = evidenceSegments(valuePoints)
+    .map((segment) => `<path class="roi-value-line" d="M ${segment[0].x} ${segment[0].y}${smoothCurveCommands(segment)}"/>`)
+    .join("\n");
+  const labelIndexes = new Set(sampleLabelIndexes(months.length, 8));
+  const pointsAndLabels = months
+    .map((month, index) => {
+      const x = xFor(index);
+      const label = labelIndexes.has(index) ? `<text x="${x}" y="${height - 50}" text-anchor="middle" class="axis">${escapeHtml(month.month)}</text>` : "";
+
+      if (!evidenceMonths.has(month.month)) return label;
+
+      const roiDot = month.conventionalRoiPercent === null ? "" : `<circle class="roi-percent-dot" cx="${x}" cy="${roiYFor(month.conventionalRoiPercent)}" r="4"/>`;
+      return `${roiDot}<circle class="roi-spend-dot" cx="${x}" cy="${moneyYFor(month.amountPaid)}" r="4"/><circle class="roi-value-dot" cx="${x}" cy="${moneyYFor(month.estimatedApiValue)}" r="4"/>${label}`;
+    })
+    .join("\n");
+
+  return svgWrap(
+    width,
+    height,
+    theme,
+    `
+    <text x="${pad.left}" y="26" class="title">Return on investment</text>
+    ${grid}
+    ${roiPaths}
+    ${spendPaths}
+    ${valuePaths}
+    ${pointsAndLabels}
+    ${roiLegend(pad.left, height - 20)}
+  `,
+    `
+    .roi-spend-line, .roi-value-line, .roi-percent-line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+    .roi-spend-line { stroke: #ff5555; }
+    .roi-value-line { stroke: #50fa7b; }
+    .roi-percent-line { stroke: #f1fa8c; stroke-opacity: .55; }
+    .roi-spend-dot { fill: #ff5555; }
+    .roi-value-dot { fill: #50fa7b; }
+    .roi-percent-dot { fill: #f1fa8c; fill-opacity: .55; }
+    .roi-axis { fill: #f1fa8c; font-size: 11px; }
+    .roi-legend { fill: ${theme.colors.muted}; font-size: 12px; }
   `,
   );
 }
@@ -358,37 +506,30 @@ function legend(x: number, y: number, colors: string[]): string {
   );
 }
 
-function textLines(
-  text: string,
-  x: number,
-  y: number,
-  maxChars: number,
-  className: string,
-): string {
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let current = "";
+function roiLegend(x: number, y: number): string {
+  const entries = [
+    { color: "#ff5555", label: "Amount paid", opacity: 1 },
+    { color: "#50fa7b", label: "Estimated API value", opacity: 1 },
+    { color: "#f1fa8c", label: "Conventional ROI", opacity: 0.55 },
+  ];
+  let offset = x;
 
-  for (const word of words) {
-    if (`${current} ${word}`.trim().length > maxChars && current) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = `${current} ${word}`.trim();
-    }
-  }
-
-  if (current) {
-    lines.push(current);
-  }
-
-  return lines
-    .slice(0, 3)
-    .map(
-      (line, index) =>
-        `<text x="${x}" y="${y + index * 16}" class="${className}">${escapeHtml(line)}</text>`,
-    )
+  return entries
+    .map((entry) => {
+      const item = `<line x1="${offset}" x2="${offset + 18}" y1="${y - 4}" y2="${y - 4}" stroke="${entry.color}" stroke-opacity="${entry.opacity}" stroke-width="3" stroke-linecap="round"/><text x="${offset + 25}" y="${y}" class="roi-legend">${entry.label}</text>`;
+      offset += entry.label.length * 7 + 58;
+      return item;
+    })
     .join("\n");
+}
+
+function monthEnd(month: string): string {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+}
+
+function signedPercent(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(0)}%`;
 }
 
 function svgWrap(
