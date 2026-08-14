@@ -392,7 +392,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       <div class="section-head">
         <div class="section-title">
           <h2>Daily intensity</h2>
-          <p class="section-copy">Hover a day to inspect total tokens, local attribution, backend-only estimate, and cost</p>
+          <p class="section-copy">Hover a day to inspect total tokens, local attribution, backend-only estimate and cost</p>
         </div>
         <div class="section-actions">${downloadMenu("heatmap")}</div>
       </div>
@@ -404,7 +404,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       <div class="section-head">
         <div class="section-title">
           <h2>Usage trend</h2>
-          <p class="section-copy">Switch between daily, weekly, and cumulative views. Hover bars or points for token and cost detail.</p>
+          <p class="section-copy">Switch between daily, weekly and cumulative views, hover bars or points for token and cost detail</p>
         </div>
         <div class="section-actions">${downloadMenu("chart")}</div>
       </div>
@@ -419,8 +419,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
         </div>
         <div class="section-actions">${downloadMenu("roi")}</div>
       </div>
-      <p id="roiUnavailable" class="roi-message warning" hidden>Payment history unavailable. Provide --payments-json or generate with live payment API access.</p>
-      <p id="roiPartial" class="roi-message warning" hidden>Payment history is partial; known values may be incomplete.</p>
+      <p id="roiUnavailable" class="roi-message warning" hidden>Payment history unavailable, provide --payments-json or generate with live payment API access</p>
+      <p id="roiPartial" class="roi-message warning" hidden>Payment history is partial, known values may be incomplete</p>
       <div id="roiContent">
         <div class="roi-stats">
           <div class="roi-stat"><strong id="roiPaid">—</strong><span>Amount paid</span></div>
@@ -455,8 +455,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
         <div><strong>Prompt cache :</strong> ${compactNumber(dataset.summary.cachedInputTokens)} cached input tokens, ${money(dataset.summary.cacheSavingsUsd)} API-equivalent savings versus uncached input pricing</div>
       <div id="themeNote"><strong>Theme :</strong> <span id="themeNoteValue">${escapeHtml(dataset.themeChoice)} from ${escapeHtml(dataset.theme.source)}</span></div>
       <div><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.source)}${dataset.pricing.estimateModel ? ` using ${escapeHtml(dataset.pricing.estimateModel)} as the explicit missing-model override` : " using the historical primary model for each usage date"}</div>
-      ${dataset.local.coverage.status !== "complete" ? `<div class="warning"><strong>Local coverage warning :</strong> output is ${escapeHtml(dataset.local.coverage.status)}; local totals may be incomplete.</div>` : ""}
-      ${dataset.local.merge.legacyOverlaps > 0 ? `<div class="warning"><strong>Portable overlap warning :</strong> ${dataset.local.merge.legacyOverlaps} legacy aggregate ${pluralize("overlap", dataset.local.merge.legacyOverlaps)} could only be handled conservatively because event identities were unavailable.</div>` : ""}
+      ${dataset.local.coverage.status !== "complete" ? `<div class="warning"><strong>Local coverage warning :</strong> output is ${escapeHtml(dataset.local.coverage.status)}, local totals may be incomplete</div>` : ""}
+      ${dataset.local.merge.legacyOverlaps > 0 ? `<div class="warning"><strong>Portable overlap warning :</strong> ${dataset.local.merge.legacyOverlaps} legacy aggregate ${pluralize("overlap", dataset.local.merge.legacyOverlaps)} could only be handled conservatively because event identities were unavailable</div>` : ""}
       ${dataset.local.cache.readError ? `<div class="warning"><strong>Parser cache read :</strong> ${escapeHtml(dataset.local.cache.readError)}</div>` : ""}
       ${dataset.local.cache.writeError ? `<div class="warning"><strong>Parser cache write :</strong> ${escapeHtml(dataset.local.cache.writeError)}</div>` : ""}
       ${dataset.profile?.error ? `<div class="warning"><strong>Profile API :</strong> ${escapeHtml(dataset.profile.error)}</div>` : ""}
@@ -1041,14 +1041,14 @@ export function renderReportHtml(dataset: UsageDataset): string {
       roiPartial.hidden = !hasPaymentEvidence || !partial;
 
       if (!hasPaymentEvidence) {
-        roiUnavailable.textContent = 'Payment history unavailable. Provide --payments-json or generate with live payment API access.';
+        roiUnavailable.textContent = 'Payment history unavailable, provide --payments-json or generate with live payment API access';
         roiUnavailable.hidden = false;
         roiContent.hidden = true;
         roiChart.innerHTML = '';
         return;
       }
       if (!fromDateValue || !toDateValue) {
-        roiUnavailable.textContent = 'No usage dates are available for the ROI range.';
+        roiUnavailable.textContent = 'No usage dates are available for the ROI range';
         roiUnavailable.hidden = false;
         roiContent.hidden = true;
         roiChart.innerHTML = '';
@@ -1604,12 +1604,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
         { label: 'Output', tokens: composition.output, color: compositionColor('output') },
         { label: 'Unknown', tokens: composition.unknown, color: compositionColor('unknown'), detail: 'Backend-only : ' + compact(composition.backendOnly) + '\\nResidual local total : ' + compact(composition.localResidual) }
       ];
-      const inputWarning = composition.cacheCounterExcess ? '\\nCounter mismatch : cached input exceeds input by ' + compact(composition.cacheCounterExcess) + ' tokens; the displayed cached segment is clamped.' : '';
+      const inputWarning = composition.cacheCounterExcess ? '\\nCounter mismatch : cached input exceeds input by ' + compact(composition.cacheCounterExcess) + ' tokens, the displayed cached segment is clamped' : '';
       const inputRows = [
         { label: 'Cached input', tokens: composition.cachedInput, color: compositionColor('cached') },
         { label: 'Uncached input', tokens: composition.uncachedInput, color: compositionColor('uncached') }
       ];
-      const outputWarning = composition.reasoningCounterExcess ? '\\nCounter mismatch : reasoning output exceeds output by ' + compact(composition.reasoningCounterExcess) + ' tokens; the displayed reasoning segment is clamped.' : '';
+      const outputWarning = composition.reasoningCounterExcess ? '\\nCounter mismatch : reasoning output exceeds output by ' + compact(composition.reasoningCounterExcess) + ' tokens, the displayed reasoning segment is clamped' : '';
       const outputRows = [
         { label: 'Visible output', tokens: composition.visibleOutput, color: compositionColor('visible') },
         { label: 'Reasoning output', tokens: composition.reasoningOutput, color: compositionColor('reasoning') }
@@ -1674,7 +1674,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
         return '<div class="task-item" data-tip="'+escapeText(task.title + '\\n' + meta)+'"><div class="task-title">'+escapeText(task.title)+'</div><div class="task-meta">'+escapeText(meta)+'</div></div>';
       }).join('');
 
-      return '<div class="breakdown-panel"><h3>Cloud tasks (current snapshot)</h3><div class="rows"><div class="row" data-tip="Current task endpoint defaults to current tasks, limit is capped at 20. Archived tasks use task_filter=archived and may paginate."><div class="row-label">Current tasks</div><div class="row-value">'+compact(tasks.currentCount)+archived+'</div></div><div class="task-meta"><strong>Environments :</strong><div class="environment-list">'+envs+'</div></div><div class="task-meta">PRs : '+compact(pr.total)+' total, '+compact(pr.merged)+' merged, '+compact(pr.open)+' open<br>Diff : +'+compact(diff.linesAdded)+' / -'+compact(diff.linesRemoved)+' across '+compact(diff.filesModified)+' files</div></div><div class="task-list">'+recent+'</div></div>';
+      return '<div class="breakdown-panel"><h3>Cloud tasks (current snapshot)</h3><div class="rows"><div class="row" data-tip="Current task endpoint defaults to current tasks, limit is capped at 20, archived tasks use task_filter=archived and may paginate"><div class="row-label">Current tasks</div><div class="row-value">'+compact(tasks.currentCount)+archived+'</div></div><div class="task-meta"><strong>Environments :</strong><div class="environment-list">'+envs+'</div></div><div class="task-meta">PRs : '+compact(pr.total)+' total, '+compact(pr.merged)+' merged, '+compact(pr.open)+' open<br>Diff : +'+compact(diff.linesAdded)+' / -'+compact(diff.linesRemoved)+' across '+compact(diff.filesModified)+' files</div></div><div class="task-list">'+recent+'</div></div>';
     }
 
     function bindTip(el) {
@@ -2359,7 +2359,7 @@ function sourceSummary(dataset: UsageDataset): string {
 
   const sources = dataset.sources.map((source) => escapeHtml(source.label)).join(", ");
   const merge = dataset.local.merge;
-  return `${dataset.sources.length} ${pluralize("source", dataset.sources.length)} : ${sources}. Merge diagnostics : ${merge.duplicateEvents} duplicate ${pluralize("event", merge.duplicateEvents)}, ${merge.duplicateSources} duplicate ${pluralize("source", merge.duplicateSources)}, ${merge.legacyOverlaps} legacy ${pluralize("overlap", merge.legacyOverlaps)}`;
+  return `${dataset.sources.length} ${pluralize("source", dataset.sources.length)} : ${sources}, merge diagnostics : ${merge.duplicateEvents} duplicate ${pluralize("event", merge.duplicateEvents)}, ${merge.duplicateSources} duplicate ${pluralize("source", merge.duplicateSources)}, ${merge.legacyOverlaps} legacy ${pluralize("overlap", merge.legacyOverlaps)}`;
 }
 
 function coverageSummary(dataset: UsageDataset): string {
