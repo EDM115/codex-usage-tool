@@ -52,11 +52,19 @@ const OPENAI_MARKDOWN_TABLE_PRICING_FIXTURE = `
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | gpt-table-layout | $3.50 | $0.35 | $4.375 | $21.00 | $7.00 | $0.70 | $8.75 | $31.50 |
 
-### Priority pricing data
+### Fast pricing data
 
 | Model | Short context input | Short context cached input | Short context cache writes | Short context output |
 | --- | --- | --- | --- | --- |
 | gpt-table-layout | $14.00 | $1.40 | $17.50 | $84.00 |
+
+Cyber models
+
+### Grouped Pricing Table data
+
+| Model | Short context input | Short context cached input | Short context cache writes | Short context output | Long context input | Long context cached input | Long context cache writes | Long context output |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| gpt-5.6-cyber | $12.50 | $1.25 | $15.625 | $75.00 | - | - | - | - |
 `;
 
 const MODELS_DEV_FIXTURE = {
@@ -163,6 +171,57 @@ test("model defaults, aliases, and bundled prices change only on their effective
       "2026-07-30",
     ),
   ).toBeCloseTo(1.4);
+});
+
+test("the 2026-08-21 refresh preserves GPT-5.6 Sol history and adds Daybreak aliases", async () => {
+  const pricing = await loadPricing({ source: "bundled" });
+
+  expect(
+    estimate(
+      pricing,
+      "gpt-5.6-sol",
+      undefined,
+      ONE_MILLION_INPUT_AND_OUTPUT,
+      undefined,
+      "2026-08-20",
+    ),
+  ).toBeCloseTo(35);
+  expect(
+    estimate(
+      pricing,
+      "gpt-5.6-sol",
+      undefined,
+      ONE_MILLION_INPUT_AND_OUTPUT,
+      undefined,
+      "2026-08-21",
+    ),
+  ).toBeCloseTo(24);
+  expect(resolveModelAt(pricing.catalog, "daybreak-red-latest", "2026-08-21")).toBe(
+    "gpt-5.6-cyber",
+  );
+  expect(resolveModelAt(pricing.catalog, "daybreak-blue-latest", "2026-08-21")).toBe(
+    "gpt-5.6-sol",
+  );
+  expect(
+    estimate(
+      pricing,
+      "daybreak-red-latest",
+      undefined,
+      ONE_MILLION_INPUT_AND_OUTPUT,
+      undefined,
+      "2026-08-21",
+    ),
+  ).toBeCloseTo(87.5);
+  expect(
+    estimate(
+      pricing,
+      "daybreak-blue-latest",
+      undefined,
+      ONE_MILLION_INPUT_AND_OUTPUT,
+      undefined,
+      "2026-08-21",
+    ),
+  ).toBeCloseTo(24);
 });
 
 test("a changed live price starts on the fetch date without repricing earlier usage", async () => {
@@ -358,8 +417,8 @@ test("OpenAI standard and Priority prices override models.dev", async () => {
   expect(estimate(pricing, "gpt-5.5", "priority")).toBeCloseTo(87.5);
 });
 
-test("rendered OpenAI Markdown pricing tables are parsed with their explicit long-context rates", async () => {
-  const pricing = await loadFixture(OPENAI_MARKDOWN_TABLE_PRICING_FIXTURE);
+test("rendered OpenAI Markdown parses Fast and Cyber tables while accepting both tier names", async () => {
+  const pricing = await loadFixture(OPENAI_MARKDOWN_TABLE_PRICING_FIXTURE, "2026-08-21");
   const longRequest: TokenBreakdown = {
     totalTokens: 400_000,
     inputTokens: 300_000,
@@ -375,6 +434,8 @@ test("rendered OpenAI Markdown pricing tables are parsed with their explicit lon
   expect(estimate(pricing, "gpt-table-layout")).toBeCloseTo(49);
   expect(estimate(pricing, "gpt-table-layout", "batch")).toBeCloseTo(24.5);
   expect(estimate(pricing, "gpt-table-layout", "priority")).toBeCloseTo(98);
+  expect(estimate(pricing, "gpt-table-layout", "fast")).toBeCloseTo(98);
+  expect(estimate(pricing, "gpt-5.6-cyber")).toBeCloseTo(87.5);
   expect(estimate(pricing, "gpt-table-layout", undefined, longRequest, 1_050_000)).toBeCloseTo(
     10.5,
   );

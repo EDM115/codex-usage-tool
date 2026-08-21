@@ -26,6 +26,10 @@ export type ModelCatalog = {
 
 const SOURCES = {
   gpt56: "https://openai.com/index/gpt-5-6/",
+  gpt56Cyber: "https://developers.openai.com/api/docs/models/gpt-5.6-cyber",
+  daybreakBlue: "https://developers.openai.com/api/docs/models/daybreak-blue-latest",
+  daybreakRed: "https://developers.openai.com/api/docs/models/daybreak-red-latest",
+  pricing: "https://developers.openai.com/api/docs/pricing",
   gpt55: "https://openai.com/index/introducing-gpt-5-5/",
   gpt54: "https://openai.com/index/introducing-gpt-5-4/",
   gpt54Small: "https://openai.com/index/introducing-gpt-5-4-mini-and-nano/",
@@ -63,6 +67,9 @@ export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
   model("gpt-5.6-sol", "2026-07-09", SOURCES.gpt56, true),
   model("gpt-5.6-terra", "2026-07-09", SOURCES.gpt56),
   model("gpt-5.6-luna", "2026-07-09", SOURCES.gpt56),
+  model("gpt-5.6-cyber", "2026-08-21", SOURCES.gpt56Cyber),
+  model("gpt-5.5-cyber", "2026-07-30", SOURCES.pricing),
+  model("gpt-5.4-cyber", "2026-07-30", SOURCES.pricing),
   model("gpt-5.5", "2026-04-23", SOURCES.gpt55, true),
   model("gpt-5.5-pro", "2026-04-23", SOURCES.gpt55),
   model("gpt-5.4", "2026-03-05", SOURCES.gpt54, true),
@@ -181,6 +188,18 @@ export const BUNDLED_MODEL_ALIASES: ModelAliasDefinition[] = [
     source: `user-supplied mapping; ${SOURCES.gpt56}`,
   },
   { alias: "gpt-5.6", target: "gpt-5.6-sol", effectiveFrom: "2026-07-09", source: SOURCES.gpt56 },
+  {
+    alias: "daybreak-blue-latest",
+    target: "gpt-5.6-sol",
+    effectiveFrom: "2026-08-21",
+    source: SOURCES.daybreakBlue,
+  },
+  {
+    alias: "daybreak-red-latest",
+    target: "gpt-5.6-cyber",
+    effectiveFrom: "2026-08-21",
+    source: SOURCES.daybreakRed,
+  },
 ];
 
 export function createModelCatalog(

@@ -37,6 +37,7 @@ const LONG_CONTEXT_MODELS = new Set([
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
+  "gpt-5.6-cyber",
   "gpt-5.5",
   "gpt-5.5-pro",
   "gpt-5.4",
@@ -47,9 +48,10 @@ const BUNDLED: ModelPricing[] = [
   // OpenAI docs fallback, present in OpenAI pricing, not currently in models.dev OpenAI table
   {
     model: "chat-latest",
-    inputPerMillion: 5,
-    cachedInputPerMillion: 0.5,
-    outputPerMillion: 30,
+    inputPerMillion: 4,
+    cachedInputPerMillion: 0.4,
+    cacheWritePerMillion: 5,
+    outputPerMillion: 20,
     source: "alias:gpt-5.6-sol",
     aliasFor: "gpt-5.6-sol",
   },
@@ -57,10 +59,11 @@ const BUNDLED: ModelPricing[] = [
   // GPT-5.6 latest flagship models
   {
     model: "gpt-5.6-sol",
-    inputPerMillion: 5,
-    cachedInputPerMillion: 0.5,
-    outputPerMillion: 30,
-    source: "bundled/models.dev snapshot 2026-07-10",
+    inputPerMillion: 4,
+    cachedInputPerMillion: 0.4,
+    cacheWritePerMillion: 5,
+    outputPerMillion: 20,
+    source: "bundled/OpenAI pricing snapshot 2026-08-21",
   },
   {
     model: "gpt-5.6-terra",
@@ -632,10 +635,10 @@ function pricingTableFromOpenAiMarkdown(
     }
   >();
   const componentPattern =
-    /<TextTokenPricingTables[\s\S]*?tier="(standard|batch|flex|priority)"[\s\S]*?rows=\{\[([\s\S]*?)\]\}\s*\/>/g;
+    /<TextTokenPricingTables[\s\S]*?tier="(standard|batch|flex|priority|fast)"[\s\S]*?rows=\{\[([\s\S]*?)\]\}\s*\/>/g;
 
   for (const component of markdown.matchAll(componentPattern)) {
-    const tier = component[1] as PricingTier;
+    const tier = component[1] === "fast" ? "priority" : (component[1] as PricingTier);
     const rows = component[2];
     const rowPattern = /\[\s*"([^"]+)"\s*,([\s\S]*?)\]/g;
 
@@ -661,10 +664,16 @@ function pricingTableFromOpenAiMarkdown(
     }
   }
 
-  const markdownTablePattern = /^###\s+(standard|batch|flex|priority)\s+pricing data\s*$/gim;
+  const markdownTablePattern =
+    /^###\s+((?:standard|batch|flex|priority|fast)(?:\s+mode)?\s+pricing data|grouped pricing table data)\s*$/gim;
 
   for (const section of markdown.matchAll(markdownTablePattern)) {
-    const tier = section[1].toLowerCase() as PricingTier;
+    const heading = section[1].toLowerCase();
+    const tier: PricingTier = heading.startsWith("fast")
+      ? "priority"
+      : heading.startsWith("grouped")
+        ? "standard"
+        : (heading.split(/\s+/, 1)[0] as PricingTier);
     const sectionBody = markdown.slice((section.index ?? 0) + section[0].length);
     const lines = sectionBody.split(/\r?\n/);
     const headerIndex = lines.findIndex((line) => line.trimStart().startsWith("|"));
@@ -965,7 +974,7 @@ function pricingHistoryFromObject(raw: any, source: string): ModelPricingDefinit
 function bundledPricingTable(): Map<string, ModelPricing> {
   const table = pricingTableFromOpenAiMarkdown(
     OPENAI_PRICING_MARKDOWN_CACHE,
-    "bundled OpenAI pricing cache 2026-07-30",
+    "bundled OpenAI pricing cache 2026-08-21",
   );
   const officialKeys = new Set(table.keys());
 
@@ -988,9 +997,12 @@ function bundledPricingCatalog(table = bundledPricingTable()): ModelCatalog {
     );
     const effectiveFrom = definition?.releasedOn ?? "2026-07-30";
 
-    if (key === "gpt-5.6-terra" || key === "gpt-5.6-luna") {
+    if (key === "gpt-5.6-sol" || key === "gpt-5.6-terra" || key === "gpt-5.6-luna") {
       addPricingPeriod(catalog, preReductionGpt56Pricing(key));
-      addPricingPeriod(catalog, pricingDefinition(row, "2026-07-30"));
+      addPricingPeriod(
+        catalog,
+        pricingDefinition(row, key === "gpt-5.6-sol" ? "2026-08-21" : "2026-07-30"),
+      );
     } else {
       addPricingPeriod(catalog, pricingDefinition(row, effectiveFrom));
     }
@@ -1033,9 +1045,18 @@ function pricingDefinition(row: ModelPricing, effectiveFrom: string): ModelPrici
   };
 }
 
-function preReductionGpt56Pricing(model: "gpt-5.6-terra" | "gpt-5.6-luna"): ModelPricingDefinition {
+function preReductionGpt56Pricing(
+  model: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna",
+): ModelPricingDefinition {
   const standard =
-    model === "gpt-5.6-terra"
+    model === "gpt-5.6-sol"
+      ? {
+          inputPerMillion: 5,
+          cachedInputPerMillion: 0.5,
+          cacheWritePerMillion: 6.25,
+          outputPerMillion: 30,
+        }
+      : model === "gpt-5.6-terra"
       ? {
           inputPerMillion: 2.5,
           cachedInputPerMillion: 0.25,
@@ -1049,7 +1070,14 @@ function preReductionGpt56Pricing(model: "gpt-5.6-terra" | "gpt-5.6-luna"): Mode
           outputPerMillion: 6,
         };
   const standardLong =
-    model === "gpt-5.6-terra"
+    model === "gpt-5.6-sol"
+      ? {
+          inputPerMillion: 10,
+          cachedInputPerMillion: 1,
+          cacheWritePerMillion: 12.5,
+          outputPerMillion: 45,
+        }
+      : model === "gpt-5.6-terra"
       ? {
           inputPerMillion: 5,
           cachedInputPerMillion: 0.5,
@@ -1074,7 +1102,12 @@ function preReductionGpt56Pricing(model: "gpt-5.6-terra" | "gpt-5.6-luna"): Mode
       standard: { short: standard, long: standardLong },
       batch: { short: half, long: halfLong },
       flex: { short: half, long: halfLong },
-      priority: { short: scaleRates(standard, 2) },
+      priority: {
+        short:
+          model === "gpt-5.6-sol"
+            ? { ...scaleRates(standard, 2), outputPerMillion: 60 }
+            : scaleRates(standard, 2),
+      },
     },
   };
 }
@@ -1283,6 +1316,8 @@ function applyOpenAiAliases(table: Map<string, ModelPricing>, officialKeys: Set<
     ["guardian", "gpt-5.6-luna"],
     ["gpt-5.1-codex-mini", "gpt-5-mini"],
     ["gpt-5.6", "gpt-5.6-sol"],
+    ["daybreak-blue-latest", "gpt-5.6-sol"],
+    ["daybreak-red-latest", "gpt-5.6-cyber"],
   ]);
 
   for (const key of table.keys()) {
