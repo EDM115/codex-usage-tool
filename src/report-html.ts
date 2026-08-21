@@ -304,6 +304,9 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .row[data-tip] { cursor: help; }
     .row-label { min-width: 0; overflow-wrap: anywhere; }
 .row-value { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .surface-row { grid-template-columns: minmax(88px, .8fr) minmax(0, 1.2fr); }
+    .surface-value { display: flex; min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 0 .35em; line-height: 1.35; white-space: normal; }
+    .surface-value > span { white-space: nowrap; }
     .meter { grid-column: 1 / -1; height: 7px; border-radius: 999px; background: var(--panel2); overflow: hidden; }
     .meter span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
     .task-list { display: grid; gap: 9px; margin-top: 12px; }
@@ -1296,7 +1299,8 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const percentages = new Map();
       daily.forEach(function (bucket) {
         Object.entries(bucket.productSurfaceUsageValues || {}).forEach(function (entry) {
-          percentages.set(entry[0], (percentages.get(entry[0]) || 0) + numeric(entry[1]));
+          const surface = labelClient(entry[0]);
+          percentages.set(surface, (percentages.get(surface) || 0) + numeric(entry[1]));
         });
       });
       const stats = new Map();
@@ -1316,12 +1320,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
         });
       });
       const totalPercent = Math.max(1, [...percentages.values()].reduce(function (sum, value) { return sum + value; }, 0));
-      const surfaces = new Set([...percentages.keys()].map(labelClient).concat([...stats.keys()]));
-      return [...surfaces].map(function (surface) {
-        const rawKey = [...percentages.keys()].find(function (key) { return labelClient(key) === surface; });
+      const surfaces = new Set([...percentages.keys()].concat([...stats.keys()]));
+      return mergeSurfaceRows([...surfaces].map(function (surface) {
         const row = stats.get(surface) || {};
-        return { surface: surface, credits: row.credits || 0, percent: rawKey ? (percentages.get(rawKey) || 0) / totalPercent * 100 : 0, turns: row.turns || 0, threads: row.threads || 0, users: row.users || 0, textTotalTokens: row.textTotalTokens || 0, inputTokens: row.inputTokens || 0, cachedInputTokens: row.cachedInputTokens || 0, outputTokens: row.outputTokens || 0 };
-      }).filter(function (row) { return row.credits > 0 || row.percent > 0 || row.turns > 0 || row.textTotalTokens > 0; }).sort(function (a, b) { return (b.textTotalTokens || b.turns || b.credits || b.percent) - (a.textTotalTokens || a.turns || a.credits || a.percent); }).slice(0, 12);
+        return { surface: surface, credits: row.credits || 0, percent: (percentages.get(surface) || 0) / totalPercent * 100, turns: row.turns || 0, threads: row.threads || 0, users: row.users || 0, textTotalTokens: row.textTotalTokens || 0, inputTokens: row.inputTokens || 0, cachedInputTokens: row.cachedInputTokens || 0, outputTokens: row.outputTokens || 0 };
+      })).filter(function (row) { return row.credits > 0 || row.percent > 0 || row.turns > 0 || row.textTotalTokens > 0; }).slice(0, 12);
     }
 
     function filteredAnalytics() {
@@ -1648,15 +1651,21 @@ export function renderReportHtml(dataset: UsageDataset): string {
     }
 
     function surfacePanel(rows) {
-      const totalSurfaceTokens = rows.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0);
+      const mergedRows = mergeSurfaceRows(rows);
+      const totalSurfaceTokens = mergedRows.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0);
+      const maxSurfaceTurns = mergedRows.reduce(function (maximum, row) { return Math.max(maximum, row.turns); }, 0);
 
-      return '<div class="breakdown-panel"><h3>Surfaces</h3><div class="rows">' + rows.map(function (row) {
+      return '<div class="breakdown-panel"><h3>Surfaces</h3><div class="rows">' + mergedRows.map(function (row) {
         const color = surfaceColor(row.surface);
-        const text = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : percent(row.percent)) + ' - ' + compact(row.turns) + ' turns';
+        const primaryText = row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : percent(row.percent);
+        const turnsText = compact(row.turns) + ' turns';
         const surfaceCost = totalSurfaceTokens ? dataset.summary.estimatedCostUsd * row.textTotalTokens / totalSurfaceTokens : 0;
-        const tip = row.surface + '\\nTokens : ' + compact(row.textTotalTokens) + '\\nInput : ' + compact(row.inputTokens) + '\\nCached input : ' + compact(row.cachedInputTokens) + '\\nOutput : ' + compact(row.outputTokens) + '\\nTurns : ' + compact(row.turns) + '\\nThreads : ' + compact(row.threads) + '\\nCredits : ' + exact(row.credits, 2) + (row.textTotalTokens ? '\\nEstimated overall cost share : ' + money(surfaceCost) : '');
-        const meter = row.textTotalTokens && totalSurfaceTokens ? '<div class="meter"><span style="width:'+meterWidth(row.textTotalTokens, totalSurfaceTokens)+'; background:'+color+'"></span></div>' : '';
-        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.surface)+'</div><div class="row-value">'+escapeText(text)+'</div>'+meter+'</div>';
+        const mergedDetails = row.details.length > 1 ? '\\nMerged entries :\\n' + row.details.map(function (detail) { return detail.surface + ' : ' + (detail.textTotalTokens ? compact(detail.textTotalTokens) + ' tokens' : percent(detail.percent)) + ', ' + compact(detail.turns) + ' turns, ' + compact(detail.threads) + ' threads, ' + exact(detail.credits, 2) + ' credits'; }).join('\\n') : '';
+        const tip = row.surface + '\\nTokens : ' + compact(row.textTotalTokens) + '\\nInput : ' + compact(row.inputTokens) + '\\nCached input : ' + compact(row.cachedInputTokens) + '\\nOutput : ' + compact(row.outputTokens) + '\\nTurns : ' + compact(row.turns) + '\\nThreads : ' + compact(row.threads) + '\\nCredits : ' + exact(row.credits, 2) + (row.textTotalTokens ? '\\nEstimated overall cost share : ' + money(surfaceCost) : '') + mergedDetails;
+        const meterValue = row.textTotalTokens || row.percent || row.turns;
+        const meterMaximum = row.textTotalTokens ? totalSurfaceTokens : row.percent ? 100 : maxSurfaceTurns;
+        const meter = meterValue ? '<div class="meter"><span style="width:'+meterWidth(meterValue, meterMaximum)+'; background:'+color+'"></span></div>' : '';
+        return '<div class="row surface-row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.surface)+'</div><div class="row-value surface-value"><span>'+escapeText(primaryText)+'</span><span>- '+escapeText(turnsText)+'</span></div>'+meter+'</div>';
       }).join('') + '</div></div>';
     }
 
@@ -1766,7 +1775,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const width = 1100;
       const height = Math.max(520, analyticsBreakdown.scrollHeight + 36);
       const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export">' + clone.outerHTML + '</div>';
-      const css = '<style>.dashboard-export{box-sizing:border-box;width:1100px;padding:18px;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows,.overall-sections{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.capability-section{padding-top:12px;border-top:1px solid '+theme.colors.line+'}.overall-sections{gap:12px;padding-top:14px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,auto);gap:10px;align-items:center;min-width:0}.row-label,.row-value,.task-title,.task-meta,.composition-value{overflow-wrap:anywhere}.row-value{max-width:360px;text-align:right;font-variant-numeric:tabular-nums;white-space:normal}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;min-width:7px;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.composition-stack{display:flex;width:100%;height:16px;overflow:hidden;border-radius:999px;background:'+theme.colors.panel2+'}.composition-segment{height:100%}.composition-legend{display:grid;gap:5px}.composition-legend-row{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,auto);gap:7px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.composition-swatch{width:9px;height:9px;border-radius:2px}.composition-value{max-width:360px;color:'+theme.colors.text+';text-align:right}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
+      const css = '<style>.dashboard-export{box-sizing:border-box;width:1100px;padding:18px;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows,.overall-sections{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.capability-section{padding-top:12px;border-top:1px solid '+theme.colors.line+'}.overall-sections{gap:12px;padding-top:14px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,auto);gap:10px;align-items:center;min-width:0}.surface-row{grid-template-columns:minmax(88px,.8fr) minmax(0,1.2fr)}.row-label,.row-value,.task-title,.task-meta,.composition-value{overflow-wrap:anywhere}.row-value{max-width:360px;text-align:right;font-variant-numeric:tabular-nums;white-space:normal}.surface-value{display:flex;min-width:0;flex-wrap:wrap;justify-content:flex-end;gap:0 .35em;line-height:1.35}.surface-value>span{white-space:nowrap}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;min-width:7px;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.composition-stack{display:flex;width:100%;height:16px;overflow:hidden;border-radius:999px;background:'+theme.colors.panel2+'}.composition-segment{height:100%}.composition-legend{display:grid;gap:5px}.composition-legend-row{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,auto);gap:7px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.composition-swatch{width:9px;height:9px;border-radius:2px}.composition-value{max-width:360px;color:'+theme.colors.text+';text-align:right}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
 
       return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
     }
@@ -1776,7 +1785,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const models = filteredReportModels();
       const capabilities = filteredCapabilityRows();
       const variants = analytics.byModelVariants || [];
-      const surfaces = analytics.bySurface || [];
+      const surfaces = mergeSurfaceRows(analytics.bySurface || []);
       const tasks = analytics.tasks;
       const variantsByModel = modelVariantsByName(variants);
       const overall = overallUsageRows(models, variantsByModel);

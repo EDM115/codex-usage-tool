@@ -1057,18 +1057,18 @@ function preReductionGpt56Pricing(
           outputPerMillion: 30,
         }
       : model === "gpt-5.6-terra"
-      ? {
-          inputPerMillion: 2.5,
-          cachedInputPerMillion: 0.25,
-          cacheWritePerMillion: 3.125,
-          outputPerMillion: 15,
-        }
-      : {
-          inputPerMillion: 1,
-          cachedInputPerMillion: 0.1,
-          cacheWritePerMillion: 1.25,
-          outputPerMillion: 6,
-        };
+        ? {
+            inputPerMillion: 2.5,
+            cachedInputPerMillion: 0.25,
+            cacheWritePerMillion: 3.125,
+            outputPerMillion: 15,
+          }
+        : {
+            inputPerMillion: 1,
+            cachedInputPerMillion: 0.1,
+            cacheWritePerMillion: 1.25,
+            outputPerMillion: 6,
+          };
   const standardLong =
     model === "gpt-5.6-sol"
       ? {
@@ -1078,18 +1078,18 @@ function preReductionGpt56Pricing(
           outputPerMillion: 45,
         }
       : model === "gpt-5.6-terra"
-      ? {
-          inputPerMillion: 5,
-          cachedInputPerMillion: 0.5,
-          cacheWritePerMillion: 6.25,
-          outputPerMillion: 22.5,
-        }
-      : {
-          inputPerMillion: 2,
-          cachedInputPerMillion: 0.2,
-          cacheWritePerMillion: 2.5,
-          outputPerMillion: 9,
-        };
+        ? {
+            inputPerMillion: 5,
+            cachedInputPerMillion: 0.5,
+            cacheWritePerMillion: 6.25,
+            outputPerMillion: 22.5,
+          }
+        : {
+            inputPerMillion: 2,
+            cachedInputPerMillion: 0.2,
+            cacheWritePerMillion: 2.5,
+            outputPerMillion: 9,
+          };
   const half = scaleRates(standard, 0.5);
   const halfLong = scaleRates(standardLong, 0.5);
 

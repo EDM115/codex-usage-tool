@@ -299,7 +299,10 @@ export function renderRoiSvg(dataset: UsageDataset): string {
   const pad = { left: 78, right: 78, top: 42, bottom: 80 };
   const chartW = width - pad.left - pad.right;
   const chartH = height - pad.top - pad.bottom;
-  const maximum = Math.max(1, ...months.flatMap((month) => [month.amountPaid, month.estimatedApiValue]));
+  const maximum = Math.max(
+    1,
+    ...months.flatMap((month) => [month.amountPaid, month.estimatedApiValue]),
+  );
   const roiValues = months
     .map((month) => month.conventionalRoiPercent)
     .filter((value): value is number => value !== null && Number.isFinite(value));
@@ -354,23 +357,37 @@ export function renderRoiSvg(dataset: UsageDataset): string {
     })
     .join("\n");
   const roiPaths = roiSegments
-    .map((segment) => `<path class="roi-percent-line" d="M ${segment[0].x} ${segment[0].y}${smoothCurveCommands(segment)}"/>`)
+    .map(
+      (segment) =>
+        `<path class="roi-percent-line" d="M ${segment[0].x} ${segment[0].y}${smoothCurveCommands(segment)}"/>`,
+    )
     .join("\n");
   const spendPaths = evidenceSegments(spendPoints)
-    .map((segment) => `<path class="roi-spend-line" d="M ${segment[0].x} ${segment[0].y}${smoothCurveCommands(segment)}"/>`)
+    .map(
+      (segment) =>
+        `<path class="roi-spend-line" d="M ${segment[0].x} ${segment[0].y}${smoothCurveCommands(segment)}"/>`,
+    )
     .join("\n");
   const valuePaths = evidenceSegments(valuePoints)
-    .map((segment) => `<path class="roi-value-line" d="M ${segment[0].x} ${segment[0].y}${smoothCurveCommands(segment)}"/>`)
+    .map(
+      (segment) =>
+        `<path class="roi-value-line" d="M ${segment[0].x} ${segment[0].y}${smoothCurveCommands(segment)}"/>`,
+    )
     .join("\n");
   const labelIndexes = new Set(sampleLabelIndexes(months.length, 8));
   const pointsAndLabels = months
     .map((month, index) => {
       const x = xFor(index);
-      const label = labelIndexes.has(index) ? `<text x="${x}" y="${height - 50}" text-anchor="middle" class="axis">${escapeHtml(month.month)}</text>` : "";
+      const label = labelIndexes.has(index)
+        ? `<text x="${x}" y="${height - 50}" text-anchor="middle" class="axis">${escapeHtml(month.month)}</text>`
+        : "";
 
       if (!evidenceMonths.has(month.month)) return label;
 
-      const roiDot = month.conventionalRoiPercent === null ? "" : `<circle class="roi-percent-dot" cx="${x}" cy="${roiYFor(month.conventionalRoiPercent)}" r="4"/>`;
+      const roiDot =
+        month.conventionalRoiPercent === null
+          ? ""
+          : `<circle class="roi-percent-dot" cx="${x}" cy="${roiYFor(month.conventionalRoiPercent)}" r="4"/>`;
       return `${roiDot}<circle class="roi-spend-dot" cx="${x}" cy="${moneyYFor(month.amountPaid)}" r="4"/><circle class="roi-value-dot" cx="${x}" cy="${moneyYFor(month.estimatedApiValue)}" r="4"/>${label}`;
     })
     .join("\n");

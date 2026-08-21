@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-tool",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "description": "Generate self-contained Codex usage reports from local .codex files and dashboard APIs",
   "homepage": "https://github.com/EDM115/codex-usage-tool#readme",
@@ -43,7 +43,7 @@
     "@resvg/resvg-js": "^2.6.2"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.14",
+    "@types/bun": "^1.4.0",
     "typescript": "^7.0.2"
   }
 }

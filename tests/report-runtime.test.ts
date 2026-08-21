@@ -2,10 +2,12 @@ import { expect, test } from "bun:test";
 
 import {
   buildRoiMetrics,
+  mergeSurfaceRows,
   rangeForPreset,
   reportRuntimeSource,
   roiCurveSegments,
   summarizeTokenComposition,
+  type SurfaceUsageRow,
 } from "../src/report-runtime";
 import type { DailyUsage } from "../src/types";
 
@@ -221,14 +223,41 @@ test("chart label sampling anchors both edges without crowding the final tick", 
   expect(sampleLabelIndexes?.(0, 8)).toEqual([]);
 });
 
+test("mergeSurfaceRows combines known aliases and preserves per-source tooltip details", () => {
+  const rows = mergeSurfaceRows([
+    surfaceRow("Sdk Ts", { textTotalTokens: 400, turns: 12, users: 3 }),
+    surfaceRow("Sdk", { percent: 9.4, turns: 2, users: 5 }),
+    surfaceRow("Github", { textTotalTokens: 100, turns: 4 }),
+    surfaceRow("GitHub code review", { percent: 0.1, turns: 1 }),
+    surfaceRow("Unknown Default", { turns: 18 }),
+    surfaceRow("Unknown", { percent: 0.3 }),
+  ]);
+
+  expect(rows.map((row) => row.surface)).toEqual(["Sdk", "GitHub", "Unknown"]);
+  expect(rows[0]).toMatchObject({
+    textTotalTokens: 400,
+    percent: 9.4,
+    turns: 14,
+    users: 5,
+  });
+  expect(rows[0]?.details.map((detail) => detail.surface)).toEqual(["Sdk Ts", "Sdk"]);
+  expect(rows[1]?.details.map((detail) => detail.surface)).toEqual([
+    "Github",
+    "GitHub code review",
+  ]);
+  expect(rows[2]).toMatchObject({ percent: 0.3, turns: 18 });
+  expect(rows[2]?.details.map((detail) => detail.surface)).toEqual(["Unknown Default", "Unknown"]);
+});
+
 test("reportRuntimeSource evaluates the exact exported helpers", () => {
   const runtime = new Function(
-    `${reportRuntimeSource()}\nreturn { rangeForPreset, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments };`,
+    `${reportRuntimeSource()}\nreturn { rangeForPreset, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments, mergeSurfaceRows };`,
   )() as {
     rangeForPreset: typeof rangeForPreset;
     summarizeTokenComposition: typeof summarizeTokenComposition;
     buildRoiMetrics: typeof buildRoiMetrics;
     roiCurveSegments: typeof roiCurveSegments;
+    mergeSurfaceRows: typeof mergeSurfaceRows;
   };
   const dates = ["2026-07-01", "2026-07-31"];
   const days = [
@@ -259,7 +288,28 @@ test("reportRuntimeSource evaluates the exact exported helpers", () => {
       buildRoiMetrics(costDays, { "2026-07": 31 }, "2026-07-31", "2026-07-31").monthly,
     ),
   );
+  const surfaceRows = [surfaceRow("Unknown Default", { turns: 2 }), surfaceRow("Unknown")];
+  expect(runtime.mergeSurfaceRows(surfaceRows)).toEqual(mergeSurfaceRows(surfaceRows));
 });
+
+function surfaceRow(
+  surface: string,
+  values: Partial<Omit<SurfaceUsageRow, "surface" | "details">> = {},
+): SurfaceUsageRow {
+  return {
+    surface,
+    credits: 0,
+    percent: 0,
+    turns: 0,
+    threads: 0,
+    users: 0,
+    textTotalTokens: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    ...values,
+  };
+}
 
 function reportDay(
   date: string,

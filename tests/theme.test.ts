@@ -182,7 +182,12 @@ test("batch heatmap and trend exports align partial weeks and retain compact axi
     from: null,
     to: null,
     timezone: "Europe/Paris",
-    localStats: { rolloutFiles: dates.length, sqliteDatabases: 0, sqliteThreads: 0, parseErrors: [] },
+    localStats: {
+      rolloutFiles: dates.length,
+      sqliteDatabases: 0,
+      sqliteThreads: 0,
+      parseErrors: [],
+    },
     pricing,
     estimateModel: "gpt-5.5",
     ...resolveUsageThemes([]),

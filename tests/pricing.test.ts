@@ -199,9 +199,7 @@ test("the 2026-08-21 refresh preserves GPT-5.6 Sol history and adds Daybreak ali
   expect(resolveModelAt(pricing.catalog, "daybreak-red-latest", "2026-08-21")).toBe(
     "gpt-5.6-cyber",
   );
-  expect(resolveModelAt(pricing.catalog, "daybreak-blue-latest", "2026-08-21")).toBe(
-    "gpt-5.6-sol",
-  );
+  expect(resolveModelAt(pricing.catalog, "daybreak-blue-latest", "2026-08-21")).toBe("gpt-5.6-sol");
   expect(
     estimate(
       pricing,

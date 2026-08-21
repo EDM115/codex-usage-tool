@@ -1383,6 +1383,10 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(html).toContain(
     ".row-value { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }",
   );
+  expect(html).toContain(
+    ".surface-row { grid-template-columns: minmax(88px, .8fr) minmax(0, 1.2fr); }",
+  );
+  expect(html).toContain(".surface-value { display: flex;");
   const breakdownHeader = html.slice(
     html.indexOf("<h2>Usage breakdown</h2>"),
     html.indexOf('<div id="analyticsBreakdown"'),
@@ -1394,7 +1398,7 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
     html.indexOf('<script id="usage-data"'),
   );
   expect(notes).toContain(
-    `<strong>Portable sources :</strong> ${dataset.sources.length} source : ${dataset.sources[0].label}. Merge diagnostics`,
+    `<strong>Portable sources :</strong> ${dataset.sources.length} source : ${dataset.sources[0].label}, merge diagnostics`,
   );
   expect(notes).not.toContain(`[${dataset.sources[0].sourceId}`);
   expect(notes).not.toContain("This is a pricing comparison, not subscription money returned.");
@@ -1456,7 +1460,7 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   const unavailableDataset = structuredClone(dataset);
   unavailableDataset.payments = emptyPaymentHistory();
   expect(renderReportHtml(unavailableDataset)).toContain(
-    "Payment history unavailable. Provide --payments-json or generate with live payment API access.",
+    "Payment history unavailable, provide --payments-json or generate with live payment API access",
   );
   const partialDataset = structuredClone(dataset);
   partialDataset.payments.complete = false;
@@ -1465,7 +1469,7 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
     { kind: "api", label: "transaction history", status: "partial" },
   ];
   expect(renderReportHtml(partialDataset)).toContain(
-    "Payment history is partial; known values may be incomplete.",
+    "Payment history is partial, known values may be incomplete",
   );
   const tooltipFunctions = html.slice(
     html.indexOf("    function tipFor"),
@@ -1476,6 +1480,12 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(tooltipFunctions).toContain("'\\nTotal tokens : ' + compact(breakdown.totalTokens)");
   expect(tooltipFunctions).toContain("'\\nUses : ' + compact(row.count)");
   expect(tooltipFunctions).toContain("'\\nTokens : ' + compact(row.textTotalTokens)");
+  expect(tooltipFunctions).toContain("const mergedRows = mergeSurfaceRows(rows)");
+  expect(tooltipFunctions).toContain("'\\nMerged entries :\\n'");
+  expect(tooltipFunctions).toContain(
+    "const meterValue = row.textTotalTokens || row.percent || row.turns",
+  );
+  expect(tooltipFunctions).toContain('class="row surface-row"');
   const overallFunctions = html.slice(
     html.indexOf("    function overallPanels"),
     html.indexOf("    function surfacePanel"),

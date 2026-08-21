@@ -39,6 +39,27 @@ export type RoiMetrics = {
   monthly: RoiMonthMetrics[];
 };
 
+export type SurfaceUsageDetail = {
+  surface: string;
+  credits: number;
+  percent: number;
+  turns: number;
+  threads: number;
+  users: number;
+  textTotalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+};
+
+export type SurfaceUsageRow = SurfaceUsageDetail & {
+  details?: SurfaceUsageDetail[];
+};
+
+export type MergedSurfaceUsageRow = SurfaceUsageDetail & {
+  details: SurfaceUsageDetail[];
+};
+
 export function rangeForPreset(
   codexDates: string[],
   preset: ReportRangePreset,
@@ -89,6 +110,91 @@ export function sampleLabelIndexes(itemCount: number, maxLabels: number): number
   return Array.from({ length: limit }, (_, index) =>
     index === limit - 1 ? lastIndex : Math.floor((index * lastIndex) / (limit - 1)),
   );
+}
+
+export function mergeSurfaceRows(rows: SurfaceUsageRow[]): MergedSurfaceUsageRow[] {
+  const number = (value: unknown): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const canonicalName = (value: unknown): string => {
+    const surface = String(value || "Unknown").trim() || "Unknown";
+    const normalized = surface
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    if (normalized === "sdk" || normalized === "sdk_ts") return "Sdk";
+    if (normalized === "github" || normalized === "github_code_review") return "GitHub";
+    if (normalized === "unknown" || normalized === "unknown_default") return "Unknown";
+    return surface;
+  };
+  const groups = new Map<
+    string,
+    MergedSurfaceUsageRow & { detailMap: Map<string, SurfaceUsageDetail> }
+  >();
+
+  for (const row of rows) {
+    const surface = canonicalName(row.surface);
+    const group = groups.get(surface) ?? {
+      surface,
+      credits: 0,
+      percent: 0,
+      turns: 0,
+      threads: 0,
+      users: 0,
+      textTotalTokens: 0,
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      outputTokens: 0,
+      details: [],
+      detailMap: new Map<string, SurfaceUsageDetail>(),
+    };
+    group.credits += number(row.credits);
+    group.percent += number(row.percent);
+    group.turns += number(row.turns);
+    group.threads += number(row.threads);
+    group.users = Math.max(group.users, number(row.users));
+    group.textTotalTokens += number(row.textTotalTokens);
+    group.inputTokens += number(row.inputTokens);
+    group.cachedInputTokens += number(row.cachedInputTokens);
+    group.outputTokens += number(row.outputTokens);
+
+    const details = row.details?.length ? row.details : [row];
+    for (const detail of details) {
+      const detailSurface = String(detail.surface || row.surface || "Unknown");
+      const current = group.detailMap.get(detailSurface) ?? {
+        surface: detailSurface,
+        credits: 0,
+        percent: 0,
+        turns: 0,
+        threads: 0,
+        users: 0,
+        textTotalTokens: 0,
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+      };
+      current.credits += number(detail.credits);
+      current.percent += number(detail.percent);
+      current.turns += number(detail.turns);
+      current.threads += number(detail.threads);
+      current.users = Math.max(current.users, number(detail.users));
+      current.textTotalTokens += number(detail.textTotalTokens);
+      current.inputTokens += number(detail.inputTokens);
+      current.cachedInputTokens += number(detail.cachedInputTokens);
+      current.outputTokens += number(detail.outputTokens);
+      group.detailMap.set(detailSurface, current);
+    }
+    groups.set(surface, group);
+  }
+
+  return [...groups.values()]
+    .map(({ detailMap, ...row }) => ({ ...row, details: [...detailMap.values()] }))
+    .sort(
+      (a, b) =>
+        (b.textTotalTokens || b.turns || b.credits || b.percent) -
+        (a.textTotalTokens || a.turns || a.credits || a.percent),
+    );
 }
 
 export function summarizeTokenComposition(days: DailyUsage[]): TokenComposition {
@@ -223,11 +329,12 @@ export function reportRuntimeSource(): string {
     roiPercentages,
     rangeForPreset,
     sampleLabelIndexes,
+    mergeSurfaceRows,
     summarizeTokenComposition,
     buildRoiMetrics,
     roiCurveSegments,
   ];
-  return `const __codexReportRuntime = (() => {\n${functions.map((fn) => fn.toString()).join("\n")}\nreturn { rangeForPreset, sampleLabelIndexes, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments };\n})();\nconst { rangeForPreset, sampleLabelIndexes, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments } = __codexReportRuntime;`;
+  return `const __codexReportRuntime = (() => {\n${functions.map((fn) => fn.toString()).join("\n")}\nreturn { rangeForPreset, sampleLabelIndexes, mergeSurfaceRows, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments };\n})();\nconst { rangeForPreset, sampleLabelIndexes, mergeSurfaceRows, summarizeTokenComposition, buildRoiMetrics, roiCurveSegments } = __codexReportRuntime;`;
 }
 
 function isIsoDay(value: string): boolean {
