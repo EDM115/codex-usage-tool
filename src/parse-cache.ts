@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { ensureDir, fileExists } from "./util";
 
-export const ROLLOUT_PARSE_CACHE_VERSION = 2 as const;
+export const ROLLOUT_PARSE_CACHE_VERSION = 3 as const;
 
 export type CachedRollout = {
   size: number;

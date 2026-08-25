@@ -91,6 +91,57 @@ test("collectRolloutEvents parses token_count breakdowns", async () => {
   expect(result.events[0].reasoningEffort).toBe("high");
 });
 
+test("collectRolloutEvents preserves U+2028 inside a JSONL string", async () => {
+  const root = join(tmpdir(), `codex-usage-unicode-line-test-${Date.now()}`);
+  const codexHome = join(root, ".codex");
+  const sessions = join(codexHome, "sessions", "2026", "08", "18");
+  mkdirSync(sessions, { recursive: true });
+  const rollout = join(
+    sessions,
+    "rollout-2026-08-18T08-00-00-00000000-0000-0000-0000-000000000024.jsonl",
+  );
+  writeFileSync(
+    rollout,
+    [
+      JSON.stringify({
+        timestamp: "2026-08-18T08:00:00.000Z",
+        type: "session_meta",
+        payload: { id: "00000000-0000-0000-0000-000000000024", model: "gpt-5.5" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-08-18T08:01:00.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call_output",
+          output: [{ type: "input_text", text: "first paragraph\u2028second paragraph" }],
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-08-18T08:02:00.000Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: { input_tokens: 90, output_tokens: 10, total_tokens: 100 },
+            last_token_usage: { input_tokens: 90, output_tokens: 10, total_tokens: 100 },
+          },
+        },
+      }),
+    ].join("\n"),
+  );
+
+  const result = await collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "Europe/Paris",
+    from: null,
+    to: null,
+  });
+
+  expect(result.parseErrors).toEqual([]);
+  expect(result.coverage).toMatchObject({ status: "complete", malformedLines: 0 });
+  expect(result.events.map((event) => event.breakdown.totalTokens)).toEqual([100]);
+});
+
 test("normalizeBreakdown derives total tokens from positive input and output components", () => {
   expect(
     normalizeBreakdown({
@@ -323,9 +374,9 @@ test("collectRolloutEvents reuses unchanged parse cache entries and reparses gro
     cacheDir,
   });
 
-  expect(first.cache).toMatchObject({ version: 2, hits: 0, misses: 1, invalidations: 0 });
-  expect(second.cache).toMatchObject({ version: 2, hits: 1, misses: 0, invalidations: 0 });
-  expect(grown.cache).toMatchObject({ version: 2, hits: 0, misses: 0, invalidations: 1 });
+  expect(first.cache).toMatchObject({ version: 3, hits: 0, misses: 1, invalidations: 0 });
+  expect(second.cache).toMatchObject({ version: 3, hits: 1, misses: 0, invalidations: 0 });
+  expect(grown.cache).toMatchObject({ version: 3, hits: 0, misses: 0, invalidations: 1 });
   expect(grown.events.map((event) => event.breakdown.totalTokens)).toEqual([100, 50]);
 });
 

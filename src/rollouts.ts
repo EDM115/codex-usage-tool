@@ -3,7 +3,6 @@ import type { CapabilityUsageEvent, CodexHome, ThreadMetadata, TokenEvent } from
 
 import { createReadStream } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { createInterface } from "node:readline";
 
 import { discoverFromSqlite } from "./sqlite";
 import { createCapabilityEvidenceTracker, extractCapabilityUsageEvents } from "./capabilities";
@@ -249,10 +248,7 @@ async function parseRolloutFile(args: {
   const capabilityEvents: CapabilityUsageEvent[] = [];
   const parseErrors: Array<{ path: string; line?: number; error: string }> = [];
   const capabilityTracker = createCapabilityEvidenceTracker();
-  const lines = createInterface({
-    input: createReadStream(args.rolloutPath, { encoding: "utf8" }),
-    crlfDelay: Infinity,
-  });
+  const lines = readJsonlLines(args.rolloutPath);
   let threadId = threadIdFromFilename(args.rolloutPath);
   let currentModel: string | undefined;
   let currentModelAttribution: TokenEvent["modelAttribution"];
@@ -518,6 +514,35 @@ async function parseRolloutFile(args: {
   }
 
   return { events: out, capabilityEvents, parseErrors };
+}
+
+async function* readJsonlLines(path: string): AsyncGenerator<string> {
+  // Bun 1.4's node:readline treats U+2028 inside valid JSON strings as a line boundary, JSONL records are separated only on physical LF or CRLF delimiters here
+  const fragments: string[] = [];
+
+  for await (const chunk of createReadStream(path, { encoding: "utf8" })) {
+    const text = String(chunk);
+    let start = 0;
+    let end = text.indexOf("\n", start);
+
+    while (end !== -1) {
+      fragments.push(text.slice(start, end));
+      const line = fragments.join("");
+      fragments.length = 0;
+      yield line.endsWith("\r") ? line.slice(0, -1) : line;
+      start = end + 1;
+      end = text.indexOf("\n", start);
+    }
+
+    if (start < text.length) {
+      fragments.push(text.slice(start));
+    }
+  }
+
+  if (fragments.length > 0) {
+    const line = fragments.join("");
+    yield line.endsWith("\r") ? line.slice(0, -1) : line;
+  }
 }
 
 function materializeTokenEvent(event: TokenEvent, home: CodexHome, timezone: string): TokenEvent {
