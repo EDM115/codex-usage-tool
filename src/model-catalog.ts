@@ -25,10 +25,11 @@ export type ModelCatalog = {
 };
 
 const SOURCES = {
+  gpt6Astra: "https://developers.openai.com/api/docs/models/gpt-6-astra",
   gpt56: "https://openai.com/index/gpt-5-6/",
   gpt56Cyber: "https://developers.openai.com/api/docs/models/gpt-5.6-cyber",
-  daybreakBlue: "https://developers.openai.com/api/docs/models/daybreak-blue-latest",
-  daybreakRed: "https://developers.openai.com/api/docs/models/daybreak-red-latest",
+  daybreakBlue: "https://developers.openai.com/api/docs/models/gpt-daybreak-blue-latest",
+  daybreakRed: "https://developers.openai.com/api/docs/models/gpt-daybreak-red-latest",
   pricing: "https://developers.openai.com/api/docs/pricing",
   gpt55: "https://openai.com/index/introducing-gpt-5-5/",
   gpt54: "https://openai.com/index/introducing-gpt-5-4/",
@@ -64,6 +65,7 @@ function model(
 }
 
 export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
+  model("gpt-6-astra", "2026-09-03", SOURCES.gpt6Astra, true),
   model("gpt-5.6-sol", "2026-07-09", SOURCES.gpt56, true),
   model("gpt-5.6-terra", "2026-07-09", SOURCES.gpt56),
   model("gpt-5.6-luna", "2026-07-09", SOURCES.gpt56),
@@ -189,14 +191,26 @@ export const BUNDLED_MODEL_ALIASES: ModelAliasDefinition[] = [
   },
   { alias: "gpt-5.6", target: "gpt-5.6-sol", effectiveFrom: "2026-07-09", source: SOURCES.gpt56 },
   {
-    alias: "daybreak-blue-latest",
+    alias: "gpt-daybreak-blue-latest",
     target: "gpt-5.6-sol",
     effectiveFrom: "2026-08-21",
     source: SOURCES.daybreakBlue,
   },
   {
-    alias: "daybreak-red-latest",
+    alias: "gpt-daybreak-red-latest",
     target: "gpt-5.6-cyber",
+    effectiveFrom: "2026-08-21",
+    source: SOURCES.daybreakRed,
+  },
+  {
+    alias: "daybreak-blue-latest",
+    target: "gpt-daybreak-blue-latest",
+    effectiveFrom: "2026-08-21",
+    source: SOURCES.daybreakBlue,
+  },
+  {
+    alias: "daybreak-red-latest",
+    target: "gpt-daybreak-red-latest",
     effectiveFrom: "2026-08-21",
     source: SOURCES.daybreakRed,
   },

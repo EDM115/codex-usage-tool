@@ -1592,9 +1592,13 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(html).toContain("Math.max(2,");
   const bundledColorCatalog = html.match(/const modelProgressColors = (\{[^;]+\});/);
   expect(bundledColorCatalog).not.toBeNull();
+  const parsedColorCatalog = JSON.parse(
+    bundledColorCatalog?.[1] ?? "{}",
+  ) as Record<string, { dark: string; light: string }>;
   expect(
-    Object.keys(JSON.parse(bundledColorCatalog?.[1] ?? "{}") as Record<string, unknown>).sort(),
+    Object.keys(parsedColorCatalog).sort(),
   ).toEqual([...pricing.table.keys()].sort());
+  expect(parsedColorCatalog["gpt-6-astra"]).toEqual({ dark: "#ff7ac6", light: "#a11a68" });
   const modelRowsScript = html.match(
     /<script id="model-rows" type="application\/json">([\s\S]*?)<\/script>/,
   );

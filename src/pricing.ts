@@ -34,6 +34,7 @@ const OPENAI_PRICING_URL = "https://developers.openai.com/api/docs/pricing.md";
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const LONG_CONTEXT_THRESHOLD = 272_000;
 const LONG_CONTEXT_MODELS = new Set([
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -974,7 +975,7 @@ function pricingHistoryFromObject(raw: any, source: string): ModelPricingDefinit
 function bundledPricingTable(): Map<string, ModelPricing> {
   const table = pricingTableFromOpenAiMarkdown(
     OPENAI_PRICING_MARKDOWN_CACHE,
-    "bundled OpenAI pricing cache 2026-08-21",
+    "bundled OpenAI pricing cache 2026-09-03",
   );
   const officialKeys = new Set(table.keys());
 
@@ -1316,8 +1317,10 @@ function applyOpenAiAliases(table: Map<string, ModelPricing>, officialKeys: Set<
     ["guardian", "gpt-5.6-luna"],
     ["gpt-5.1-codex-mini", "gpt-5-mini"],
     ["gpt-5.6", "gpt-5.6-sol"],
-    ["daybreak-blue-latest", "gpt-5.6-sol"],
-    ["daybreak-red-latest", "gpt-5.6-cyber"],
+    ["gpt-daybreak-blue-latest", "gpt-5.6-sol"],
+    ["gpt-daybreak-red-latest", "gpt-5.6-cyber"],
+    ["daybreak-blue-latest", "gpt-daybreak-blue-latest"],
+    ["daybreak-red-latest", "gpt-daybreak-red-latest"],
   ]);
 
   for (const key of table.keys()) {

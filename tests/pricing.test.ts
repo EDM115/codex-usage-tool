@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { parseArgs } from "../src/cli";
-import { createModelCatalog, primaryModelAt, resolveModelAt } from "../src/model-catalog";
+import { createModelCatalog, pricingAt, primaryModelAt, resolveModelAt } from "../src/model-catalog";
 import { estimateBreakdownCost, loadPricing } from "../src/pricing";
 import type { TokenBreakdown } from "../src/types";
 
@@ -129,6 +129,10 @@ test("model defaults, aliases, and bundled prices change only on their effective
 
   expect(primaryModelAt(pricing.catalog, "2026-07-08")).toBe("gpt-5.5");
   expect(primaryModelAt(pricing.catalog, "2026-07-09")).toBe("gpt-5.6-sol");
+  expect(primaryModelAt(pricing.catalog, "2026-09-02")).toBe("gpt-5.6-sol");
+  expect(primaryModelAt(pricing.catalog, "2026-09-03")).toBe("gpt-6-astra");
+  expect(pricingAt(pricing.catalog, "gpt-6-astra", "2026-09-02")).toBeUndefined();
+  expect(pricingAt(pricing.catalog, "gpt-6-astra", "2026-09-03")?.inputPerMillion).toBe(10);
   expect(resolveModelAt(pricing.catalog, "guardian", "2026-07-29")).toBe("gpt-5.4");
   expect(resolveModelAt(pricing.catalog, "guardian", "2026-07-30")).toBe("gpt-5.6-luna");
   expect(
@@ -171,9 +175,19 @@ test("model defaults, aliases, and bundled prices change only on their effective
       "2026-07-30",
     ),
   ).toBeCloseTo(1.4);
+  expect(
+    estimate(
+      pricing,
+      "gpt-6-astra",
+      undefined,
+      ONE_MILLION_INPUT_AND_OUTPUT,
+      undefined,
+      "2026-09-03",
+    ),
+  ).toBeCloseTo(60);
 });
 
-test("the 2026-08-21 refresh preserves GPT-5.6 Sol history and adds Daybreak aliases", async () => {
+test("the bundled refresh preserves GPT-5.6 Sol history and uses the official Daybreak IDs", async () => {
   const pricing = await loadPricing({ source: "bundled" });
 
   expect(
@@ -196,10 +210,46 @@ test("the 2026-08-21 refresh preserves GPT-5.6 Sol history and adds Daybreak ali
       "2026-08-21",
     ),
   ).toBeCloseTo(24);
+  expect(resolveModelAt(pricing.catalog, "gpt-daybreak-red-latest", "2026-08-21")).toBe(
+    "gpt-5.6-cyber",
+  );
+  expect(resolveModelAt(pricing.catalog, "gpt-daybreak-blue-latest", "2026-08-21")).toBe(
+    "gpt-5.6-sol",
+  );
   expect(resolveModelAt(pricing.catalog, "daybreak-red-latest", "2026-08-21")).toBe(
     "gpt-5.6-cyber",
   );
-  expect(resolveModelAt(pricing.catalog, "daybreak-blue-latest", "2026-08-21")).toBe("gpt-5.6-sol");
+  expect(resolveModelAt(pricing.catalog, "daybreak-blue-latest", "2026-08-21")).toBe(
+    "gpt-5.6-sol",
+  );
+  expect(pricing.table.get("gpt-daybreak-red-latest")?.aliasFor).toBe("gpt-5.6-cyber");
+  expect(pricing.table.get("gpt-daybreak-blue-latest")?.aliasFor).toBe("gpt-5.6-sol");
+  expect(pricing.table.get("daybreak-red-latest")?.aliasFor).toBe(
+    "gpt-daybreak-red-latest",
+  );
+  expect(pricing.table.get("daybreak-blue-latest")?.aliasFor).toBe(
+    "gpt-daybreak-blue-latest",
+  );
+  expect(
+    estimate(
+      pricing,
+      "gpt-daybreak-red-latest",
+      undefined,
+      ONE_MILLION_INPUT_AND_OUTPUT,
+      undefined,
+      "2026-08-21",
+    ),
+  ).toBeCloseTo(87.5);
+  expect(
+    estimate(
+      pricing,
+      "gpt-daybreak-blue-latest",
+      undefined,
+      ONE_MILLION_INPUT_AND_OUTPUT,
+      undefined,
+      "2026-08-21",
+    ),
+  ).toBeCloseTo(24);
   expect(
     estimate(
       pricing,
@@ -514,7 +564,14 @@ test("codex-auto-review follows its dated alias unless OpenAI publishes an exact
 });
 
 test("long-context prices require both a known high context limit and a request over 272K input tokens", async () => {
-  const pricing = await loadFixture();
+  const astraMarkdown = OPENAI_PRICING_FIXTURE.replace(
+    '["gpt-5.5 (<272K context length)", 5, 0.5, "-", 30],',
+    '["gpt-6-astra", 10, 1, 12.5, 50],\n    ["gpt-5.5 (<272K context length)", 5, 0.5, "-", 30],',
+  ).replace(
+    '["gpt-5.5", 12.5, 1.25, "-", 75],',
+    '["gpt-6-astra", 20, 2, 25, 100],\n    ["gpt-5.5", 12.5, 1.25, "-", 75],',
+  );
+  const pricing = await loadFixture(astraMarkdown, "2026-09-04");
   const longRequest: TokenBreakdown = {
     totalTokens: 400_000,
     inputTokens: 300_000,
@@ -532,6 +589,16 @@ test("long-context prices require both a known high context limit and a request 
   expect(estimate(pricing, "gpt-5.5", undefined, longRequest, 128_000)).toBeCloseTo(4.5);
   expect(estimate(pricing, "gpt-5.5", undefined, longRequest, 1_050_000)).toBeCloseTo(7.5);
   expect(estimate(pricing, "gpt-5.5", undefined, shortRequest, 1_050_000)).toBeCloseTo(4);
+  expect(
+    estimate(
+      pricing,
+      "gpt-6-astra",
+      undefined,
+      longRequest,
+      1_050_000,
+      "2026-09-04",
+    ),
+  ).toBeCloseTo(13.5);
 });
 
 test("CLI pricing defaults to the authoritative OpenAI catalog", () => {
