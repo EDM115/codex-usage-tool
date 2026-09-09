@@ -96,7 +96,7 @@ export class CliProgress implements ProgressSink {
     const bar = `${"▰".repeat(filled)}${"▱".repeat(width - filled)}`;
 
     if (!this.options.silent && this.statusLine) {
-      process.stderr.write(`${this.statusLine}\n`);
+      process.stderr.write(`${fitTerminalRow(this.statusLine, process.stderr.columns)}\n`);
     }
 
     process.stderr.write(`[${bar}] ${String(percent).padStart(3, " ")}%`);
@@ -118,6 +118,21 @@ export class CliProgress implements ProgressSink {
 
     this.renderedLines = 0;
   }
+}
+
+function fitTerminalRow(message: string, columns: number | undefined): string {
+  if (!columns || !Number.isFinite(columns)) {
+    return message;
+  }
+
+  const available = Math.max(0, Math.floor(columns) - 1);
+  const characters = [...message];
+
+  if (characters.length <= available) {
+    return message;
+  }
+
+  return available > 0 ? `${characters.slice(0, available - 1).join("")}…` : "";
 }
 
 function normalizeStep(step: ProgressStep): ProgressStep {
