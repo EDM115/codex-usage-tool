@@ -22,6 +22,10 @@ type ProgressColorPair = { dark: string; light: string };
 const MODEL_PROGRESS_COLORS: Record<string, ProgressColorPair> = {
   "chat-latest": { dark: "#67d8ef", light: "#087c94" },
   "gpt-6-astra": { dark: "#ff7ac6", light: "#a11a68" },
+  "gpt-image-2.5-sunburst": { dark: "#ffd166", light: "#946000" },
+  "gpt-image-2.5-flare": { dark: "#ff956b", light: "#ad421c" },
+  "gpt-rosalind-research": { dark: "#79d7b5", light: "#16734f" },
+  "gpt-live-1": { dark: "#80caff", light: "#246a9e" },
   "gpt-5.6-sol": { dark: "#f6c453", light: "#9a5b00" },
   "gpt-5.6-terra": { dark: "#50d890", light: "#087a46" },
   "gpt-5.6-luna": { dark: "#afa8ff", light: "#5c45b8" },

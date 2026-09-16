@@ -173,6 +173,7 @@ The generated HTML and images use the first selected Codex home configuration. E
 
 ## Development
 
+For pricing-cache refreshes, follow [the pricing maintenance guide](./PRICING-MAINTENANCE.md), which maps model entries, aliases, effective dates, parser formats, report colors, generated fixtures and validation to their owning files.  
 The root [`demo.json`](./demo.json) is a deterministic, fully synthetic dataset that exercises the report's local usage, cloud analytics, capability, source, cache, attribution, payment, and ROI views without exposing user data. Refresh the tracked fixture after report-schema changes with :
 
 ```pwsh

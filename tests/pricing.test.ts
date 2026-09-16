@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { parseArgs } from "../src/cli";
 import { createModelCatalog, pricingAt, primaryModelAt, resolveModelAt } from "../src/model-catalog";
 import { estimateBreakdownCost, loadPricing } from "../src/pricing";
+import { OPENAI_PRICING_MARKDOWN_CACHE } from "../src/openai-pricing-cache";
 import type { TokenBreakdown } from "../src/types";
 
 const OPENAI_PRICING_FIXTURE = `
@@ -599,6 +600,71 @@ test("long-context prices require both a known high context limit and a request 
       "2026-09-04",
     ),
   ).toBeCloseTo(13.5);
+});
+
+test("indented pricing tables retain official rates and distinguish specialized Fast mode", async () => {
+  const pricing = await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-09-16");
+
+  expect(pricing.warning).toBeUndefined();
+  expect(pricing.table.get("gpt-6-astra")?.inputPerMillion).toBe(10);
+  expect(pricing.table.get("gpt-5.3-codex")?.aliasFor).toBeUndefined();
+  expect(estimate(pricing, "gpt-5.3-codex", "standard")).toBeCloseTo(15.75);
+  expect(estimate(pricing, "gpt-5.3-codex", "fast")).toBeCloseTo(31.5);
+  expect(pricing.table.has("gpt-live-1")).toBe(false);
+  expect(pricing.table.has("gpt-4.1-2025-04-14")).toBe(false);
+  expect(resolveModelAt(pricing.catalog, "chat-latest", "2026-09-15")).toBe("gpt-5.6-sol");
+  expect(pricingAt(pricing.catalog, "chat-latest", "2026-09-16")?.inputPerMillion).toBe(5);
+  expect(pricingAt(pricing.catalog, "gpt-5-search-api", "2026-09-15")).toBeUndefined();
+  expect(pricingAt(pricing.catalog, "gpt-5-search-api", "2026-09-16")?.inputPerMillion).toBe(1.25);
+});
+
+test("September image models have their own dated rates without changing the primary model", async () => {
+  const pricing = await loadPricing({ source: "bundled" });
+
+  for (const model of ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
+    expect(pricingAt(pricing.catalog, model, "2026-09-07")).toBeUndefined();
+    expect(pricingAt(pricing.catalog, model, "2026-09-08")).toMatchObject({
+      inputPerMillion: 5,
+      cachedInputPerMillion: 1.25,
+      outputPerMillion: 30,
+    });
+    expect(pricing.table.get(model)?.aliasFor).toBeUndefined();
+    expect(pricing.table.get(model)?.tiers?.priority).toBeUndefined();
+    expect(estimate(pricing, model)).toBeCloseTo(35);
+  }
+  expect(primaryModelAt(pricing.catalog, "2026-09-16")).toBe("gpt-6-astra");
+  expect(resolveModelAt(pricing.catalog, "chat-latest", "2026-09-16")).toBe("gpt-5.6-sol");
+  expect(estimate(pricing, "gpt-image-2", "batch")).toBeCloseTo(17.5);
+});
+
+test("Rosalind stays free until its billing date with bundled, live, and offline pricing", async () => {
+  const offline = (async (_input: string | URL | Request): Promise<Response> => { throw new Error("offline"); }) as typeof fetch;
+  const sources = [
+    await loadPricing({ source: "bundled" }),
+    await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-09-16"),
+    await loadPricing({ source: "openai", fetcher: offline, effectiveDate: "2026-09-16" }),
+  ];
+
+  for (const pricing of sources) {
+    expect(pricingAt(pricing.catalog, "gpt-rosalind-research", "2026-09-07")).toBeUndefined();
+    for (const date of ["2026-09-08", "2026-09-16", "2026-10-04"]) {
+      expect(estimate(pricing, "gpt-rosalind-research", undefined, ONE_MILLION_INPUT_AND_OUTPUT, undefined, date)).toBe(0);
+    }
+    expect(estimate(pricing, "gpt-rosalind-research", undefined, ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-10-05")).toBeCloseTo(30);
+    expect(pricingAt(pricing.catalog, "gpt-rosalind-research", "2026-10-05")?.cacheWritePerMillion).toBeUndefined();
+  }
+});
+
+test("custom pricing preserves Rosalind's billing schedule unless it explicitly overrides Rosalind", async () => {
+  const root = join(tmpdir(), `codex-pricing-billing-${crypto.randomUUID()}`);
+  const path = join(root, "pricing.json");
+  mkdirSync(root, { recursive: true });
+
+  for (const model of ["gpt-5.6-sol", "gpt-rosalind-research"]) {
+    writeFileSync(path, JSON.stringify([{ model, inputPerMillion: 1, outputPerMillion: 2 }]));
+    const pricing = await loadPricing({ source: "bundled", pricingJson: path, effectiveDate: "2026-09-16" });
+    expect(estimate(pricing, "gpt-rosalind-research", undefined, ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-09-16")).toBe(model === "gpt-rosalind-research" ? 3 : 0);
+  }
 });
 
 test("CLI pricing defaults to the authoritative OpenAI catalog", () => {

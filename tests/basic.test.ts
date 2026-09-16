@@ -1599,6 +1599,9 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
     Object.keys(parsedColorCatalog).sort(),
   ).toEqual([...pricing.table.keys()].sort());
   expect(parsedColorCatalog["gpt-6-astra"]).toEqual({ dark: "#ff7ac6", light: "#a11a68" });
+  expect(parsedColorCatalog["gpt-image-2.5-sunburst"]).toEqual({ dark: "#ffd166", light: "#946000" });
+  expect(parsedColorCatalog["gpt-image-2.5-flare"]).toEqual({ dark: "#ff956b", light: "#ad421c" });
+  expect(parsedColorCatalog["gpt-rosalind-research"]).toEqual({ dark: "#79d7b5", light: "#16734f" });
   const modelRowsScript = html.match(
     /<script id="model-rows" type="application\/json">([\s\S]*?)<\/script>/,
   );

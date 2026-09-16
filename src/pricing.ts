@@ -32,7 +32,9 @@ export type PricingLoadResult = {
 
 const OPENAI_PRICING_URL = "https://developers.openai.com/api/docs/pricing.md";
 const MODELS_DEV_URL = "https://models.dev/api.json";
+const BUNDLED_PRICING_DATE = "2026-09-16";
 const LONG_CONTEXT_THRESHOLD = 272_000;
+const ROSALIND_BILLING_START = "2026-10-05";
 const LONG_CONTEXT_MODELS = new Set([
   "gpt-6-astra",
   "gpt-5.6-sol",
@@ -449,7 +451,9 @@ export async function loadPricing(options: {
 
       validateModelCatalog(catalog);
     } else {
-      overlayCurrentPricing(catalog, table, effectiveDate);
+      // Only explicit file rows override history; bundled rows retain their billing dates.
+      const overrides = new Map([...table].filter(([, row]) => row.source === source));
+      overlayCurrentPricing(catalog, overrides, effectiveDate);
     }
 
     return {
@@ -514,7 +518,7 @@ export async function loadPricing(options: {
   }
 
   applyOpenAiAliases(table, officialKeys);
-  const catalog = overlayCurrentPricing(bundledPricingCatalog(), table, effectiveDate);
+  const catalog = overlayCurrentPricing(bundledPricingCatalog(), table, effectiveDate, true);
 
   return {
     table,
@@ -666,16 +670,16 @@ function pricingTableFromOpenAiMarkdown(
   }
 
   const markdownTablePattern =
-    /^###\s+((?:standard|batch|flex|priority|fast)(?:\s+mode)?\s+pricing data|grouped pricing table data)\s*$/gim;
+    /^[\t ]*###[\t ]+((?:standard|batch|flex|priority|fast)(?:\s+mode)?\s+pricing data|(?:grouped )?pricing table data)[\t ]*\r?$/gim;
 
   for (const section of markdown.matchAll(markdownTablePattern)) {
     const heading = section[1].toLowerCase();
-    const tier: PricingTier = heading.startsWith("fast")
-      ? "priority"
-      : heading.startsWith("grouped")
-        ? "standard"
-        : (heading.split(/\s+/, 1)[0] as PricingTier);
-    const sectionBody = markdown.slice((section.index ?? 0) + section[0].length);
+    const preceding = markdown.slice(0, section.index);
+    const tierLabel = /^(?:grouped )?pricing table/.test(heading)
+      ? [...preceding.matchAll(/^[\t ]*(standard|batch|flex|priority|fast(?: mode)?|cyber models)[\t ]*\r?$/gim)].at(-1)?.[1].toLowerCase() ?? "standard"
+      : heading.split(/\s+/, 1)[0];
+    const tier = normalizePricingTier(tierLabel === "fast mode" ? "fast" : tierLabel);
+    const sectionBody = markdown.slice((section.index ?? 0) + section[0].length).split(/^[\t ]*###\s/m, 1)[0];
     const lines = sectionBody.split(/\r?\n/);
     const headerIndex = lines.findIndex((line) => line.trimStart().startsWith("|"));
 
@@ -685,19 +689,39 @@ function pricingTableFromOpenAiMarkdown(
 
     const headers = parseMarkdownTableRow(lines[headerIndex]).map((header) => header.toLowerCase());
 
-    if (headers[0] !== "model") {
+    const modelIndex = headers.indexOf("model");
+    if (modelIndex < 0 || headers.includes("training")) {
       continue;
     }
+
+    const tableRows: string[][] = [];
 
     for (
       let index = headerIndex + 2;
       index < lines.length && lines[index].trimStart().startsWith("|");
       index += 1
     ) {
-      const cells = parseMarkdownTableRow(lines[index]);
-      const label = cells[0];
+      tableRows.push(parseMarkdownTableRow(lines[index]));
+    }
+
+    for (const cells of tableRows) {
+      const label = cells[modelIndex];
+      if (!label) {
+        continue;
+      }
       const model = normalizeOpenAiModelLabel(label);
-      const shortRates = parseMarkdownPricingRates(headers, cells, "short");
+      const modalityIndex = headers.indexOf("modality");
+      // Preserve the existing image estimate: text input/cache plus image output.
+      // TokenBreakdown cannot distinguish image input from text input.
+      const textRow = modalityIndex >= 0 && model.startsWith("gpt-image-") && cells[modalityIndex]?.toLowerCase() === "image"
+        ? tableRows.find((row) => row[modelIndex] === label && row[modalityIndex]?.toLowerCase() === "text")
+        : undefined;
+      if (modalityIndex >= 0 && !textRow) {
+        continue;
+      }
+      const shortRates = textRow
+        ? parseMarkdownPricingRates(headers, cells.map((cell, index) => headers[index] === "output" ? cell : textRow[index]), "short")
+        : parseMarkdownPricingRates(headers, cells, "short");
 
       if (!shortRates) {
         continue;
@@ -768,7 +792,10 @@ function parseMarkdownPricingRates(
   context: "short" | "long",
 ): PricingRates | undefined {
   const value = (column: string) => {
-    const index = headers.indexOf(`${context} context ${column}`);
+    let index = headers.indexOf(`${context} context ${column}`);
+    if (index < 0 && context === "short") {
+      index = headers.indexOf(column);
+    }
     return index < 0 ? undefined : parsePriceValue(cells[index] ?? "");
   };
   const input = value("input");
@@ -975,7 +1002,7 @@ function pricingHistoryFromObject(raw: any, source: string): ModelPricingDefinit
 function bundledPricingTable(): Map<string, ModelPricing> {
   const table = pricingTableFromOpenAiMarkdown(
     OPENAI_PRICING_MARKDOWN_CACHE,
-    "bundled OpenAI pricing cache 2026-09-03",
+    `bundled OpenAI pricing cache ${BUNDLED_PRICING_DATE}`,
   );
   const officialKeys = new Set(table.keys());
 
@@ -989,14 +1016,16 @@ function bundledPricingCatalog(table = bundledPricingTable()): ModelCatalog {
   const catalog = createModelCatalog();
 
   for (const [key, row] of table) {
-    if (row.aliasFor) {
+    if (row.aliasFor || catalog.aliases.some((alias) => alias.alias.toLowerCase() === key)) {
       continue;
     }
 
     const definition = BUNDLED_MODEL_DEFINITIONS.find(
       (candidate) => candidate.model.toLowerCase() === key,
     );
-    const effectiveFrom = definition?.releasedOn ?? "2026-07-30";
+    // An unlisted model is only known as of this snapshot, not an invented release date.
+    const effectiveFrom = definition?.releasedOn ?? BUNDLED_PRICING_DATE;
+    ensureModelDefinition(catalog, key, effectiveFrom, row.source);
 
     if (key === "gpt-5.6-sol" || key === "gpt-5.6-terra" || key === "gpt-5.6-luna") {
       addPricingPeriod(catalog, preReductionGpt56Pricing(key));
@@ -1004,6 +1033,9 @@ function bundledPricingCatalog(table = bundledPricingTable()): ModelCatalog {
         catalog,
         pricingDefinition(row, key === "gpt-5.6-sol" ? "2026-08-21" : "2026-07-30"),
       );
+    } else if (key === "gpt-rosalind-research") {
+      addPricingPeriod(catalog, standardPricingPeriod(key, effectiveFrom, 0, 0, 0, "https://developers.openai.com/api/docs/changelog"));
+      addPricingPeriod(catalog, pricingDefinition(row, ROSALIND_BILLING_START));
     } else {
       addPricingPeriod(catalog, pricingDefinition(row, effectiveFrom));
     }
@@ -1019,17 +1051,21 @@ function overlayCurrentPricing(
   catalog: ModelCatalog,
   table: Map<string, ModelPricing>,
   effectiveDate: string,
+  respectBillingStart = false,
 ): ModelCatalog {
   for (const [key, row] of table) {
     if (row.aliasFor) {
       continue;
     }
 
-    ensureModelDefinition(catalog, key, effectiveDate, row.source);
-    const current = pricingAt(catalog, key, effectiveDate);
+    const startsOn = respectBillingStart && key === "gpt-rosalind-research" && effectiveDate < ROSALIND_BILLING_START
+      ? ROSALIND_BILLING_START
+      : effectiveDate;
+    ensureModelDefinition(catalog, key, startsOn, row.source);
+    const current = pricingAt(catalog, key, startsOn);
 
     if (!current || !samePricing(current, row)) {
-      addPricingPeriod(catalog, pricingDefinition(row, effectiveDate));
+      addPricingPeriod(catalog, pricingDefinition(row, startsOn));
     }
   }
 

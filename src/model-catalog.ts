@@ -25,6 +25,7 @@ export type ModelCatalog = {
 };
 
 const SOURCES = {
+  changelog: "https://developers.openai.com/api/docs/changelog",
   gpt6Astra: "https://developers.openai.com/api/docs/models/gpt-6-astra",
   gpt56: "https://openai.com/index/gpt-5-6/",
   gpt56Cyber: "https://developers.openai.com/api/docs/models/gpt-5.6-cyber",
@@ -132,6 +133,14 @@ export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
   model("davinci-002", "2023-07-06", SOURCES.legacy),
   model("babbage-002", "2023-07-06", SOURCES.legacy),
   model("gpt-image-2", "2026-04-21", SOURCES.image2),
+  model("gpt-image-1", "2025-04-23", SOURCES.changelog),
+  model("gpt-image-1-mini", "2025-10-06", SOURCES.changelog),
+  model("gpt-image-1.5", "2025-12-16", SOURCES.changelog),
+  model("gpt-image-2.5-sunburst", "2026-09-08", SOURCES.changelog),
+  model("gpt-image-2.5-flare", "2026-09-08", SOURCES.changelog),
+  model("gpt-rosalind-research", "2026-09-08", SOURCES.changelog),
+  // Duration-priced sessions are catalogued, but have no per-token pricing row
+  model("gpt-live-1", "2026-09-10", SOURCES.changelog),
   model("text-embedding-3-large", "2024-01-25", SOURCES.embeddings),
   model("text-embedding-3-small", "2024-01-25", SOURCES.embeddings),
   model("text-embedding-ada-002", "2022-12-15", SOURCES.embeddings),
