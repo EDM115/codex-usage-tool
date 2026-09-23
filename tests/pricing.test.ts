@@ -606,6 +606,8 @@ test("indented pricing tables retain official rates and distinguish specialized 
   const pricing = await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-09-16");
 
   expect(pricing.warning).toBeUndefined();
+  expect(pricingAt(pricing.catalog, "gpt-6-sol", "2026-09-16")).toBeUndefined();
+  expect(pricingAt(pricing.catalog, "gpt-6-luna", "2026-09-16")).toBeUndefined();
   expect(pricing.table.get("gpt-6-astra")?.inputPerMillion).toBe(10);
   expect(pricing.table.get("gpt-5.3-codex")?.aliasFor).toBeUndefined();
   expect(estimate(pricing, "gpt-5.3-codex", "standard")).toBeCloseTo(15.75);
@@ -635,6 +637,40 @@ test("September image models have their own dated rates without changing the pri
   expect(primaryModelAt(pricing.catalog, "2026-09-16")).toBe("gpt-6-astra");
   expect(resolveModelAt(pricing.catalog, "chat-latest", "2026-09-16")).toBe("gpt-5.6-sol");
   expect(estimate(pricing, "gpt-image-2", "batch")).toBeCloseTo(17.5);
+});
+
+test("GPT-6 Sol and Luna begin on their release date with distinct tier and context rates", async () => {
+  const pricing = await loadPricing({ source: "bundled" });
+
+  for (const [model, input, output, longInput, longOutput] of [
+    ["gpt-6-sol", 2, 10, 4, 15],
+    ["gpt-6-luna", 0.1, 0.5, 0.2, 0.75],
+  ] as const) {
+    expect(pricingAt(pricing.catalog, model, "2026-09-21")).toBeUndefined();
+    const released = pricingAt(pricing.catalog, model, "2026-09-22");
+    expect(released?.effectiveFrom).toBe("2026-09-22");
+    expect(released?.inputPerMillion).toBe(input);
+    expect(released?.outputPerMillion).toBe(output);
+    expect(released?.cachedInputPerMillion).toBe(input / 10);
+    expect(released?.cacheWritePerMillion).toBe(input * 1.25);
+    expect(released?.tiers?.standard?.long).toMatchObject({ inputPerMillion: longInput, outputPerMillion: longOutput });
+    expect(released?.tiers?.batch?.short).toMatchObject({ inputPerMillion: input / 2, outputPerMillion: output / 2 });
+    expect(released?.tiers?.flex?.short).toMatchObject({ inputPerMillion: input / 2, outputPerMillion: output / 2 });
+    expect(released?.tiers?.priority?.long).toMatchObject({ inputPerMillion: longInput * 2, outputPerMillion: longOutput * 2 });
+    expect(pricing.table.get(model)?.aliasFor).toBeUndefined();
+    const longRequest: TokenBreakdown = {
+      totalTokens: 400_000,
+      inputTokens: 300_000,
+      cachedInputTokens: 0,
+      outputTokens: 100_000,
+      reasoningOutputTokens: 0,
+    };
+    expect(estimate(pricing, model, "standard", longRequest, 1_050_000, "2026-09-22")).toBeCloseTo(longInput * 0.3 + longOutput * 0.1);
+    expect(estimate(pricing, model, "standard", longRequest, 128_000, "2026-09-22")).toBeCloseTo(input * 0.3 + output * 0.1);
+  }
+
+  expect(primaryModelAt(pricing.catalog, "2026-09-23")).toBe("gpt-6-astra");
+  expect(pricingAt(pricing.catalog, "gpt-5-search-api", "2026-09-16")?.inputPerMillion).toBe(1.25);
 });
 
 test("Rosalind stays free until its billing date with bundled, live, and offline pricing", async () => {

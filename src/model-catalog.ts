@@ -27,6 +27,8 @@ export type ModelCatalog = {
 const SOURCES = {
   changelog: "https://developers.openai.com/api/docs/changelog",
   gpt6Astra: "https://developers.openai.com/api/docs/models/gpt-6-astra",
+  gpt6Sol: "https://developers.openai.com/api/docs/models/gpt-6-sol",
+  gpt6Luna: "https://developers.openai.com/api/docs/models/gpt-6-luna",
   gpt56: "https://openai.com/index/gpt-5-6/",
   gpt56Cyber: "https://developers.openai.com/api/docs/models/gpt-5.6-cyber",
   daybreakBlue: "https://developers.openai.com/api/docs/models/gpt-daybreak-blue-latest",
@@ -67,6 +69,8 @@ function model(
 
 export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
   model("gpt-6-astra", "2026-09-03", SOURCES.gpt6Astra, true),
+  model("gpt-6-sol", "2026-09-22", SOURCES.gpt6Sol),
+  model("gpt-6-luna", "2026-09-22", SOURCES.gpt6Luna),
   model("gpt-5.6-sol", "2026-07-09", SOURCES.gpt56, true),
   model("gpt-5.6-terra", "2026-07-09", SOURCES.gpt56),
   model("gpt-5.6-luna", "2026-07-09", SOURCES.gpt56),
@@ -141,6 +145,8 @@ export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
   model("gpt-rosalind-research", "2026-09-08", SOURCES.changelog),
   // Duration-priced sessions are catalogued, but have no per-token pricing row
   model("gpt-live-1", "2026-09-10", SOURCES.changelog),
+  // First observed in the 2026-09-16 pricing cache; its release date is not established here.
+  model("gpt-5-search-api", "2026-09-16", SOURCES.pricing),
   model("text-embedding-3-large", "2024-01-25", SOURCES.embeddings),
   model("text-embedding-3-small", "2024-01-25", SOURCES.embeddings),
   model("text-embedding-ada-002", "2022-12-15", SOURCES.embeddings),

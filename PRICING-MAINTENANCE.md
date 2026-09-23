@@ -35,6 +35,8 @@ Rosalind has a zero-cost period from September 8 through October 4, then $5/M in
 GPT-Live sessions cost $0.05/minute, billed per second, with backend model/tool usage charged separately. The catalog records its availability, but it has no per-token rate. The token estimator cannot calculate the session charge: do not convert $0.05/minute into $0.05/M tokens or a zero-cost token row. Unknown/unpriced token events retain the tool's normal fallback estimation; that is not GPT-Live billing. Duration billing would require separate usage fields and estimation support.  
 The removed `gpt-5.4-cyber` row contained only missing-price markers. Keep its historical model definition; removal of an unpriced row is not evidence to delete a model or redirect its aliases. Existing Daybreak and review-model aliases retain their dated mappings unless a new authoritative mapping is supplied.
 
+The September 23 cache adds `gpt-6-sol` and `gpt-6-luna`, which the [API changelog](https://developers.openai.com/api/docs/changelog) dates to September 22. Both have published short- and long-context rates for Standard, Batch, Flex, and Fast mode. They are canonical IDs with no documented shared `gpt-6` alias. Astra remains the inferred primary because model availability alone does not identify a replacement default. `gpt-5-search-api` was already present in the September 16 cache; its first-observed date is pinned in the model catalog so advancing `BUNDLED_PRICING_DATE` does not erase that historical pricing period. A live fetch with an earlier effective date must skip models not yet released.
+
 ## Verification sequence
 
 1. Review the staged semantic diff and collect source evidence before editing metadata.

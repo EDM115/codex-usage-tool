@@ -32,11 +32,13 @@ export type PricingLoadResult = {
 
 const OPENAI_PRICING_URL = "https://developers.openai.com/api/docs/pricing.md";
 const MODELS_DEV_URL = "https://models.dev/api.json";
-const BUNDLED_PRICING_DATE = "2026-09-16";
+const BUNDLED_PRICING_DATE = "2026-09-23";
 const LONG_CONTEXT_THRESHOLD = 272_000;
 const ROSALIND_BILLING_START = "2026-10-05";
 const LONG_CONTEXT_MODELS = new Set([
   "gpt-6-astra",
+  "gpt-6-sol",
+  "gpt-6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -1051,14 +1053,19 @@ function overlayCurrentPricing(
   catalog: ModelCatalog,
   table: Map<string, ModelPricing>,
   effectiveDate: string,
-  respectBillingStart = false,
+  respectPublishedDates = false,
 ): ModelCatalog {
   for (const [key, row] of table) {
     if (row.aliasFor) {
       continue;
     }
 
-    const startsOn = respectBillingStart && key === "gpt-rosalind-research" && effectiveDate < ROSALIND_BILLING_START
+    const definition = BUNDLED_MODEL_DEFINITIONS.find((candidate) => candidate.model.toLowerCase() === key);
+    if (respectPublishedDates && definition && definition.releasedOn > effectiveDate) {
+      continue;
+    }
+
+    const startsOn = respectPublishedDates && key === "gpt-rosalind-research" && effectiveDate < ROSALIND_BILLING_START
       ? ROSALIND_BILLING_START
       : effectiveDate;
     ensureModelDefinition(catalog, key, startsOn, row.source);
