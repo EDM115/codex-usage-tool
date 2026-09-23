@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { buildDataset } from "../src/aggregate";
+import { createCapabilityEvidenceTracker, extractCapabilityUsageEvents } from "../src/capabilities";
 import { emptyPaymentHistory } from "../src/payments";
+import { ROLLOUT_PARSE_CACHE_VERSION } from "../src/parse-cache";
 import { loadPricing } from "../src/pricing";
 import { renderCapabilitiesPieSvg, renderChartSvg } from "../src/render";
 import { buildReportModelRows, renderReportHtml, type ReportModelRow } from "../src/report-html";
@@ -89,6 +91,23 @@ test("collectRolloutEvents parses token_count breakdowns", async () => {
   });
   expect(result.events[0].model).toBe("gpt-5");
   expect(result.events[0].reasoningEffort).toBe("high");
+});
+
+test("collectRolloutEvents attributes Daybreak tokens by turn context and resets a missing value to standard", async () => {
+  const root = join(tmpdir(), `codex-usage-cyber-test-${crypto.randomUUID()}`);
+  const codexHome = join(root, ".codex");
+  const sessions = join(codexHome, "sessions", "2026", "09", "23");
+  mkdirSync(sessions, { recursive: true });
+  const rollout = join(sessions, "rollout-2026-09-23T16-00-00-00000000-0000-0000-0000-000000000111.jsonl");
+  const context = (minute: number, cyber_access_program?: string) => JSON.stringify({ timestamp: `2026-09-23T16:${String(minute).padStart(2, "0")}:00Z`, type: "turn_context", payload: { model: "gpt-6-luna", cyber_access_program } });
+  const tokens = (minute: number, total: number) => JSON.stringify({ timestamp: `2026-09-23T16:${String(minute).padStart(2, "0")}:00Z`, type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: total - 10, output_tokens: 10, total_tokens: total }, last_token_usage: { input_tokens: 90, output_tokens: 10, total_tokens: 100 } } } });
+  writeFileSync(rollout, [
+    JSON.stringify({ timestamp: "2026-09-23T16:00:00Z", type: "session_meta", payload: { id: "00000000-0000-0000-0000-000000000111" } }),
+    context(1, "daybreak_blue"), tokens(2, 100), context(3), tokens(4, 200), context(5, "daybreak_red"), tokens(6, 300),
+  ].join("\n"));
+  const result = await collectRolloutEvents({ homes: [{ path: codexHome, label: "test" }], timezone: "UTC", from: null, to: null });
+  expect(result.events.map((event) => event.cyberAccessProgram)).toEqual(["daybreak_blue", "standard", "daybreak_red"]);
+  expect(result.events.map((event) => event.breakdown.totalTokens)).toEqual([100, 100, 100]);
 });
 
 test("collectRolloutEvents preserves U+2028 inside a JSONL string", async () => {
@@ -374,9 +393,9 @@ test("collectRolloutEvents reuses unchanged parse cache entries and reparses gro
     cacheDir,
   });
 
-  expect(first.cache).toMatchObject({ version: 3, hits: 0, misses: 1, invalidations: 0 });
-  expect(second.cache).toMatchObject({ version: 3, hits: 1, misses: 0, invalidations: 0 });
-  expect(grown.cache).toMatchObject({ version: 3, hits: 0, misses: 0, invalidations: 1 });
+  expect(first.cache).toMatchObject({ version: ROLLOUT_PARSE_CACHE_VERSION, hits: 0, misses: 1, invalidations: 0 });
+  expect(second.cache).toMatchObject({ version: ROLLOUT_PARSE_CACHE_VERSION, hits: 1, misses: 0, invalidations: 0 });
+  expect(grown.cache).toMatchObject({ version: ROLLOUT_PARSE_CACHE_VERSION, hits: 0, misses: 0, invalidations: 1 });
   expect(grown.events.map((event) => event.breakdown.totalTokens)).toEqual([100, 50]);
 });
 
@@ -567,6 +586,16 @@ test("collectRolloutEvents extracts dated skill and plugin evidence without low-
   expect(filtered.capabilityEvents?.map((event) => [event.date, event.name])).toEqual([
     ["2026-07-11", "using-superpowers"],
   ]);
+});
+
+test("dynamic skill reads use the selected path reported by the matching tool output", () => {
+  const tracker = createCapabilityEvidenceTracker();
+  const common = { lineIndex: 0, rolloutPath: "sample.jsonl", homePath: "home", homeLabel: "test", threadId: "thread", timezone: "UTC", tracker };
+  const call = { timestamp: "2026-09-23T14:00:00Z", type: "response_item", payload: { type: "custom_tool_call", name: "functions.exec", call_id: "read-1", input: "const selected = chooseSkill(); Get-Content selected.FullName" } };
+  expect(extractCapabilityUsageEvents({ ...common, parsed: call, payload: call.payload })).toEqual([]);
+  const output = { timestamp: "2026-09-23T14:00:01Z", type: "response_item", payload: { type: "custom_tool_call_output", call_id: "read-1", output: [{ type: "text", text: "Skill : C:\\Users\\dev\\.agents\\skills\\security-and-hardening\\SKILL.md\nFirstFiveWords : Security and hardening guidance applies" }] } };
+  expect(extractCapabilityUsageEvents({ ...common, parsed: output, payload: output.payload }).map((event) => [event.name, event.evidenceType])).toEqual([["security-and-hardening", "skill_file_read"]]);
+  expect(extractCapabilityUsageEvents({ ...common, parsed: output, payload: output.payload })).toEqual([]);
 });
 
 test("collectRolloutEvents follows thread settings model and service tier changes", async () => {
@@ -1093,7 +1122,7 @@ test("buildDataset distinguishes attribution completeness from certainty and rep
     ...resolveUsageThemes([]),
   });
 
-  expect(dataset.schemaVersion).toBe(3);
+  expect(dataset.schemaVersion).toBe(4);
   expect((dataset as UsageDataset & { payments?: unknown }).payments).toEqual(
     emptyPaymentHistory(),
   );
@@ -1390,8 +1419,8 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(toPicker).not.toContain(" min=");
   expect(toPicker).not.toContain(" max=");
   expect(html).toContain('class="date-entry-coverage"');
-  expect(html).toContain("Usage entries : 27/06/2026 – 27/06/2026");
-  expect(html).toContain("Payment entries : 2025-02 – 2026-06");
+  expect(html).toContain("Usage entries : 27/06/2026 - 27/06/2026");
+  expect(html).toContain("Payment entries : 2025-02 - 2026-06");
   expect(html).toContain("rangeForPreset(reportDates, preset, paymentEntryMonths)");
   expect(html).not.toContain('placeholder="DD/MM/YYYY"');
   expect(html).toContain("function applyPreset");
@@ -1406,7 +1435,7 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(html).toContain("function filteredAnalytics");
   expect(html).toContain("const models = filteredReportModels()");
   expect(html).toContain("const analytics = filteredAnalytics() || { }");
-  expect(html).toContain("Cloud tasks (current snapshot)");
+  expect(html).not.toContain("Cloud tasks (current snapshot)");
   expect(html).toContain('data-stat-value="120"');
   expect(html).toContain("local sessions");
   expect(html).toContain("cached input tokens");
@@ -1427,7 +1456,7 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   ]);
   expect(summaryCards).toContain('data-stat-kind="duration"');
   expect(html).toContain("Local coverage");
-  expect(html).toContain("Attribution completeness / certainty");
+  expect(html).toContain("Attribution completeness/certainty");
   expect(html).toContain(
     ".stats { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr));",
   );
@@ -1559,7 +1588,8 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(html).toContain("drawCompositionStack('Input details'");
   expect(html).toContain("drawCompositionStack('Output details'");
   expect(html).toContain('class="report-title"');
-  expect(html).toContain('class="breakdown-sidebar"');
+  expect(html).toContain('id="analyticsBreakdown" class="breakdown-grid"');
+  expect(html).not.toContain('class="breakdown-sidebar"');
   expect(html).toContain('class="model-details"');
   expect(html).toContain("function serviceTierRows");
   expect(html).toContain('id="themePickerButton"');

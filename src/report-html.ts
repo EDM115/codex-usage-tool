@@ -11,6 +11,8 @@ import { readFileSync } from "node:fs";
 
 import { paymentMonthTotals } from "./payments";
 import { rangeForPreset, reportRuntimeSource } from "./report-runtime";
+import { REPORT_SECTIONS, type ReportSection } from "./sections";
+import { extendedAnalyticsRuntimeSource } from "./report-extended";
 import { compactNumber, escapeHtml, money, pluralize } from "./util";
 
 const CODEX_ICON_DATA_URI = `data:image/webp;base64,${readFileSync(
@@ -131,9 +133,34 @@ export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
   return [...localRows, ...cloudOnlyRows];
 }
 
-export function renderReportHtml(dataset: UsageDataset): string {
-  const dataJson = JSON.stringify(dataset).replaceAll("</", "<\\/");
-  const modelRowsJson = JSON.stringify(buildReportModelRows(dataset)).replaceAll("</", "<\\/");
+export function renderReportHtml(dataset: UsageDataset, sections: readonly ReportSection[] = REPORT_SECTIONS): string {
+  const enabled = (section: ReportSection) => sections.includes(section);
+  const breakdownEnabled = ["models", "surfaces", "skills", "thinking", "mode", "cyber", "token", "input", "output"].some((section) => enabled(section as ReportSection));
+  const breakdownExportEnabled = ["models", "surfaces", "skills", "thinking", "mode", "cyber", "token", "input", "output"].every((section) => enabled(section as ReportSection));
+  const attributionEnabled = ["feature", "models", "surfaces", "turn"].some((section) => enabled(section as ReportSection));
+  const limitsEnabled = ["limits-feature", "limits-model", "limits-surface", "limits-turn"].some((section) => enabled(section as ReportSection));
+  const sectionsJson = JSON.stringify(sections).replaceAll("</", "<\\/");
+  const embedded: any = JSON.parse(JSON.stringify(dataset));
+  embedded.local.threads = [];
+  embedded.local.modelUsage = [];
+  embedded.local.events = enabled("cyber") ? (embedded.local.events ?? []).map((event: any) => ({ date: event.date, model: event.model, cyberAccessProgram: event.cyberAccessProgram, breakdown: { totalTokens: event.breakdown.totalTokens } })) : [];
+  embedded.local.capabilityEvents = enabled("skills") ? embedded.local.capabilityEvents.map((event: any) => ({ date: event.date, kind: event.kind, name: event.name, evidenceType: event.evidenceType, confidence: event.confidence })) : [];
+  embedded.local.parseErrors = [];
+  embedded.local.coverage.missingRoots = [];
+  embedded.codexHomes = [];
+  embedded.sources = [];
+  embedded.profile = undefined;
+  if (embedded.analytics) {
+    embedded.analytics.tasks = undefined;
+    if (!enabled("chats")) embedded.analytics.topChats = undefined;
+    if (!attributionEnabled && !enabled("models") && !enabled("surfaces")) embedded.analytics.dailyTokenUsageBreakdown = undefined;
+    if (!enabled("messages-model") && !enabled("messages-surface") && !enabled("models") && !enabled("surfaces")) embedded.analytics.workspaceUsageCounts = undefined;
+    if (!limitsEnabled) embedded.analytics.planLimitHistory = undefined;
+    if (!enabled("skills")) { embedded.analytics.pluginUsage = undefined; embedded.analytics.skillUsage = undefined; }
+  }
+  const dataJson = JSON.stringify(embedded).replaceAll("</", "<\\/");
+  const modelRowsNeeded = ["models", "thinking", "mode", "cyber"].some((section) => enabled(section as ReportSection));
+  const modelRowsJson = JSON.stringify(modelRowsNeeded ? buildReportModelRows(dataset) : []).replaceAll("</", "<\\/");
   const paymentMonths = paymentMonthTotals(dataset.payments);
   const paymentMonthsJson = JSON.stringify(paymentMonths).replaceAll("</", "<\\/");
   const paymentEntryMonths = Object.keys(paymentMonths).sort();
@@ -155,7 +182,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
   );
   const theme = dataset.theme;
 
-  return `<!doctype html>
+  const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -165,6 +192,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
   <style>
     ${cssVars(theme)}
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body {
       margin: 0;
       background: var(--bg);
@@ -256,6 +284,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .model-details { display: grid; gap: 9px; margin-left: 12px; padding-left: 11px; border-left: 1px solid var(--line); }
     .model-section { display: grid; gap: 7px; }
     .model-section + .model-section { padding-top: 9px; border-top: 1px solid var(--line); }
+    .surface-section { padding-top: 14px; border-top: 1px solid var(--line); }
     .capability-section { padding-top: 12px; border-top: 1px solid var(--line); }
     .model-section h4 { margin: 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
     .overall-sections { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
@@ -303,7 +332,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
     .roi-percent-dot { fill: #f1fa8c; fill-opacity: .55; }
     .roi-percent-axis { fill: #f1fa8c; }
     .roi-equal-dot { fill: #f1fa8c; }
-    .breakdown-grid { display: grid; grid-template-columns: minmax(0, 2.15fr) minmax(280px, .85fr); gap: 14px; min-width: 0; align-items: start; }
+    .breakdown-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; align-items: start; }
     .breakdown-sidebar { display: grid; gap: 14px; min-width: 0; }
     .breakdown-panel { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--bg); min-width: 0; overflow: hidden; }
     .rows { display: grid; gap: 10px; margin-top: 12px; }
@@ -337,6 +366,42 @@ export function renderReportHtml(dataset: UsageDataset): string {
       white-space: pre-line;
     }
     .notes { color: var(--muted); display: grid; gap: 6px; }
+    .analytics-bars { display: flex; align-items: end; gap: 3px; height: 190px; padding: 8px 0 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .analytics-bars-dense { gap: 1px; }
+    .analytics-bars-dense .analytics-day { min-width: 2px; }
+    .analytics-day { display: flex; flex: 1 1 0; min-width: 4px; height: 100%; align-items: end; padding: 0; border: 0; border-radius: 3px 3px 0 0; background: transparent; }
+    .analytics-day:hover, .analytics-day.selected { background: var(--panel2); outline: 1px solid var(--accent2); }
+    .analytics-day-muted { opacity: .27; }
+    .analytics-day-muted:hover { opacity: .7; }
+    .analytics-day-stack { display: flex; flex-direction: column-reverse; width: 100%; overflow: hidden; border-radius: 3px 3px 0 0; }
+    .analytics-day-stack span { display: block; width: 100%; }
+    .analytics-day-stack .analytics-segment-muted { opacity: .18; }
+    .analytics-chart-title { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+    .analytics-chart-title span, .analytics-axis { color: var(--muted); font-size: 12px; }
+    .analytics-axis { display: flex; justify-content: space-between; margin-top: 4px; }
+    .analytics-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 9px 18px; margin-top: 16px; }
+    .analytics-legend-item { display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; gap: 9px; align-items: center; min-width: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text); font: inherit; text-align: left; padding: 4px 6px; cursor: pointer; }
+    .analytics-legend-item:hover, .analytics-legend-item:focus-visible { background: var(--panel2); outline: 1px solid var(--accent2); }
+    .analytics-legend-muted { opacity: .3; }
+    .analytics-legend-item i { height: 32px; border-radius: 2px; }
+    .analytics-legend-item span { color: var(--muted); overflow-wrap: anywhere; }
+    .analytics-limit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+    .analytics-limit-grid > div { min-width: 0; }
+    .analytics-period, .analytics-chat { border: 1px solid var(--line); border-radius: 5px; margin-top: 6px; }
+    .analytics-period summary, .analytics-chat summary { display: flex; justify-content: space-between; gap: 12px; border: 0; background: var(--panel2); }
+    .analytics-period-body, .analytics-chat-details { display: grid; gap: 7px; padding: 10px; }
+    .analytics-limit-row { display: flex; justify-content: space-between; gap: 12px; }
+    .analytics-limit-row span { color: var(--muted); }
+    .analytics-table-head, .analytics-chat summary { display: grid; grid-template-columns: minmax(0, 1fr) 150px 100px; gap: 12px; }
+    .analytics-table-head { color: var(--muted); padding: 8px; }
+    .analytics-chat summary strong, .analytics-table-head span:not(:first-child) { text-align: right; }
+    .analytics-chat summary > span, .analytics-chat summary > strong, .analytics-table-head > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .analytics-chat summary > strong { font-variant-numeric: tabular-nums; }
+    .analytics-chat-details { color: var(--muted); }
+    .analytics-show-more { margin-top: 10px; }
+    .analytics-two-charts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
+    .analytics-two-charts > div + div { border-top: 1px solid var(--line); padding-top: 22px; }
+    @media (max-width: 600px) { .analytics-table-head, .analytics-chat summary { grid-template-columns: minmax(0, 1fr) 90px 70px; gap: 4px; font-size: 12px; } }
     .warning { color: var(--warning); }
     .diagnostics { border-top: 1px solid var(--line); padding-top: 8px; }
     .diagnostics summary { width: fit-content; }
@@ -385,7 +450,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       </div>
     </header>
 
-    <section class="stats">
+    <section class="stats"${enabled("summary") ? "" : " hidden"}>
       ${stat("lifetime tokens", dataset.summary.lifetimeTokens)}
       ${stat("cached input tokens", dataset.summary.cachedInputTokens)}
       ${stat("local enriched tokens", dataset.summary.localKnownTokens)}
@@ -398,7 +463,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       ${stat("dashboard turns", dataset.analytics?.totals?.turns ?? 0)}
     </section>
 
-    <section class="section">
+    <section class="section"${enabled("intensity") ? "" : " hidden"}>
       <div class="section-head">
         <div class="section-title">
           <h2>Daily intensity</h2>
@@ -410,7 +475,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       <div class="legend">Less <span class="cell" data-level="0"></span><span class="cell" data-level="1"></span><span class="cell" data-level="2"></span><span class="cell" data-level="3"></span><span class="cell" data-level="4"></span><span class="cell" data-level="5"></span> More</div>
     </section>
 
-    <section class="section">
+    <section class="section"${enabled("trend") ? "" : " hidden"}>
       <div class="section-head">
         <div class="section-title">
           <h2>Usage trend</h2>
@@ -421,7 +486,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       <svg id="chart" class="chart" role="img" aria-label="Codex token usage chart"></svg>
     </section>
 
-    <section class="section">
+    <section class="section"${enabled("roi") ? "" : " hidden"}>
       <div class="section-head">
         <div class="section-title">
           <h2>Return on investment</h2>
@@ -433,10 +498,10 @@ export function renderReportHtml(dataset: UsageDataset): string {
       <p id="roiPartial" class="roi-message warning" hidden>Payment history is partial, known values may be incomplete</p>
       <div id="roiContent">
         <div class="roi-stats">
-          <div class="roi-stat"><strong id="roiPaid">—</strong><span>Amount paid</span></div>
-          <div class="roi-stat"><strong id="roiValue">—</strong><span>Estimated API value</span></div>
-          <div class="roi-stat"><strong id="roiCoverage">—</strong><span>Value coverage</span></div>
-          <div class="roi-stat"><strong id="roiPercent">—</strong><span>Conventional ROI</span></div>
+      <div class="roi-stat"><strong id="roiPaid">-</strong><span>Amount paid</span></div>
+      <div class="roi-stat"><strong id="roiValue">-</strong><span>Estimated API value</span></div>
+      <div class="roi-stat"><strong id="roiCoverage">-</strong><span>Value coverage</span></div>
+      <div class="roi-stat"><strong id="roiPercent">-</strong><span>Conventional ROI</span></div>
         </div>
         <div id="roiStatus" class="roi-status"><span id="roiStatusDot" class="roi-status-dot"></span><span id="roiStatusText">Waiting for selected range</span></div>
         <svg id="roiChart" class="chart" role="img" aria-label="Subscription spend and API-equivalent value by month"></svg>
@@ -444,25 +509,35 @@ export function renderReportHtml(dataset: UsageDataset): string {
       </div>
     </section>
 
-    <section class="section">
+    <section class="section"${breakdownEnabled ? "" : " hidden"}>
       <div class="section-head">
         <div class="section-title">
           <h2>Usage breakdown</h2>
-          <p class="section-copy">Local model usage enriched with matching WHAM metrics, plus cloud surface and task metadata</p>
+          <p class="section-copy">Local model usage enriched with matching WHAM metrics and surface activity</p>
         </div>
-        <div class="section-actions breakdown-actions">${downloadMenu("dashboard")}</div>
+        <div class="section-actions breakdown-actions">${breakdownExportEnabled ? downloadMenu("dashboard") : ""}</div>
       </div>
       <div id="analyticsBreakdown" class="breakdown-grid"></div>
     </section>
 
-    <section class="section notes">
+    ${attributionEnabled ? `<section class="section"><div class="section-head"><div class="section-title"><h2>Total usage history</h2><p class="section-copy">Daily attributed usage, grouped by the selected dimension, shares use each day's attribution total</p></div><label class="select-control"><select id="attributionDimension" aria-label="Total usage grouping">${enabled("feature") ? '<option value="feature">By feature</option>' : ""}${enabled("models") ? '<option value="model">By model</option>' : ""}${enabled("surfaces") ? '<option value="surface">By surface</option>' : ""}${enabled("turn") ? '<option value="turn">By turn start</option>' : ""}</select>${controlChevron()}</label></div><div id="attributionHistory"></div></section>` : ""}
+
+    ${enabled("chats") ? '<section class="section"><div class="section-head"><div class="section-title"><h2>Top chats</h2><p class="section-copy">Recent local chats ranked by account plan usage, chat titles may contain personal information</p></div></div><div id="topChats"></div></section>' : ""}
+
+    ${limitsEnabled ? `<section class="section"><div class="section-head"><div class="section-title"><h2>Plan usage history</h2><p class="section-copy">Percent of the full plan allowance reported by the account API</p></div><label class="select-control"><select id="limitDimension" aria-label="Plan limit grouping">${enabled("limits-feature") ? '<option value="feature">By feature</option>' : ""}${enabled("limits-model") ? '<option value="model">By model</option>' : ""}${enabled("limits-surface") ? '<option value="surface">By surface</option>' : ""}${enabled("limits-turn") ? '<option value="turn">By turn start</option>' : ""}</select>${controlChevron()}</label></div><div class="analytics-limit-grid"><div id="fiveHourLimits"></div><div id="weeklyLimits"></div></div></section>` : ""}
+
+    ${enabled("skills") ? '<section class="section"><div class="section-head"><div class="section-title"><h2>Tool activity</h2><p class="section-copy">Account plugin calls and skill uses by UTC day</p></div></div><div class="analytics-two-charts"><div id="pluginActivity"></div><div id="skillActivity"></div></div></section>' : ""}
+
+    ${enabled("messages-model") ? '<section class="section"><div class="section-head"><div class="section-title"><h2>Messages by model</h2><p class="section-copy">Daily turns reported by the account analytics API</p></div></div><div id="messagesModel"></div></section>' : ""}
+    ${enabled("messages-surface") ? '<section class="section"><div class="section-head"><div class="section-title"><h2>Messages by surface</h2><p class="section-copy">Daily turns reported by the account analytics API</p></div></div><div id="messagesSurface"></div></section>' : ""}
+
+    <section class="section notes"${enabled("details") ? "" : " hidden"}>
       <div><strong>Data sources :</strong> ${escapeHtml(dataset.sourceMode)}, profile API ${dataset.profile?.endpoint ? `from ${escapeHtml(dataset.profile.endpoint)}` : "not used"}, analytics ${dataset.analytics?.fetched ? "requested from wham dashboard APIs" : "not fetched live"}</div>
       <div><strong>Local enrichment :</strong> ${dataset.local.tokenEvents} ${pluralize("token event", dataset.local.tokenEvents)} from ${dataset.local.rolloutFiles} ${pluralize("rollout file", dataset.local.rolloutFiles)}, ${dataset.local.sqliteThreads} ${pluralize("SQLite thread row", dataset.local.sqliteThreads)} across ${dataset.local.sqliteDatabases} ${pluralize("SQLite database", dataset.local.sqliteDatabases)}, ${dataset.codexHomes.length} .codex ${pluralize("source", dataset.codexHomes.length)}</div>
       <div><strong>Portable sources :</strong> ${sourceSummary(dataset)}</div>
       <div><strong>Local coverage :</strong> ${coverageSummary(dataset)}</div>
-      <div><strong>Attribution completeness / certainty :</strong> ${attributionSummary(dataset)}</div>
-      <div><strong>Parser cache :</strong> v${dataset.local.cache.version}, ${dataset.local.cache.hits} ${pluralize("hit", dataset.local.cache.hits)}, ${dataset.local.cache.misses} ${pluralize("miss", dataset.local.cache.misses)}, ${dataset.local.cache.invalidations} ${pluralize("invalidation", dataset.local.cache.invalidations)}, ${compactNumber(dataset.local.cache.reusedBytes)} reused bytes</div>
-        <div><strong>Prompt cache :</strong> ${compactNumber(dataset.summary.cachedInputTokens)} cached input tokens, ${money(dataset.summary.cacheSavingsUsd)} API-equivalent savings versus uncached input pricing</div>
+      <div><strong>Attribution completeness/certainty :</strong> ${attributionSummary(dataset)}</div>
+      <div><strong>Parser cache :</strong> v${dataset.local.cache.version}, ${dataset.local.cache.hits} ${pluralize("hit", dataset.local.cache.hits)}, ${dataset.local.cache.misses} ${dataset.local.cache.misses === 1 ? "miss" : "misses"}, ${dataset.local.cache.invalidations} ${pluralize("invalidation", dataset.local.cache.invalidations)}, ${compactNumber(dataset.local.cache.reusedBytes)} reused bytes</div>
       <div id="themeNote"><strong>Theme :</strong> <span id="themeNoteValue">${escapeHtml(dataset.themeChoice)} from ${escapeHtml(dataset.theme.source)}</span></div>
       <div><strong>Pricing :</strong> ${escapeHtml(dataset.pricing.source)}${dataset.pricing.estimateModel ? ` using ${escapeHtml(dataset.pricing.estimateModel)} as the explicit missing-model override` : " using the historical primary model for each usage date"}</div>
       ${dataset.local.coverage.status !== "complete" ? `<div class="warning"><strong>Local coverage warning :</strong> output is ${escapeHtml(dataset.local.coverage.status)}, local totals may be incomplete</div>` : ""}
@@ -482,6 +557,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
   <script>
     ${reportRuntimeSource()}
     const dataset = JSON.parse(document.getElementById('usage-data').textContent);
+    const reportSections = new Set(${sectionsJson});
     const reportModels = JSON.parse(document.getElementById('model-rows').textContent);
     const paymentMonths = JSON.parse(document.getElementById('payment-months').textContent);
     const reportDates = dataset.daily.map(function (day) { return day.date; });
@@ -535,6 +611,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       { dark: '#c49aff', light: '#7446b8' },
       { dark: '#ff9f6e', light: '#a94718' }
     ];
+    const renderExtendedAnalytics = (${extendedAnalyticsRuntimeSource()})(dataset, reportSections, function () { return { from: fromDateValue, to: toDateValue }; }, function () { return theme.colors.series; });
 
     function progressColor(pair) {
       return themeColorScheme(theme.colors.bg) === 'light' ? pair.light : pair.dark;
@@ -545,6 +622,12 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const text = String(value || '').toLowerCase();
       for (let index = 0; index < text.length; index++) hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
       return progressColor(fallbackProgressColors[Math.abs(hash) % fallbackProgressColors.length]);
+    }
+
+    function cyberProgramColor(program) {
+      if (program === 'daybreak_blue') return progressColor({ dark: '#55b7f3', light: '#0067a5' });
+      if (program === 'daybreak_red') return progressColor({ dark: '#ff5555', light: '#b4242f' });
+      return stableProgressColor('cyber:standard');
     }
 
     function modelColor(model) {
@@ -813,7 +896,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       if (!option) return;
       themeChoice = option.id;
       themePickerLabel.textContent = option.id;
-      themeNoteValue.textContent = option.id + ' from ' + option.theme.source;
+      if (themeNoteValue) themeNoteValue.textContent = option.id + ' from ' + option.theme.source;
       closeThemePicker(true);
       applyTheme(option.theme);
     }
@@ -1371,15 +1454,16 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const capabilities = filteredCapabilityRows();
       const surfaces = filtered && filtered.bySurface ? filtered.bySurface : [];
 
-      if (models.length === 0 && capabilities.length === 0 && surfaces.length === 0 && !(analytics && analytics.tasks)) {
-        analyticsBreakdown.innerHTML = '<div class="breakdown-panel"><h3>Dashboard data unavailable</h3><div class="rows"><p>' + escapeText(analytics && analytics.error ? analytics.error : 'No wham analytics response was available for this run') + '</p></div></div>';
+      if (models.length === 0 && capabilities.length === 0 && surfaces.length === 0 && filteredDaily().length === 0) {
+        analyticsBreakdown.innerHTML = '<div class="model-section"><h3>Dashboard data unavailable</h3><p>' + escapeText(analytics && analytics.error ? analytics.error : 'No wham analytics response was available for this run') + '</p></div>';
 
         return;
       }
 
-      const modelHtml = models.length || capabilities.length ? modelPanel(models, filtered && filtered.byModelVariants ? filtered.byModelVariants : []) : '<div class="breakdown-panel"><h3>Models</h3><div class="rows"><p>No usage was recorded in this date range</p></div></div>';
-      const cloudHtml = analytics ? surfacePanel(surfaces) + taskPanel(analytics.tasks) : '<div class="breakdown-panel"><h3>Cloud enrichment unavailable</h3><div class="rows"><p>No WHAM analytics response was available for this run</p></div></div>';
-      analyticsBreakdown.innerHTML = modelHtml + '<div class="breakdown-sidebar">' + cloudHtml + '</div>';
+      const showModelPanel = ['models', 'skills', 'thinking', 'mode', 'cyber', 'token', 'input', 'output'].some(function (section) { return reportSections.has(section); });
+      const modelHtml = showModelPanel ? modelPanel(models, filtered && filtered.byModelVariants ? filtered.byModelVariants : [], surfaces) : '';
+      const surfaceHtml = !showModelPanel && reportSections.has('surfaces') ? surfacePanel(surfaces) : '';
+      analyticsBreakdown.innerHTML = modelHtml + surfaceHtml;
       analyticsBreakdown.querySelectorAll('[data-tip]').forEach(bindTip);
     }
 
@@ -1432,18 +1516,19 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return estimatedVariantRows(row, variants || []).filter(function (variant) { return variant.totalTokens > 0 || variant.credits > 0; }).sort(function (a, b) { return (b.totalTokens || b.credits) - (a.totalTokens || a.credits); });
     }
 
-    function modelPanel(rows, variants) {
+    function modelPanel(rows, variants, surfaces) {
       const variantsByModel = modelVariantsByName(variants || []);
+      const cyberByModel = cyberProgramUsage();
       const totalLocalTokens = Math.max(1, rows.reduce(function (sum, row) { return sum + row.localTokens; }, 0));
-      const modelRows = rows.map(function (row, index) {
+      const modelRows = reportSections.has('models') ? rows.map(function (row, index) {
         const color = modelColor(row.model);
         const meter = row.localTokens ? '<div class="meter" aria-label="'+escapeText(row.model)+' share of local tokens"><span style="width:'+meterWidth(row.localTokens, totalLocalTokens)+'; background:'+color+'"></span></div>' : '';
-        const details = modelDetails(row, variantsByModel.get(row.model) || []);
+        const details = modelDetails(row, variantsByModel.get(row.model) || [], cyberRows(cyberByModel.get(row.model)));
         return '<div class="model-group'+(index === rows.length - 1 ? ' last-model' : '')+'"><div class="row model-summary" data-tip="'+escapeText(modelTip(row))+'"><div class="row-label">'+escapeText(row.model)+'</div><div class="row-value">'+escapeText(modelValueText(row))+'</div>'+meter+'</div>'+details+'</div>';
-      }).join('');
-      const overall = overallPanels(rows, variantsByModel);
+      }).join('') : '';
+      const overall = overallPanels(rows, variantsByModel, cyberByModel);
 
-      return '<div class="breakdown-panel model-panel"><h3>Models</h3><div class="rows">' + modelRows + capabilitySection() + overall + '</div></div>';
+      return '<div class="rows model-panel">' + (reportSections.has('models') ? '<div class="model-section"><h3>Models</h3>' + (rows.length ? '' : '<p>No usage was recorded in this date range</p>') + '</div>' : '') + modelRows + overall + (reportSections.has('surfaces') ? surfacePanel(surfaces) : '') + (reportSections.has('skills') ? capabilitySection() : '') + '</div>';
     }
 
     function modelValueText(row) {
@@ -1495,15 +1580,44 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return map;
     }
 
-    function modelDetails(row, variants) {
-      const reasoning = reasoningSection(row);
-      const tiers = serviceTierSection(row, variants);
+    function modelDetails(row, variants, programs) {
+      const reasoning = reportSections.has('thinking') ? reasoningSection(row) : '';
+      const tiers = reportSections.has('mode') ? serviceTierSection(row, variants) : '';
+      const cyber = reportSections.has('cyber') ? cyberProgramSection(row, programs) : '';
 
-      if (!reasoning && !tiers) {
+      if (!reasoning && !tiers && !cyber) {
         return '';
       }
 
-      return '<div class="model-details">' + reasoning + tiers + '</div>';
+      return '<div class="model-details">' + reasoning + tiers + cyber + '</div>';
+    }
+
+    function cyberProgramUsage() {
+      const byModel = new Map();
+      (dataset.local.events || []).forEach(function (event) {
+        if ((fromDateValue && event.date < fromDateValue) || (toDateValue && event.date > toDateValue)) return;
+        const program = event.cyberAccessProgram === 'daybreak_blue' || event.cyberAccessProgram === 'daybreak_red' ? event.cyberAccessProgram : 'standard';
+        const programs = byModel.get(event.model) || new Map();
+        programs.set(program, (programs.get(program) || 0) + event.breakdown.totalTokens);
+        byModel.set(event.model, programs);
+      });
+      return byModel;
+    }
+
+    function cyberRows(programs) {
+      if (!programs || ![...programs].some(function (entry) { return entry[0] !== 'standard' && entry[1] > 0; })) return [];
+      const labels = { standard: 'Standard', daybreak_blue: 'Daybreak Blue', daybreak_red: 'Daybreak Red' };
+      return [...programs].map(function (entry) { return { key: entry[0], label: labels[entry[0]] || entry[0], totalTokens: entry[1] }; }).sort(function (a, b) { return b.totalTokens - a.totalTokens; });
+    }
+
+    function cyberProgramSection(row, programs) {
+      if (!programs.length) return '';
+      const total = programs.reduce(function (sum, program) { return sum + program.totalTokens; }, 0) || 1;
+      return '<div class="model-section"><h4>Cyber access program</h4><div class="subrows">' + programs.map(function (program) {
+        const share = program.totalTokens / total * 100;
+        const tip = row.model + ' / ' + program.label + '\\nSource : local rollout turn context\\nTokens : ' + compact(program.totalTokens) + '\\nShare : ' + percent(share);
+        return '<div class="subrow" data-tip="'+escapeText(tip)+'"><div>'+escapeText(program.label)+'</div><div>'+escapeText(compact(program.totalTokens) + ' tokens · ' + percent(share))+'</div><div class="meter"><span style="width:'+meterWidth(program.totalTokens, total)+'; background:'+cyberProgramColor(program.key)+'"></span></div></div>';
+      }).join('') + '</div></div>';
     }
 
     function reasoningSection(row) {
@@ -1604,10 +1718,13 @@ export function renderReportHtml(dataset: UsageDataset): string {
       return { reasoningRows: reasoningRows, modeRows: modeRows };
     }
 
-    function overallPanels(rows, variantsByModel) {
+    function overallPanels(rows, variantsByModel, cyberByModel) {
       const overall = overallUsageRows(rows, variantsByModel);
       const reasoningRows = overall.reasoningRows;
       const modeRows = overall.modeRows;
+      const cyberTotals = new Map();
+      rows.forEach(function (row) { (cyberByModel.get(row.model) || new Map()).forEach(function (tokens, program) { cyberTotals.set(program, (cyberTotals.get(program) || 0) + tokens); }); });
+      const overallCyberRows = cyberRows(cyberTotals);
       const composition = summarizeTokenComposition(filteredDaily());
       const tokenRows = [
         { label: 'Input', tokens: composition.input, color: compositionColor('input') },
@@ -1625,7 +1742,17 @@ export function renderReportHtml(dataset: UsageDataset): string {
         { label: 'Reasoning output', tokens: composition.reasoningOutput, color: compositionColor('reasoning') }
       ];
 
-      return '<div class="overall-sections">' + overallSection('Overall thinking effort', reasoningRows, 'reasoning', 'Exact local totals across models') + overallSection('Overall mode mix', modeRows, 'mode', 'Local tiers, with WHAM estimates only for models without local tier evidence') + compositionChart('Token composition', tokenRows, 'Exact local input/output plus undistributed backend-only and residual local totals') + compositionChart('Input details', inputRows, 'Cached input is a subset of exact local input' + inputWarning) + compositionChart('Output details', outputRows, 'Reasoning output is a subset of exact local output' + outputWarning) + '</div>';
+      return '<div class="overall-sections">' + (reportSections.has('thinking') ? overallSection('Overall thinking effort', reasoningRows, 'reasoning', 'Exact local totals across models') : '') + (reportSections.has('mode') ? overallSection('Overall mode mix', modeRows, 'mode', 'Local tiers, with WHAM estimates only for models without local tier evidence') : '') + (reportSections.has('cyber') ? overallCyberSection(overallCyberRows) : '') + (reportSections.has('token') ? compositionChart('Token composition', tokenRows, 'Exact local input/output plus undistributed backend-only and residual local totals') : '') + (reportSections.has('input') ? compositionChart('Input details', inputRows, 'Cached input is a subset of exact local input' + inputWarning) : '') + (reportSections.has('output') ? compositionChart('Output details', outputRows, 'Reasoning output is a subset of exact local output' + outputWarning) : '') + '</div>';
+    }
+
+    function overallCyberSection(rows) {
+      if (!rows.length) return '';
+      const total = rows.reduce(function (sum, row) { return sum + row.totalTokens; }, 0) || 1;
+      return '<div class="model-section"><h4>Overall cyber access program</h4>' + rows.map(function (row) {
+        const share = row.totalTokens / total * 100;
+        const tip = 'Overall cyber access program / ' + row.label + '\\nSource : local rollout turn context\\nTokens : ' + compact(row.totalTokens) + '\\nShare : ' + percent(share);
+        return '<div class="row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.label)+'</div><div class="row-value">'+escapeText(compact(row.totalTokens) + ' tokens · ' + percent(share))+'</div><div class="meter"><span style="width:'+meterWidth(row.totalTokens, total)+'; background:'+cyberProgramColor(row.key)+'"></span></div></div>';
+      }).join('') + '</div>';
     }
 
     function overallSection(titleText, rows, colorKind, sourceText) {
@@ -1662,7 +1789,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const totalSurfaceTokens = mergedRows.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0);
       const maxSurfaceTurns = mergedRows.reduce(function (maximum, row) { return Math.max(maximum, row.turns); }, 0);
 
-      return '<div class="breakdown-panel"><h3>Surfaces</h3><div class="rows">' + mergedRows.map(function (row) {
+      return '<div class="model-section surface-section"><h3>Surfaces</h3><div class="rows">' + mergedRows.map(function (row) {
         const color = surfaceColor(row.surface);
         const primaryText = row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : percent(row.percent);
         const turnsText = compact(row.turns) + ' turns';
@@ -1674,23 +1801,6 @@ export function renderReportHtml(dataset: UsageDataset): string {
         const meter = meterValue ? '<div class="meter"><span style="width:'+meterWidth(meterValue, meterMaximum)+'; background:'+color+'"></span></div>' : '';
         return '<div class="row surface-row" data-tip="'+escapeText(tip)+'"><div class="row-label">'+escapeText(row.surface)+'</div><div class="row-value surface-value"><span>'+escapeText(primaryText)+'</span><span>- '+escapeText(turnsText)+'</span></div>'+meter+'</div>';
       }).join('') + '</div></div>';
-    }
-
-    function taskPanel(tasks) {
-      if (!tasks) {
-        return '<div class="breakdown-panel"><h3>Cloud tasks (current snapshot)</h3><div class="rows"><p>No task list response was available</p></div></div>';
-      }
-
-      const archived = tasks.archivedCount == null ? '' : ' - ' + compact(tasks.archivedCount) + ' archived samples' + (tasks.archivedHasMore ? '+' : '');
-      const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
-      const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
-      const envs = (tasks.currentByEnvironment || []).map(function (row) { return '<span>'+escapeText(row.environment)+' ('+compact(row.count)+')</span>'; }).join('') || '<span>none</span>';
-      const recent = (tasks.recent || []).map(function (task) {
-        const meta = task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : '') + (task.pullRequests ? ' - ' + compact(task.pullRequests) + ' PR' : '');
-        return '<div class="task-item" data-tip="'+escapeText(task.title + '\\n' + meta)+'"><div class="task-title">'+escapeText(task.title)+'</div><div class="task-meta">'+escapeText(meta)+'</div></div>';
-      }).join('');
-
-      return '<div class="breakdown-panel"><h3>Cloud tasks (current snapshot)</h3><div class="rows"><div class="row" data-tip="Current task endpoint defaults to current tasks, limit is capped at 20, archived tasks use task_filter=archived and may paginate"><div class="row-label">Current tasks</div><div class="row-value">'+compact(tasks.currentCount)+archived+'</div></div><div class="task-meta"><strong>Environments :</strong><div class="environment-list">'+envs+'</div></div><div class="task-meta">PRs : '+compact(pr.total)+' total, '+compact(pr.merged)+' merged, '+compact(pr.open)+' open<br>Diff : +'+compact(diff.linesAdded)+' / -'+compact(diff.linesRemoved)+' across '+compact(diff.filesModified)+' files</div></div><div class="task-list">'+recent+'</div></div>';
     }
 
     function bindTip(el) {
@@ -1711,9 +1821,11 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
     function render() {
       renderStats();
-      renderHeatmap(); renderChart();
-      renderRoi();
-      renderAnalytics();
+      if (reportSections.has('intensity')) renderHeatmap();
+      if (reportSections.has('trend')) renderChart();
+      if (reportSections.has('roi')) renderRoi();
+      if (analyticsBreakdown) renderAnalytics();
+      renderExtendedAnalytics();
     }
 
     function chartCss() {
@@ -1782,9 +1894,9 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const width = 1100;
       const height = Math.max(520, analyticsBreakdown.scrollHeight + 36);
       const html = '<div xmlns="http://www.w3.org/1999/xhtml" class="dashboard-export">' + clone.outerHTML + '</div>';
-      const css = '<style>.dashboard-export{box-sizing:border-box;width:1100px;padding:18px;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,2.15fr) minmax(280px,.85fr);gap:14px;align-items:start}.breakdown-sidebar{display:grid;gap:14px}.breakdown-panel{min-width:0;overflow:hidden;border:1px solid '+theme.colors.line+';border-radius:8px;padding:12px;background:'+theme.colors.bg+'}.rows,.model-group,.model-details,.model-section,.subrows,.overall-sections{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.capability-section{padding-top:12px;border-top:1px solid '+theme.colors.line+'}.overall-sections{gap:12px;padding-top:14px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,auto);gap:10px;align-items:center;min-width:0}.surface-row{grid-template-columns:minmax(88px,.8fr) minmax(0,1.2fr)}.row-label,.row-value,.task-title,.task-meta,.composition-value{overflow-wrap:anywhere}.row-value{max-width:360px;text-align:right;font-variant-numeric:tabular-nums;white-space:normal}.surface-value{display:flex;min-width:0;flex-wrap:wrap;justify-content:flex-end;gap:0 .35em;line-height:1.35}.surface-value>span{white-space:nowrap}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;min-width:7px;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.composition-stack{display:flex;width:100%;height:16px;overflow:hidden;border-radius:999px;background:'+theme.colors.panel2+'}.composition-segment{height:100%}.composition-legend{display:grid;gap:5px}.composition-legend-row{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,auto);gap:7px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.composition-swatch{width:9px;height:9px;border-radius:2px}.composition-value{max-width:360px;color:'+theme.colors.text+';text-align:right}.task-list{display:grid;gap:9px;margin-top:12px}.task-item{border-top:1px solid '+theme.colors.line+';padding-top:9px;display:grid;gap:2px}.task-meta{color:'+theme.colors.muted+';font-size:12px}.environment-list{display:flex;flex-wrap:wrap;gap:4px 10px}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
+      const css = '<style>.dashboard-export{box-sizing:border-box;width:1100px;padding:18px;background:'+theme.colors.panel+';color:'+theme.colors.text+';font:14px/1.45 '+theme.fonts.ui+'}.breakdown-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}.rows,.model-group,.model-details,.model-section,.subrows,.overall-sections{display:grid}.rows{gap:10px;margin-top:12px}.model-group{gap:9px;padding-bottom:12px;border-bottom:1px solid '+theme.colors.line+'}.model-group.last-model{padding-bottom:0;border-bottom:0}.model-details{gap:9px;margin-left:12px;padding-left:11px;border-left:1px solid '+theme.colors.line+'}.model-section,.subrows{gap:7px}.model-section+.model-section{padding-top:9px;border-top:1px solid '+theme.colors.line+'}.capability-section{padding-top:12px;border-top:1px solid '+theme.colors.line+'}.overall-sections{gap:12px;padding-top:14px;border-top:1px solid '+theme.colors.line+'}.model-section h4{margin:0;color:'+theme.colors.muted+';font-size:11px;text-transform:uppercase}.row,.subrow{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,auto);gap:10px;align-items:center;min-width:0}.surface-row{grid-template-columns:minmax(88px,.8fr) minmax(0,1.2fr)}.row-label,.row-value,.composition-value{overflow-wrap:anywhere}.row-value{max-width:360px;text-align:right;font-variant-numeric:tabular-nums;white-space:normal}.surface-value{display:flex;min-width:0;flex-wrap:wrap;justify-content:flex-end;gap:0 .35em;line-height:1.35}.surface-value>span{white-space:nowrap}.meter{grid-column:1/-1;height:7px;border-radius:999px;background:'+theme.colors.panel2+';overflow:hidden}.meter span{display:block;height:100%;min-width:7px;border-radius:inherit}.subrow{color:'+theme.colors.muted+';font-size:12px}.subrow .meter{height:5px}.composition-stack{display:flex;width:100%;height:16px;overflow:hidden;border-radius:999px;background:'+theme.colors.panel2+'}.composition-segment{height:100%}.composition-legend{display:grid;gap:5px}.composition-legend-row{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,auto);gap:7px;align-items:center;color:'+theme.colors.muted+';font-size:12px}.composition-swatch{width:9px;height:9px;border-radius:2px}.composition-value{max-width:360px;color:'+theme.colors.text+';text-align:right}h3{margin:0;color:'+theme.colors.muted+';font-size:13px}</style>';
 
-      return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
+      return '<?xml version="1.0" encoding="UTF-8"?>\\n<svg xmlns="http://www.w3.org/2000/svg" width="'+width+'" height="'+height+'" viewBox="0 0 '+width+' '+height+'">' + css.replace('</style>', '.surface-section{padding-top:14px;border-top:1px solid '+theme.colors.line+'}</style>') + '<foreignObject width="100%" height="100%">' + html + '</foreignObject></svg>';
     }
 
     function renderDashboardCanvas() {
@@ -1793,16 +1905,17 @@ export function renderReportHtml(dataset: UsageDataset): string {
       const capabilities = filteredCapabilityRows();
       const variants = analytics.byModelVariants || [];
       const surfaces = mergeSurfaceRows(analytics.bySurface || []);
-      const tasks = analytics.tasks;
       const variantsByModel = modelVariantsByName(variants);
       const overall = overallUsageRows(models, variantsByModel);
+      const cyberByModel = cyberProgramUsage();
+      const cyberTotals = new Map();
+      models.forEach(function (row) { (cyberByModel.get(row.model) || new Map()).forEach(function (tokens, program) { cyberTotals.set(program, (cyberTotals.get(program) || 0) + tokens); }); });
+      const overallCyberRows = cyberRows(cyberTotals);
       const composition = summarizeTokenComposition(filteredDaily());
-      const modelLineCount = models.reduce(function (sum, row) { return sum + 1 + (row.reasoningEfforts || []).length + serviceTierRows(row, variantsByModel.get(row.model) || []).length + ((row.reasoningEfforts || []).length ? 1 : 0) + (serviceTierRows(row, variantsByModel.get(row.model) || []).length ? 1 : 0); }, 0) + capabilities.length + (capabilities.length ? 2 : 0) + overall.reasoningRows.length + overall.modeRows.length + 14;
+      const modelLineCount = models.reduce(function (sum, row) { const tiers = serviceTierRows(row, variantsByModel.get(row.model) || []); const programs = cyberRows(cyberByModel.get(row.model)); return sum + 1 + (row.reasoningEfforts || []).length + tiers.length + programs.length + ((row.reasoningEfforts || []).length ? 1 : 0) + (tiers.length ? 1 : 0) + (programs.length ? 1 : 0); }, 0) + capabilities.length + surfaces.length + overall.reasoningRows.length + overall.modeRows.length + overallCyberRows.length + 18;
       const width = 1600;
       const margin = 28;
-      const gap = 18;
-      const mainWidth = 1040;
-      const sideWidth = width - margin * 2 - gap - mainWidth;
+      const mainWidth = width - margin * 2;
       const layer = document.createElement('canvas');
       layer.width = width;
       layer.height = Math.max(1400, 300 + modelLineCount * 58);
@@ -1935,7 +2048,6 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
       const panelY = margin;
       const modelX = margin;
-      const sideX = margin + mainWidth + gap;
       let y = panelY + 34;
       title(modelX + 16, y, 'Models');
       y += 34;
@@ -1973,26 +2085,17 @@ export function renderReportHtml(dataset: UsageDataset): string {
             y += barRow(modelX + 16, y, mainWidth - 32, tier.label, tierText, tierValue, denominator, modeColor(tier.label), { indent: 18, small: true, muted: true });
           });
         }
+        const programs = cyberRows(cyberByModel.get(row.model));
+        if (programs.length) {
+          y -= 4;
+          section(modelX + 34, y, 'Cyber access program');
+          y += 22;
+          const total = programs.reduce(function (sum, program) { return sum + program.totalTokens; }, 0) || 1;
+          programs.forEach(function (program) {
+            y += barRow(modelX + 16, y, mainWidth - 32, program.label, compact(program.totalTokens) + ' tokens · ' + percent(program.totalTokens / total * 100), program.totalTokens, total, cyberProgramColor(program.key), { indent: 18, small: true, muted: true });
+          });
+        }
       });
-
-      if (capabilities.length) {
-        y += 4;
-        ctx.strokeStyle = theme.colors.line;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(modelX + 16, y);
-        ctx.lineTo(modelX + mainWidth - 16, y);
-        ctx.stroke();
-        y += 18;
-        section(modelX + 16, y, 'Skills & plugins');
-        y += 22;
-        const maxCapabilityUses = Math.max.apply(null, capabilities.map(function (row) { return row.count; }));
-        capabilities.forEach(function (row) {
-          const label = (row.kind === 'plugin' ? 'Plugin · ' : 'Skill · ') + row.name;
-          const valueText = row.count === 1 ? '1 use' : compact(row.count) + ' uses';
-          y += barRow(modelX + 16, y, mainWidth - 32, label, valueText, row.count, maxCapabilityUses, stableProgressColor(row.kind + ':' + row.name), { small: true });
-        });
-      }
 
       function drawOverallRows(titleText, rows, colorKind) {
         if (!rows.length) return;
@@ -2010,6 +2113,17 @@ export function renderReportHtml(dataset: UsageDataset): string {
 
       drawOverallRows('Overall thinking effort', overall.reasoningRows, 'reasoning');
       drawOverallRows('Overall mode mix', overall.modeRows, 'mode');
+      if (overallCyberRows.length) {
+        y += 8;
+        separator(modelX + 16, y, mainWidth - 32);
+        y += 18;
+        section(modelX + 16, y, 'Overall cyber access program');
+        y += 22;
+        const total = overallCyberRows.reduce(function (sum, row) { return sum + row.totalTokens; }, 0) || 1;
+        overallCyberRows.forEach(function (row) {
+          y += barRow(modelX + 16, y, mainWidth - 32, row.label, compact(row.totalTokens) + ' tokens · ' + percent(row.totalTokens / total * 100), row.totalTokens, total, cyberProgramColor(row.key), { small: true });
+        });
+      }
 
       function drawCompositionStack(titleText, rows) {
         y += 8;
@@ -2063,65 +2177,40 @@ export function renderReportHtml(dataset: UsageDataset): string {
         { label: 'Reasoning output', tokens: composition.reasoningOutput, color: compositionColor('reasoning') }
       ]);
 
-      const modelContentBottom = y + 20;
-      let sideY = panelY + 34;
-      title(sideX + 16, sideY, 'Surfaces');
-      sideY += 34;
-      const totalSurfaceTokens = surfaces.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0) || 1;
-      surfaces.forEach(function (row) {
-        const valueText = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : percent(row.percent)) + ' - ' + compact(row.turns) + ' turns';
-        sideY += barRow(sideX + 16, sideY, sideWidth - 32, row.surface, valueText, row.textTotalTokens, totalSurfaceTokens, surfaceColor(row.surface), { noMeter: !row.textTotalTokens });
-      });
-      const surfaceBottom = Math.max(panelY + 150, sideY + 18);
-      const taskPanelY = surfaceBottom + gap;
-      sideY = taskPanelY + 34;
-      title(sideX + 16, sideY, 'Cloud tasks (current snapshot)');
-      sideY += 34;
-      if (!tasks) {
-        ctx.font = font('500', 13);
-        ctx.fillStyle = theme.colors.muted;
-        ctx.fillText('No task list response was available', sideX + 16, sideY);
-        sideY += 28;
-      } else {
-        const pr = tasks.pullRequests || { total: 0, open: 0, merged: 0, closed: 0 };
-        const diff = tasks.diffStats || { filesModified: 0, linesAdded: 0, linesRemoved: 0 };
-        const archived = tasks.archivedCount == null ? 'not fetched' : compact(tasks.archivedCount) + (tasks.archivedHasMore ? '+' : '');
-        sideY += taskText(sideX + 16, sideY, sideWidth - 32, 'Current tasks', compact(tasks.currentCount) + ' current - ' + archived + ' archived samples');
-        sideY += taskText(sideX + 16, sideY, sideWidth - 32, 'Pull requests', compact(pr.total) + ' total, ' + compact(pr.merged) + ' merged, ' + compact(pr.open) + ' open');
-        sideY += taskText(sideX + 16, sideY, sideWidth - 32, 'Diff sample', '+' + compact(diff.linesAdded) + ' / -' + compact(diff.linesRemoved) + ' across ' + compact(diff.filesModified) + ' files');
-        const environments = tasks.currentByEnvironment || [];
-        if (!environments.length) {
-          sideY += taskText(sideX + 16, sideY, sideWidth - 32, 'Environments', 'none');
-        } else {
-          environments.forEach(function (environment, index) {
-            sideY += taskText(sideX + 16, sideY, sideWidth - 32, index === 0 ? 'Environments' : '', environment.environment + ' (' + compact(environment.count) + ')');
-          });
-        }
-        const recent = (tasks.recent || []).slice(0, 8);
-
-        if (recent.length) {
-          sideY += 8;
-          separator(sideX + 16, sideY, sideWidth - 32);
-          sideY += 18;
-          section(sideX + 16, sideY, 'Recent tasks');
-          sideY += 24;
-          recent.forEach(function (task) {
-            sideY += taskText(sideX + 16, sideY, sideWidth - 32, task.title, task.environment + ' - ' + task.status + (task.branch ? ' - ' + task.branch : ''));
-          });
-        }
+      if (surfaces.length) {
+        y += 8;
+        separator(modelX + 16, y, mainWidth - 32);
+        y += 18;
+        section(modelX + 16, y, 'Surfaces');
+        y += 22;
+        const totalSurfaceTokens = surfaces.reduce(function (sum, row) { return sum + row.textTotalTokens; }, 0) || 1;
+        surfaces.forEach(function (row) {
+          const valueText = (row.textTotalTokens ? compact(row.textTotalTokens) + ' tokens' : percent(row.percent)) + ' - ' + compact(row.turns) + ' turns';
+          y += barRow(modelX + 16, y, mainWidth - 32, row.surface, valueText, row.textTotalTokens, totalSurfaceTokens, surfaceColor(row.surface), { noMeter: !row.textTotalTokens });
+        });
       }
 
-      const taskBottom = Math.max(taskPanelY + 180, sideY + 18);
-      const contentBottom = Math.max(modelContentBottom, taskBottom);
+      if (capabilities.length) {
+        y += 8;
+        separator(modelX + 16, y, mainWidth - 32);
+        y += 18;
+        section(modelX + 16, y, 'Skills & plugins');
+        y += 22;
+        const maxCapabilityUses = Math.max.apply(null, capabilities.map(function (row) { return row.count; }));
+        capabilities.forEach(function (row) {
+          const label = (row.kind === 'plugin' ? 'Plugin · ' : 'Skill · ') + row.name;
+          const valueText = row.count === 1 ? '1 use' : compact(row.count) + ' uses';
+          y += barRow(modelX + 16, y, mainWidth - 32, label, valueText, row.count, maxCapabilityUses, stableProgressColor(row.kind + ':' + row.name), { small: true });
+        });
+      }
+
+      const contentBottom = y + 20;
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = contentBottom + margin;
       ctx = canvas.getContext('2d');
       ctx.fillStyle = theme.colors.panel;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      roundRect(modelX, panelY, mainWidth, modelContentBottom - panelY, 8, theme.colors.bg, theme.colors.line);
-      roundRect(sideX, panelY, sideWidth, surfaceBottom - panelY, 8, theme.colors.bg, theme.colors.line);
-      roundRect(sideX, taskPanelY, sideWidth, taskBottom - taskPanelY, 8, theme.colors.bg, theme.colors.line);
       ctx.drawImage(layer, 0, 0);
       return canvas;
     }
@@ -2236,6 +2325,7 @@ export function renderReportHtml(dataset: UsageDataset): string {
   </script>
 </body>
 </html>`;
+  return html.replace(/<section class="(?:stats|section(?: notes)?)" hidden>[\s\S]*?<\/section>\s*/g, "");
 }
 
 export function formatGeneratedAt(timestamp: string, timezone: string): string {
@@ -2270,19 +2360,19 @@ export function formatGeneratedAt(timestamp: string, timezone: string): string {
 function dateRangeControl(from: string, to: string): string {
   const displayFrom = from ? from.split("-").reverse().join("/") : "Start";
   const displayTo = to ? to.split("-").reverse().join("/") : "End";
-  return `<div class="date-range-control" role="group" aria-label="Selected date range"><button id="fromDateButton" class="date-boundary" type="button" aria-label="Choose start date"><span id="fromDateDisplay">${escapeHtml(displayFrom)}</span></button><span class="date-range-separator" aria-hidden="true">—</span><button id="toDateButton" class="date-boundary" type="button" aria-label="Choose end date"><span id="toDateDisplay">${escapeHtml(displayTo)}</span></button><input id="fromPicker" type="date" value="${escapeHtml(from)}" aria-label="Start date"><input id="toPicker" type="date" value="${escapeHtml(to)}" aria-label="End date"></div>`;
+  return `<div class="date-range-control" role="group" aria-label="Selected date range"><button id="fromDateButton" class="date-boundary" type="button" aria-label="Choose start date"><span id="fromDateDisplay">${escapeHtml(displayFrom)}</span></button><span class="date-range-separator" aria-hidden="true">-</span><button id="toDateButton" class="date-boundary" type="button" aria-label="Choose end date"><span id="toDateDisplay">${escapeHtml(displayTo)}</span></button><input id="fromPicker" type="date" value="${escapeHtml(from)}" aria-label="Start date"><input id="toPicker" type="date" value="${escapeHtml(to)}" aria-label="End date"></div>`;
 }
 
 function dateEntryCoverage(reportDates: string[], paymentMonths: string[]): string {
   const rows: string[] = [];
   if (reportDates.length > 0) {
     rows.push(
-      `Usage entries : ${displayIsoDay(reportDates[0])} – ${displayIsoDay(reportDates.at(-1)!)}`,
+    `Usage entries : ${displayIsoDay(reportDates[0])} - ${displayIsoDay(reportDates.at(-1)!)}`,
     );
   }
   if (paymentMonths.length > 0) {
     rows.push(
-      `Payment entries : ${escapeHtml(paymentMonths[0])} – ${escapeHtml(paymentMonths.at(-1)!)}`,
+    `Payment entries : ${escapeHtml(paymentMonths[0])} - ${escapeHtml(paymentMonths.at(-1)!)}`,
     );
   }
   return rows.length > 0 ? `<div class="date-entry-coverage">${rows.join(" · ")}</div>` : "";
@@ -2410,7 +2500,7 @@ function parseDiagnostics(dataset: UsageDataset): string {
   const rows = dataset.local.parseErrors
     .map((error) => {
       const location = `${error.path}${error.line === undefined ? "" : `:${error.line}`}`;
-      return `<li>${escapeHtml(location)} — ${escapeHtml(error.error)}</li>`;
+      return `<li>${escapeHtml(location)} - ${escapeHtml(error.error)}</li>`;
     })
     .join("");
   return `<details class="diagnostics warning"><summary>Local parse diagnostics (${dataset.local.parseErrors.length})</summary><ol>${rows}</ol></details>`;

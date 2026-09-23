@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import type { CliOptions, PaymentHistory, SourceMode, PricingSource, UsageDataset } from "./types";
 
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { buildDataset } from "./aggregate";
@@ -14,6 +15,7 @@ import { ROLLOUT_PARSE_CACHE_VERSION } from "./parse-cache";
 import { loadProfile } from "./profile-api";
 import { CliProgress } from "./progress";
 import { collectRolloutEvents } from "./rollouts";
+import { parseSections, REPORT_SECTIONS } from "./sections";
 import { resolveUsageThemes, validateThemeChoice } from "./theme";
 import { loadUsageDatasets, mergeUsageDatasets } from "./usage-json";
 import { compactNumber, money, pluralize } from "./util";
@@ -40,7 +42,10 @@ async function main() {
     codexHomes.length > 0 ? "success" : options.usageJsons.length > 0 ? "neutral" : "failure",
   );
   progress.status("Reading usage JSON inputs");
-  const importedDatasets = loadUsageDatasets(options.usageJsons);
+  const savedOutput = resolve(options.outDir, "usage-data.json");
+  const inputFiles = [...options.usageJsons];
+  if (!options.noHistory && existsSync(savedOutput) && !inputFiles.some((path) => resolve(path) === savedOutput)) inputFiles.push(savedOutput);
+  const importedDatasets = loadUsageDatasets(inputFiles);
   progress.step(
     importedDatasets.length > 0
       ? `Loaded ${importedDatasets.length} ${pluralize("usage JSON", importedDatasets.length)}`
@@ -169,6 +174,7 @@ async function main() {
           return {
             events: [],
             capabilityEvents: [],
+            threads: [],
             rolloutFiles: 0,
             sqliteDatabases: 0,
             sqliteThreads: 0,
@@ -211,8 +217,15 @@ async function main() {
     noApi: options.noApi,
     baseUrl: options.baseUrl,
     auth,
-    from: options.from,
+    from: options.from ?? [
+      ...local.events.map((event) => event.date),
+      ...(profileResult.profile?.dailyUsageBuckets ?? []).map((bucket) => bucket.startDate),
+      ...importedDatasets.flatMap((dataset) => dataset.daily.map((day) => day.date)),
+    ].sort()[0] ?? null,
     to: options.to,
+    threads: [...local.threads, ...importedDatasets.flatMap((dataset) => dataset.local.threads ?? [])],
+    sections: options.sections,
+    progress,
   });
   progress.step(
     analytics && !analytics.error
@@ -237,6 +250,7 @@ async function main() {
       rolloutFiles: local.rolloutFiles,
       sqliteDatabases: local.sqliteDatabases,
       sqliteThreads: local.sqliteThreads,
+      threads: local.threads,
       parseErrors: local.parseErrors,
       coverage: local.coverage,
       cache: local.cache,
@@ -271,6 +285,7 @@ async function writeDataset(
   const result = await writeOutputs(dataset, resolve(options.outDir), {
     includePng: !options.noPng,
     reportOnly: options.command === "collect",
+    sections: options.sections,
     progress,
   });
 
@@ -389,6 +404,7 @@ export function parseArgs(args: string[]): CliOptions {
     codexHomes: [],
     codexRoots: [],
     usageJsons: [],
+    noHistory: false,
     outDir: "outputs/codex-usage",
     from: null,
     to: null,
@@ -400,6 +416,7 @@ export function parseArgs(args: string[]): CliOptions {
     noPng: false,
     silent: false,
     paymentsJson: undefined,
+    sections: [...REPORT_SECTIONS],
   };
 
   if (args.length === 0) {
@@ -439,6 +456,10 @@ export function parseArgs(args: string[]): CliOptions {
         break;
       case "--usage-json":
         options.usageJsons.push(next());
+
+        break;
+      case "--no-history":
+        options.noHistory = true;
 
         break;
       case "--out":
@@ -497,6 +518,10 @@ export function parseArgs(args: string[]): CliOptions {
         options.analyticsJson = next();
 
         break;
+      case "--sections":
+        options.sections = parseSections(next());
+
+        break;
       case "--theme":
         options.theme = validateThemeChoice(next());
 
@@ -513,12 +538,6 @@ export function parseArgs(args: string[]): CliOptions {
       default:
         throw new Error(`Unknown option : ${arg}`);
     }
-  }
-
-  if (options.usageJsons.length > 0 && (options.from || options.to)) {
-    throw new Error(
-      "--from and --to cannot be applied to --usage-json inputs because per-day reasoning and service-tier detail is not available",
-    );
   }
 
   return options;
@@ -611,6 +630,7 @@ Data options :
   --codex-home <path>        Add a .codex directory, repeatable
   --codex-root <path>        Add a parent directory containing .codex, repeatable
   --usage-json <path>        Add a generated usage-data.json, repeatable
+  --no-history               Do not reuse usage-data.json already in --out
   --source <mode>            hybrid (default) | backend | local
   --profile-json <path>      Use a saved /profiles/me JSON response
   --payments-json <path>     Override monthly USD spend with a {"YYYY-MM": amount} JSON object
@@ -618,8 +638,8 @@ Data options :
   --base-url <url>           Default : https://chatgpt.com/backend-api
 
 Filters :
-  --from YYYY-MM-DD          Inclusive start date, unavailable with --usage-json
-  --to YYYY-MM-DD            Inclusive end date, unavailable with --usage-json
+  --from YYYY-MM-DD          Inclusive start date, portable inputs need event-level data
+  --to YYYY-MM-DD            Inclusive end date, portable inputs need event-level data
   --timezone <tz>            Local .codex default : Europe/Paris, usage JSON keeps its timezone
 
 Pricing :
@@ -631,6 +651,7 @@ Output :
   --out <path>               Output directory (default : outputs/codex-usage)
   --no-png                   Skip PNG export
   --analytics-json <path>    Use saved wham analytics JSON instead of calling the dashboard APIs
+  --sections <list>          Report sections, comma-separated (all/all,-chats), default all
   --silent                   Hide action lines, file count, and warnings, keep the progress bar and token summary
 
 Theme :

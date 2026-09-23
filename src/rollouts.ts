@@ -1,5 +1,5 @@
 import type { ProgressSink } from "./progress";
-import type { CapabilityUsageEvent, CodexHome, ThreadMetadata, TokenEvent } from "./types";
+import type { CapabilityUsageEvent, CodexHome, CyberAccessProgram, LocalThreadSummary, ThreadMetadata, TokenEvent } from "./types";
 
 import { createReadStream } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -26,6 +26,7 @@ import {
 export type RolloutCollection = {
   events: TokenEvent[];
   capabilityEvents: CapabilityUsageEvent[];
+  threads: LocalThreadSummary[];
   rolloutFiles: number;
   sqliteDatabases: number;
   sqliteThreads: number;
@@ -212,6 +213,7 @@ export async function collectRolloutEvents(options: {
     capabilityEvents: [...capabilityEventMap.values()].sort((a, b) =>
       a.timestamp.localeCompare(b.timestamp),
     ),
+    threads: sqlite.threads,
     rolloutFiles: paths.size,
     sqliteDatabases: sqlite.sqliteDatabases,
     sqliteThreads: sqlite.sqliteThreads,
@@ -255,6 +257,7 @@ async function parseRolloutFile(args: {
   let currentReasoningEffort: string | undefined;
   let currentReasoningEffortAttribution: TokenEvent["reasoningEffortAttribution"];
   let currentServiceTier: string | undefined;
+  let currentCyberAccessProgram: CyberAccessProgram = "standard";
   let currentSource: string | undefined;
   const pendingTierEvents = new Map<string, TokenEvent[]>();
   let previousTotal = ZERO_BREAKDOWN;
@@ -330,6 +333,7 @@ async function parseRolloutFile(args: {
       }
 
       currentSource = firstString(payload.originator, payload.thread_source, metadata?.source);
+      currentCyberAccessProgram = cyberAccessProgram(payload.cyber_access_program);
       const metaTimestampMs = timestampMs(parsed.timestamp);
 
       if (metaTimestampMs !== undefined && isForkedSessionMeta(payload)) {
@@ -371,6 +375,7 @@ async function parseRolloutFile(args: {
     }
 
     if (type === "turn_context") {
+      currentCyberAccessProgram = cyberAccessProgram(payload.cyber_access_program);
       const turnModel = firstString(payload.model);
 
       if (turnModel) {
@@ -499,6 +504,7 @@ async function parseRolloutFile(args: {
           : "missing",
       serviceTier: currentServiceTier,
       serviceTierAttribution: currentServiceTier ? "observed" : "missing",
+      cyberAccessProgram: currentCyberAccessProgram,
       source: currentSource ?? metadata?.source,
       planType: firstString(payload.rate_limits?.plan_type, payload.rateLimits?.planType),
       breakdown: last,
@@ -514,6 +520,10 @@ async function parseRolloutFile(args: {
   }
 
   return { events: out, capabilityEvents, parseErrors };
+}
+
+function cyberAccessProgram(value: unknown): CyberAccessProgram {
+  return value === "daybreak_blue" || value === "daybreak_red" ? value : "standard";
 }
 
 async function* readJsonlLines(path: string): AsyncGenerator<string> {

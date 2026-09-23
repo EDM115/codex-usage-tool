@@ -121,10 +121,8 @@ test("CLI accepts a payment override JSON independently of API mode", () => {
   );
 });
 
-test("CLI rejects date filters that cannot be applied faithfully to usage JSON", () => {
-  expect(() =>
-    parseArgs(["generate", "--usage-json", "usage-data.json", "--from", "2026-07-01"]),
-  ).toThrow("--from and --to cannot be applied to --usage-json inputs");
+test("CLI accepts date filters with usage JSON and defers event-level validation to merging", () => {
+  expect(parseArgs(["generate", "--usage-json", "usage-data.json", "--from", "2026-07-01"]).from).toBe("2026-07-01");
 });
 
 test("batch SVG renderers use the CLI-selected dataset theme", async () => {

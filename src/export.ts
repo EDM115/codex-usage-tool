@@ -4,8 +4,11 @@ import type { UsageDataset } from "./types";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { topChatTitle } from "./analytics-extended";
 import { renderCapabilitiesPieSvg, renderChartSvg, renderHeatmapSvg, renderRoiSvg } from "./render";
+import { renderExtendedChartSvgs } from "./render-extended";
 import { renderReportHtml } from "./report-html";
+import { REPORT_SECTIONS, type ReportSection } from "./sections";
 import { ensureDir } from "./util";
 
 export type ExportResult = {
@@ -21,19 +24,30 @@ type SvgOutput = {
 export async function writeOutputs(
   dataset: UsageDataset,
   outDir: string,
-  options: { includePng: boolean; reportOnly?: boolean; progress?: ProgressSink },
+  options: { includePng: boolean; reportOnly?: boolean; sections?: ReportSection[]; progress?: ProgressSink },
 ): Promise<ExportResult> {
   ensureDir(outDir);
+  const includeChats = options.sections?.includes("chats") ?? true;
+  const threadDates = new Map(dataset.local.threads.map((thread) => [thread.threadId, thread.updatedAt]));
+  const reportDataset: UsageDataset = {
+    ...dataset,
+    local: { ...dataset.local, threads: includeChats ? dataset.local.threads.map((thread) => ({ ...thread, title: topChatTitle(thread.title) })) : [] },
+    analytics: dataset.analytics ? {
+      ...dataset.analytics,
+      topChats: includeChats && dataset.analytics.topChats ? { ...dataset.analytics.topChats, chats: dataset.analytics.topChats.chats.map((chat) => ({ ...chat, title: topChatTitle(chat.title), updatedAt: chat.updatedAt ?? threadDates.get(chat.threadId) ?? undefined })) } : undefined,
+      tasks: options.sections && !options.sections.includes("cloud") ? undefined : dataset.analytics.tasks,
+    } : undefined,
+  };
   const files: string[] = [];
   const warnings: string[] = [];
 
   const dataPath = join(outDir, "usage-data.json");
-  writeFileSync(dataPath, JSON.stringify(dataset, null, 2), "utf8");
+  writeFileSync(dataPath, JSON.stringify(reportDataset, null, 2), "utf8");
   files.push(dataPath);
   options.progress?.step("Generated JSON data");
 
   const htmlPath = join(outDir, "usage-report.html");
-  writeFileSync(htmlPath, renderReportHtml(dataset), "utf8");
+  writeFileSync(htmlPath, renderReportHtml({ ...reportDataset, local: { ...reportDataset.local, threads: [] } }, options.sections), "utf8");
   files.push(htmlPath);
   options.progress?.step("Generated HTML report");
 
@@ -45,7 +59,8 @@ export async function writeOutputs(
   const svgOutputs: SvgOutput[] = [];
 
   if (!options.reportOnly) {
-    const plannedSvg = svgOutputCount();
+    const extendedCharts = renderExtendedChartSvgs(reportDataset, options.sections ?? REPORT_SECTIONS);
+    const plannedSvg = svgOutputCount() + extendedCharts.length;
     options.progress?.status(`Generating ${plannedSvg} SVG`);
     let svgIndex = 0;
 
@@ -100,6 +115,15 @@ export async function writeOutputs(
       svgIndex,
       plannedSvg,
     );
+
+    for (const chart of extendedCharts) {
+      const chartPath = join(outDir, `${chart.name}.svg`);
+      writeFileSync(chartPath, chart.svg, "utf8");
+      files.push(chartPath);
+      svgOutputs.push({ path: chartPath, svg: chart.svg });
+      svgIndex += 1;
+      options.progress?.statusProgress(`Generating SVG ${svgIndex}/${plannedSvg}`, svgIndex, plannedSvg);
+    }
 
     options.progress?.statusDone(`Generated ${svgOutputs.length} SVG`);
 

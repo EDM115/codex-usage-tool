@@ -53,9 +53,37 @@ test("loadUsageDatasets migrates version 2 payment history in memory", async () 
   writeFileSync(path, JSON.stringify(source));
 
   const loaded = loadUsageDatasets([path])[0] as UsageDataset & { payments: PaymentHistory };
-  expect(loaded.schemaVersion).toBe(3);
+  expect(loaded.schemaVersion).toBe(4);
   expect(loaded.payments).toEqual(emptyPaymentHistory());
   expect(JSON.parse(readFileSync(path, "utf8")).payments).toBeUndefined();
+});
+
+test("loadUsageDatasets migrates version 3 chat metadata in memory", async () => {
+  const source = await createDataset({ home: "legacy-v3", model: "gpt-5", tokens: 100 });
+  source.schemaVersion = 3;
+  delete (source.local as { threads?: unknown }).threads;
+  const root = join(tmpdir(), `codex-usage-v3-migration-${crypto.randomUUID()}`);
+  mkdirSync(root, { recursive: true });
+  const path = join(root, "usage-data.json");
+  writeFileSync(path, JSON.stringify(source));
+  const loaded = loadUsageDatasets([path])[0];
+  expect(loaded.schemaVersion).toBe(4);
+  expect(loaded.local.threads).toEqual([]);
+  expect(JSON.parse(readFileSync(path, "utf8")).local.threads).toBeUndefined();
+});
+
+test("portable analytics rejects malformed plan limits and chat percentages", async () => {
+  const source = await createDataset({ home: "invalid-analytics", model: "gpt-5", tokens: 100, analyticsModel: "gpt-5" });
+  const root = join(tmpdir(), `codex-usage-analytics-validation-${crypto.randomUUID()}`);
+  mkdirSync(root, { recursive: true });
+  const path = join(root, "usage-data.json");
+  source.analytics!.planLimitHistory = { dataAsOf: null, coverageStart: null, coverageComplete: true, approximate: false, boundaryToleranceSeconds: null, periods: [{ id: "week", windowMinutes: 10080, planType: "plus", startsAt: "2026-09-01T00:00:00Z", endsAt: "2026-09-08T00:00:00Z", accountingComplete: true, usedBasisPoints: -1, breakdowns: [] }] };
+  writeFileSync(path, JSON.stringify(source));
+  expect(() => loadUsageDatasets([path])).toThrow("expected a generated usage-data.json");
+  delete source.analytics!.planLimitHistory;
+  source.analytics!.topChats = { chats: [{ threadId: "chat", title: "sample", homeLabel: "local", dataStatus: "available", fiveHourLimitPercent: null, weeklyLimitPercent: "29%" as unknown as number, balanceUsageCredits: null, groups: [] }] };
+  writeFileSync(path, JSON.stringify(source));
+  expect(() => loadUsageDatasets([path])).toThrow("expected a generated usage-data.json");
 });
 
 test("loadUsageDatasets rejects malformed version 3 payment history", async () => {
@@ -93,6 +121,17 @@ test("mergeUsageDatasets deduplicates payment transactions by fingerprint", asyn
     timezone: "Europe/Paris",
   }) as UsageDataset & { payments: PaymentHistory };
   expect(paymentMonthTotals(merged.payments)).toEqual({ "2026-06": 24 });
+});
+
+test("portable merge keeps distinct Top chats from multiple machines without adding account totals", async () => {
+  const first = await createDataset({ home: "desktop", model: "gpt-5", tokens: 100, analyticsModel: "gpt-5" });
+  const second = await createDataset({ home: "laptop", model: "gpt-5", tokens: 50, analyticsModel: "gpt-5" });
+  const chat = (id: string) => ({ threadId: id, title: `Demo ${id}`, homeLabel: id, dataStatus: "available", fiveHourLimitPercent: null, weeklyLimitPercent: 2, balanceUsageCredits: 0, groups: [] });
+  first.analytics!.topChats = { dataAsOf: "2026-09-22T00:00:00Z", chats: [chat("desktop")] };
+  second.analytics!.topChats = { dataAsOf: "2026-09-23T00:00:00Z", chats: [chat("laptop")] };
+  const merged = mergeUsageDatasets([first, second], { from: null, to: null, timezone: "Europe/Paris" });
+  expect(merged.analytics?.topChats?.chats.map((row) => row.threadId).sort()).toEqual(["desktop", "laptop"]);
+  expect(merged.analytics?.totals).toEqual(first.analytics?.totals);
 });
 
 test("current payment overrides beat imported overrides and first import wins conflicts", async () => {
@@ -297,7 +336,7 @@ test("mergeUsageDatasets rejects unsupported date filtering and incompatible tim
 
   expect(() =>
     mergeUsageDatasets([dataset], { from: "2026-07-10", to: null, timezone: "Europe/Paris" }),
-  ).toThrow("Usage JSON inputs cannot be re-filtered by date");
+  ).toThrow("Date filtering portable usage JSON requires event-level data and a pricing table");
   expect(() =>
     mergeUsageDatasets([{ ...dataset, timezone: "America/New_York" }], {
       from: null,
@@ -362,7 +401,7 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
   expect(rebuilt.summary.localKnownTokens).toBe(100);
   expect(rebuilt.codexHomes).toEqual([{ path: "shared", label: "shared" }]);
   expect(rebuilt.timezone).toBe("America/New_York");
-  expect(rebuilt.schemaVersion).toBe(3);
+  expect(rebuilt.schemaVersion).toBe(4);
   expect(rebuilt.payments.overrides).toEqual({ "2026-06": 42 });
   expect(rebuilt.payments.sources).toEqual([
     { kind: "json", label: "payments.json", status: "complete" },

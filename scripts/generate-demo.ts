@@ -20,8 +20,9 @@ import type {
 import { loadUsageDatasets } from "../src/usage-json";
 
 const FIRST_USAGE_DATE = "2026-01-01";
-const LAST_USAGE_DATE = "2026-06-30";
-const GENERATED_AT = "2026-07-01T12:00:00.000Z";
+const LAST_USAGE_DATE = "2026-09-23";
+const DEMO_DAY_COUNT = Math.round((Date.parse(LAST_USAGE_DATE) - Date.parse(FIRST_USAGE_DATE)) / 86_400_000) + 1;
+const GENERATED_AT = "2026-09-23T12:00:00.000Z";
 const TIMEZONE = "Europe/Paris";
 const DEMO_PATH = resolve("demo.json");
 const DEMO_REPORT_DIR = resolve("output/demo");
@@ -69,6 +70,7 @@ export async function buildDemoDataset(): Promise<UsageDataset> {
       rolloutFiles: dates.length,
       sqliteDatabases: 2,
       sqliteThreads: 64,
+      threads: buildDemoThreads(),
       parseErrors: [],
       coverage: {
         status: "complete",
@@ -79,7 +81,7 @@ export async function buildDemoDataset(): Promise<UsageDataset> {
         missingRoots: [],
       },
       cache: {
-        version: 2,
+        version: 4,
         hits: 168,
         misses: 13,
         invalidations: 4,
@@ -148,13 +150,14 @@ function inclusiveDates(from: string, to: string): string[] {
 
 function buildTokenEvent(date: string, index: number): TokenEvent {
   const home = CODEX_HOMES[index % CODEX_HOMES.length];
-  const model = modelForDate(date);
+  const model = modelForDate(date, index);
   const reasoningEffort = ["low", "medium", "high", "xhigh"][index % 4];
   const serviceTier = index % 5 === 0 ? "priority" : "default";
   const modelAttribution = index % 9 === 0 ? "metadata" : "observed";
   const reasoningEffortAttribution = index % 7 === 0 ? "metadata" : "observed";
   const serviceTierAttribution = index % 11 === 0 ? "inferred" : "observed";
   const breakdown = buildTokenBreakdown(index, date);
+  const cyberAccessProgram = date >= "2026-09-03" && index % 7 === 0 ? "daybreak_blue" : date >= "2026-09-22" && index % 5 === 0 ? "daybreak_red" : index % 13 === 0 ? "standard" : undefined;
   const eventNumber = String(index + 1).padStart(4, "0");
   return {
     eventId: `demo-event-${eventNumber}`,
@@ -171,6 +174,7 @@ function buildTokenEvent(date: string, index: number): TokenEvent {
     serviceTier,
     serviceTierInferred: serviceTierAttribution === "inferred",
     serviceTierAttribution,
+    cyberAccessProgram,
     source: ["desktop", "vscode", "exec"][index % 3],
     planType: "plus",
     breakdown,
@@ -179,26 +183,18 @@ function buildTokenEvent(date: string, index: number): TokenEvent {
 }
 
 function buildTokenBreakdown(index: number, date: string): TokenBreakdown {
-  const monthIndex = Number(date.slice(5, 7)) - 1;
+  const progress = index / (DEMO_DAY_COUNT - 1);
+  const summerRamp = Math.max(0, (progress - 0.56) / 0.44);
   const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
   const weekdayMultiplier = weekday === 0 || weekday === 6 ? 0.64 : 1;
   const wave = 0.82 + ((index * 37) % 41) / 100;
-  const launchBoost = date >= "2026-04-23" ? 1.12 : 1;
-  const presentationBalance =
-    {
-      "01": 0.25,
-      "02": 1.06,
-      "03": 0.98,
-      "04": 5.315,
-      "05": 6.993,
-      "06": 13.552,
-    }[date.slice(5, 7)] ?? 1;
+  const launchBoost = date >= "2026-04-23" ? 1.06 : 1;
   const totalTokens = Math.round(
-    (1_420_000 + monthIndex * 105_000) *
+    (14_000_000 + 105_000_000 * progress + 75_000_000 * summerRamp) *
       weekdayMultiplier *
       wave *
       launchBoost *
-      presentationBalance,
+      0.93,
   );
   const outputTokens = Math.round(totalTokens * (0.048 + (index % 5) * 0.003));
   const inputTokens = totalTokens - outputTokens;
@@ -213,11 +209,27 @@ function buildTokenBreakdown(index: number, date: string): TokenBreakdown {
   };
 }
 
-function modelForDate(date: string): string {
+function modelForDate(date: string, index: number): string {
+  if (date >= "2026-09-22") return index % 2 ? "gpt-6-luna" : "gpt-6-sol";
+  if (date >= "2026-09-03") return index % 4 === 0 ? "gpt-5.6-sol" : "gpt-6-astra";
+  if (date >= "2026-08-21") return ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"][index % 3];
+  if (date >= "2026-07-30") return index % 2 ? "gpt-5.6-luna" : "gpt-5.6-terra";
   if (date >= "2026-04-23") return "gpt-5.5";
   if (date >= "2026-03-05") return "gpt-5.4";
   if (date >= "2026-02-05") return "gpt-5.3-codex";
   return "gpt-5.2-codex";
+}
+
+function buildDemoThreads(): UsageDataset["local"]["threads"] {
+  const titles = ["Refine a sample product dashboard", "Untitled chat", "Untitled chat", "Compare two demo API designs", "codex-auto-review", "codex-auto-review"];
+  return titles.map((title, index) => ({
+    threadId: `demo-chat-${String(index + 1).padStart(3, "0")}`,
+    title,
+    createdAt: `2026-09-${String(17 + index).padStart(2, "0")}T09:00:00.000Z`,
+    updatedAt: `2026-09-${String(18 + index).padStart(2, "0")}T12:00:00.000Z`,
+    archived: false,
+    homeLabel: CODEX_HOMES[index % CODEX_HOMES.length].label,
+  }));
 }
 
 function buildCapabilityEvents(dates: string[]): CapabilityUsageEvent[] {
@@ -276,7 +288,7 @@ function buildProfile(dates: string[], localTotals: Map<string, number>): Accoun
   const timelineTotal = dailyUsageBuckets.reduce((sum, bucket) => sum + bucket.tokens, 0);
   return {
     summary: {
-      lifetimeTokens: timelineTotal + 184_000_000,
+      lifetimeTokens: timelineTotal + 18_400_000,
       peakDailyTokens: Math.max(...dailyUsageBuckets.map((bucket) => bucket.tokens)),
       longestRunningTurnSec: 7_428,
       currentStreakDays: 19,
@@ -306,10 +318,12 @@ function buildAnalytics(
   let totalTurns = 0;
   let totalThreads = 0;
   let textTotalTokens = 0;
+  const peakBackendTokens = Math.max(1, ...(profile.dailyUsageBuckets ?? []).map((bucket) => bucket.tokens));
 
   for (const [index, date] of dates.entries()) {
     const event = events[index];
     const backendTokens = profile.dailyUsageBuckets?.[index]?.tokens ?? event.breakdown.totalTokens;
+    const relativeUsage = 100 * backendTokens / peakBackendTokens;
     const credits = roundMoney(8 + backendTokens / 290_000);
     const turns = 3 + (index % 9);
     const threads = 1 + (index % 3);
@@ -322,6 +336,11 @@ function buildAnalytics(
     dailyTokenUsageBreakdown.push({
       date,
       productSurfaceUsageValues: surfaceValues,
+      attribution: [
+        { value: roundMoney(relativeUsage * 0.78), threadSource: "tasks", turnTrigger: "user_message", model: event.model, surface: "desktop_app" },
+        { value: roundMoney(relativeUsage * 0.15), threadSource: "memory_updates", turnTrigger: "edited_message", model: event.model, surface: "ide_vscode" },
+        { value: roundMoney(relativeUsage * 0.07), threadSource: "auto_review", turnTrigger: "unknown", model: event.model, surface: "service_exec" },
+      ],
       models: [
         { model: event.model, speed: "standard", credits: standardCredits },
         { model: event.model, speed: "fast", credits: fastCredits },
@@ -395,9 +414,13 @@ function buildAnalytics(
     fetched: true,
     endpoints: {
       usage: "/wham/usage",
-      daily: "/wham/analytics/daily-token-usage-breakdown",
+      daily: "/wham/usage/daily-token-usage-breakdown",
       workspace: "/wham/analytics/workspace-usage-counts",
       tasks: "/wham/tasks",
+      planLimitHistory: "/wham/usage/plan_limit_history?days=7",
+      dailyPluginUsageMetrics: "/wham/analytics/daily-plugin-usage-metrics",
+      dailySkillUsageMetrics: "/wham/analytics/daily-skill-usage-metrics",
+      threadUsageQuery: "/wham/usage/thread_usage/query_v2",
     },
     usage: {
       planType: "plus",
@@ -417,10 +440,15 @@ function buildAnalytics(
       },
     },
     dailyTokenUsageBreakdown: {
-      units: "credits",
+      units: "percent",
       groupBy: "day",
+      dataFreshnessTs: "2026-09-23T03:15:00.000Z",
       data: dailyTokenUsageBreakdown,
     },
+    planLimitHistory: buildDemoPlanHistory(),
+    pluginUsage: buildDemoToolActivity(dates, "plugin"),
+    skillUsage: buildDemoToolActivity(dates, "skill"),
+    topChats: buildDemoTopChats(),
     workspaceUsageCounts: {
       groupBy: "day",
       data: workspaceUsageCounts,
@@ -523,6 +551,79 @@ function buildAnalytics(
   };
 }
 
+function buildDemoPlanHistory(): NonNullable<WhamAnalytics["planLimitHistory"]> {
+  const periods: NonNullable<WhamAnalytics["planLimitHistory"]>["periods"] = [];
+  for (const [index, start] of ["2026-09-07T00:00:00Z", "2026-09-14T00:00:00Z", "2026-09-21T00:00:00Z"].entries()) {
+    const used = [4840, 3720, 570][index];
+    periods.push({
+      id: `demo-week-${index + 1}`,
+      windowMinutes: 10080,
+      planType: "plus",
+      startsAt: start,
+      endsAt: new Date(Date.parse(start) + 7 * 86400000).toISOString(),
+      accountingComplete: index !== 2,
+      usedBasisPoints: used,
+      breakdowns: demoLimitBreakdowns(used),
+    });
+  }
+  for (let index = 0; index < 5; index += 1) {
+    const start = new Date(Date.parse("2026-09-22T18:00:00Z") + index * 5 * 3600000);
+    const used = [220, 410, 315, 180, 80][index];
+    periods.push({
+      id: `demo-five-hour-${index + 1}`,
+      windowMinutes: 300,
+      planType: "plus",
+      startsAt: start.toISOString(),
+      endsAt: new Date(start.valueOf() + 5 * 3600000).toISOString(),
+      accountingComplete: index !== 4,
+      usedBasisPoints: used,
+      breakdowns: demoLimitBreakdowns(used),
+    });
+  }
+  return { dataAsOf: "2026-09-23T03:15:00Z", coverageStart: "2026-09-07T00:00:00Z", coverageComplete: false, approximate: true, boundaryToleranceSeconds: 60, periods };
+}
+
+function demoLimitBreakdowns(total: number): NonNullable<NonNullable<WhamAnalytics["planLimitHistory"]>["periods"][number]["breakdowns"]> {
+  const split = (entries: Array<[string, number]>) => entries.map(([key, share]) => ({ key, basisPoints: Math.round(total * share) }));
+  return [
+    { dimension: "thread_source", rows: split([["tasks", 0.91], ["memory_updates", 0.055], ["auto_review", 0.035]]) },
+    { dimension: "model", rows: split([["gpt-6-astra", 0.76], ["gpt-5.6-sol", 0.12], ["gpt-6-sol", 0.07], ["gpt-6-luna", 0.05]]) },
+    { dimension: "surface", rows: split([["desktop_app", 0.72], ["ide_vscode", 0.2], ["service_exec", 0.08]]) },
+    { dimension: "turn_trigger", rows: split([["user_message", 0.72], ["edited_message", 0.14], ["unknown", 0.05]]) },
+  ];
+}
+
+function buildDemoToolActivity(dates: string[], kind: "plugin" | "skill"): NonNullable<WhamAnalytics["pluginUsage"]> {
+  const names = kind === "plugin" ? ["Unified Computer Use", "Codex App Tools", "Thoughts", "Other"] : ["Using Superpowers", "Thoughts", "Verification Before Completion", "Other"];
+  return {
+    dataFreshnessTs: "2026-09-23T03:15:00.000Z",
+    data: dates.slice(-30).map((date, index) => ({
+      date,
+      rows: names.map((label, nameIndex) => ({ key: label.toLowerCase().replaceAll(" ", "-"), label, count: (index * 7 + nameIndex * 3) % (kind === "plugin" ? 12 : 6) })),
+    })),
+  };
+}
+
+function buildDemoTopChats(): NonNullable<WhamAnalytics["topChats"]> {
+  const weekly = [29.14, 5.8, 2.4, 1.3, 0.7, 0.2];
+  return {
+    dataAsOf: "2026-09-23T03:15:00.000Z",
+    chats: buildDemoThreads().map((thread, index) => ({
+      threadId: thread.threadId,
+      title: thread.title,
+      homeLabel: thread.homeLabel,
+      dataStatus: "available",
+      fiveHourLimitPercent: roundMoney(weekly[index] / 3),
+      weeklyLimitPercent: weekly[index],
+      balanceUsageCredits: index % 3 === 0 ? 0 : roundMoney(index * 0.35),
+      groups: [
+        { model: index % 2 ? "gpt-5.6-sol" : "gpt-6-astra", reasoningEffort: "medium", speed: "fast", fiveHourLimitPercent: roundMoney(weekly[index] / 4), weeklyLimitPercent: roundMoney(weekly[index] * 0.83), balanceUsageCredits: 0 },
+        { model: "gpt-6-luna", reasoningEffort: "low", speed: "standard", fiveHourLimitPercent: roundMoney(weekly[index] / 12), weeklyLimitPercent: roundMoney(weekly[index] * 0.17), balanceUsageCredits: index % 3 === 0 ? 0 : roundMoney(index * 0.35) },
+      ],
+    })),
+  };
+}
+
 function emptySurfaceTotal() {
   return {
     credits: 0,
@@ -545,6 +646,9 @@ function buildPayments(): PaymentHistory {
     "2026-04": 100,
     "2026-05": 200,
     "2026-06": 200,
+    "2026-07": 200,
+    "2026-08": 200,
+    "2026-09": 200,
   };
   return {
     currency: "USD",

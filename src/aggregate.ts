@@ -60,6 +60,7 @@ export function buildDataset(args: {
     rolloutFiles: number;
     sqliteDatabases: number;
     sqliteThreads: number;
+    threads?: UsageDataset["local"]["threads"];
     parseErrors: Array<{ path: string; line?: number; error: string }>;
     coverage?: UsageDataset["local"]["coverage"];
     cache?: UsageDataset["local"]["cache"];
@@ -182,7 +183,7 @@ export function buildDataset(args: {
   const coverage = args.localStats.coverage ?? defaultCoverage(args.localStats);
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     generatedAt: new Date().toISOString(),
     timezone: args.timezone,
     sourceMode: args.sourceMode,
@@ -209,6 +210,7 @@ export function buildDataset(args: {
       tokenEvents: args.events.length,
       sqliteDatabases: args.localStats.sqliteDatabases,
       sqliteThreads: args.localStats.sqliteThreads,
+      threads: args.localStats.threads ?? [],
       parseErrors: [...args.localStats.parseErrors],
       modelUsage,
       events: effectiveEvents,

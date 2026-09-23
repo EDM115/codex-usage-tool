@@ -43,6 +43,10 @@ export type CodexHome = {
 export type ThreadMetadata = {
   threadId: string;
   rolloutPath: string;
+  title?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  parentThreadId?: string;
   model?: string;
   reasoningEffort?: string;
   source?: string;
@@ -50,7 +54,18 @@ export type ThreadMetadata = {
   archived?: boolean;
 };
 
+export type LocalThreadSummary = {
+  threadId: string;
+  title: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  parentThreadId?: string;
+  archived: boolean;
+  homeLabel: string;
+};
+
 export type AttributionProvenance = "observed" | "metadata" | "inferred" | "missing";
+export type CyberAccessProgram = "standard" | "daybreak_blue" | "daybreak_red";
 
 export type TokenEvent = {
   eventId: string;
@@ -67,6 +82,7 @@ export type TokenEvent = {
   serviceTier?: string;
   serviceTierInferred?: boolean;
   serviceTierAttribution?: AttributionProvenance;
+  cyberAccessProgram?: CyberAccessProgram;
   source?: string;
   planType?: string;
   breakdown: TokenBreakdown;
@@ -128,6 +144,52 @@ export type WhamDailyBreakdownBucket = {
   date: string;
   productSurfaceUsageValues: Record<string, number>;
   models: Array<{ model: string; speed?: string; credits: number }>;
+  attribution?: Array<{ value: number; threadSource: string; turnTrigger: string; model: string; surface: string }> | null;
+};
+
+export type WhamPlanLimitHistory = {
+  dataAsOf: string | null;
+  coverageStart: string | null;
+  coverageComplete: boolean;
+  approximate: boolean;
+  boundaryToleranceSeconds: number | null;
+  periods: Array<{
+    id: string;
+    windowMinutes: 300 | 10080;
+    planType: string;
+    startsAt: string;
+    endsAt: string;
+    accountingComplete: boolean;
+    usedBasisPoints: number | null;
+    breakdowns: Array<{
+      dimension: "thread_source" | "turn_trigger" | "model" | "surface";
+      rows: Array<{ key: string; basisPoints: number }>;
+    }> | null;
+  }>;
+};
+
+export type WhamToolActivity = {
+  dataFreshnessTs?: string;
+  data: Array<{ date: string; rows: Array<{ key: string; label: string; count: number }> }>;
+};
+
+export type WhamTopChat = {
+  threadId: string;
+  title: string;
+  homeLabel: string;
+  updatedAt?: string;
+  dataStatus: string;
+  fiveHourLimitPercent: number | null;
+  weeklyLimitPercent: number | null;
+  balanceUsageCredits: number | null;
+  groups: Array<{
+    model: string;
+    reasoningEffort: string;
+    speed: string;
+    fiveHourLimitPercent: number | null;
+    weeklyLimitPercent: number | null;
+    balanceUsageCredits: number | null;
+  }>;
 };
 
 export type WhamWorkspaceUsageBucket = {
@@ -145,8 +207,13 @@ export type WhamAnalytics = {
   dailyTokenUsageBreakdown?: {
     units?: string;
     groupBy?: string;
+    dataFreshnessTs?: string;
     data: WhamDailyBreakdownBucket[];
   };
+  planLimitHistory?: WhamPlanLimitHistory;
+  pluginUsage?: WhamToolActivity;
+  skillUsage?: WhamToolActivity;
+  topChats?: { dataAsOf?: string; chats: WhamTopChat[] };
   workspaceUsageCounts?: {
     groupBy?: string;
     data: WhamWorkspaceUsageBucket[];
@@ -338,6 +405,7 @@ export type UsageDataset = {
     parseErrors: Array<{ path: string; line?: number; error: string }>;
     modelUsage: LocalModelUsage[];
     capabilityEvents: CapabilityUsageEvent[];
+    threads: LocalThreadSummary[];
     events?: TokenEvent[];
     distinctSessions: number;
     attribution: {
@@ -403,6 +471,7 @@ export type CliOptions = {
   codexHomes: string[];
   codexRoots: string[];
   usageJsons: string[];
+  noHistory: boolean;
   outDir: string;
   from: string | null;
   to: string | null;
@@ -419,4 +488,5 @@ export type CliOptions = {
   analyticsJson?: string;
   paymentsJson?: string;
   theme?: ThemeChoice;
+  sections: import("./sections").ReportSection[];
 };

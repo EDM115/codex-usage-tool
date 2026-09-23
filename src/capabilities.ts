@@ -9,10 +9,11 @@ type PluginAttribution = {
 
 export type CapabilityEvidenceTracker = {
   plugins: Map<string, PluginAttribution>;
+  skillReadCalls: Set<string>;
 };
 
 export function createCapabilityEvidenceTracker(): CapabilityEvidenceTracker {
-  return { plugins: new Map() };
+  return { plugins: new Map(), skillReadCalls: new Set() };
 }
 
 export function extractCapabilityUsageEvents(args: {
@@ -41,6 +42,21 @@ export function extractCapabilityUsageEvents(args: {
     date,
   };
   const events: CapabilityUsageEvent[] = [];
+
+  if (args.payload?.type === "custom_tool_call_output" || args.payload?.type === "function_call_output") {
+    const callId = String(args.payload.call_id ?? "");
+    if (!args.tracker.skillReadCalls.delete(callId)) return events;
+    const output = typeof args.payload.output === "string" ? args.payload.output : messageText({ content: args.payload.output });
+    if (!/FirstFiveWords\s*:/i.test(output)) return events;
+    const selectedPath = output.match(/^\s*Skill\s*:\s*(.+SKILL\.md)\s*$/im)?.[1];
+    if (!selectedPath) return events;
+    for (const path of skillPaths(selectedPath)) {
+      const name = skillNameFromPath(path);
+      if (!name) continue;
+      events.push({ ...common, eventId: capabilityEventId(args, "skill", name, events.length), kind: "skill", name, evidenceType: "skill_file_read", confidence: "medium", detail: `Read skill instructions from ${path}` });
+    }
+    return events;
+  }
 
   if (args.payload?.type === "message") {
     const text = messageText(args.payload);
@@ -106,7 +122,9 @@ export function extractCapabilityUsageEvents(args: {
     });
   }
 
-  for (const body of callBodies(args.payload)) {
+  const bodies = callBodies(args.payload);
+  if (args.payload.call_id && bodies.some((body) => looksLikeFileRead(callName, body))) args.tracker.skillReadCalls.add(String(args.payload.call_id));
+  for (const body of bodies) {
     if (!looksLikeFileRead(callName, body)) {
       continue;
     }

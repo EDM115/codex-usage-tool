@@ -16,13 +16,13 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
 
   expect(readFileSync(DEMO_PATH, "utf8")).toBe(serialized);
   expect(loadUsageDatasets([DEMO_PATH])).toEqual([dataset]);
-  expect(dataset.schemaVersion).toBe(3);
-  expect(dataset.generatedAt).toBe("2026-07-01T12:00:00.000Z");
+  expect(dataset.schemaVersion).toBe(4);
+  expect(dataset.generatedAt).toBe("2026-09-23T12:00:00.000Z");
   expect(dataset.sourceMode).toBe("hybrid");
   expect(dataset.daily.at(0)?.date).toBe("2026-01-01");
-  expect(dataset.daily.at(-1)?.date).toBe("2026-06-30");
-  expect(dataset.daily).toHaveLength(181);
-  expect(dataset.weekly.length).toBeGreaterThanOrEqual(26);
+  expect(dataset.daily.at(-1)?.date).toBe("2026-09-23");
+  expect(dataset.daily).toHaveLength(266);
+  expect(dataset.weekly.length).toBeGreaterThanOrEqual(39);
 
   expect(dataset.codexHomes).toHaveLength(2);
   expect(dataset.sources).toHaveLength(2);
@@ -30,8 +30,8 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   expect(dataset.sources.every((source) => source.path?.startsWith("demo/"))).toBe(true);
   expect(dataset.local.coverage).toEqual({
     status: "complete",
-    discoveredFiles: 181,
-    parsedFiles: 181,
+    discoveredFiles: 266,
+    parsedFiles: 266,
     failedFiles: 0,
     malformedLines: 0,
     missingRoots: [],
@@ -46,6 +46,7 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   });
 
   expect(new Set(dataset.local.modelUsage.map((row) => row.model)).size).toBeGreaterThanOrEqual(4);
+  for (const model of ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol"]) expect(dataset.local.modelUsage.some((row) => row.model === model)).toBe(true);
   expect(
     new Set(
       dataset.local.modelUsage.flatMap((row) => row.serviceTiers.map((tier) => tier.serviceTier)),
@@ -91,6 +92,23 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   expect(dataset.analytics?.tasks?.archivedCount).toBeGreaterThan(0);
   expect(dataset.analytics?.tasks?.pullRequests.total).toBeGreaterThan(0);
   expect(dataset.analytics?.tasks?.diffStats.linesAdded).toBeGreaterThan(0);
+  expect(dataset.analytics?.dailyTokenUsageBreakdown?.data.at(-1)?.attribution?.length).toBeGreaterThan(0);
+  expect(dataset.analytics?.planLimitHistory?.periods.some((period) => period.windowMinutes === 300)).toBe(true);
+  expect(dataset.analytics?.planLimitHistory?.periods.some((period) => period.windowMinutes === 10080)).toBe(true);
+  expect(dataset.analytics?.pluginUsage?.data.length).toBeGreaterThan(0);
+  expect(dataset.analytics?.skillUsage?.data.length).toBeGreaterThan(0);
+  expect(dataset.analytics?.topChats?.chats.length).toBeGreaterThan(0);
+  expect(dataset.local.events?.some((event) => event.cyberAccessProgram === "daybreak_blue")).toBe(true);
+  expect(dataset.local.events?.some((event) => event.cyberAccessProgram === "daybreak_red")).toBe(true);
+
+  const fullMonths = dataset.daily.filter((day) => day.date < "2026-09-01");
+  const peakByMonth = new Map<string, number>();
+  for (const day of fullMonths) peakByMonth.set(day.date.slice(0, 7), Math.max(peakByMonth.get(day.date.slice(0, 7)) ?? 0, day.totalTokens));
+  const monthlyPeaks = [...peakByMonth.values()];
+  expect(monthlyPeaks.every((peak, index) => index === 0 || peak > monthlyPeaks[index - 1])).toBe(true);
+  expect(Math.max(...dataset.daily.map((day) => day.totalTokens))).toBeLessThan(250_000_000);
+  expect(dataset.profile?.summary.lifetimeTokens).toBeGreaterThan(19_500_000_000);
+  expect(dataset.profile?.summary.lifetimeTokens).toBeLessThan(20_500_000_000);
 
   const sum = <K extends "totalTokens" | "cachedInputTokens">(key: K) =>
     dataset.daily.reduce((total, day) => total + day.localTokens[key], 0);
@@ -122,21 +140,15 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
     "2026-04": 100,
     "2026-05": 200,
     "2026-06": 200,
+    "2026-07": 200,
+    "2026-08": 200,
+    "2026-09": 200,
   });
   expect(dataset.payments.sources.map((source) => source.kind)).toEqual(["api", "json"]);
   expect(Object.keys(dataset.payments.overrides)).toContain("2026-06");
-  const roi = buildRoiMetrics(dataset.daily, payments, "2025-12-01", "2026-06-30");
-  expect(
-    roi.monthly
-      .filter((month) => month.month <= "2026-02")
-      .every((month) => month.status === "negative"),
-  ).toBe(true);
-  expect(
-    roi.monthly
-      .filter((month) => month.month >= "2026-03")
-      .every((month) => month.status === "positive"),
-  ).toBe(true);
-  expect(roi.monthly).toHaveLength(7);
+  const roi = buildRoiMetrics(dataset.daily, payments, "2025-12-01", "2026-09-23");
+  expect(roi.monthly.filter((month) => month.month >= "2026-01").every((month) => month.status === "positive")).toBe(true);
+  expect(roi.monthly).toHaveLength(10);
   expect(roi.monthly[0]).toMatchObject({
     month: "2025-12",
     estimatedApiValue: 0,
@@ -144,15 +156,7 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   });
   expect(roi.monthly.slice(1).every((month) => month.estimatedApiValue > 0)).toBe(true);
   expect(roi.monthly.at(-1)?.conventionalRoiPercent).toBeGreaterThan(100);
-  expect(roi.monthly.find((month) => month.month === "2026-04")?.estimatedApiValue).toBeGreaterThan(
-    900,
-  );
-  expect(roi.monthly.find((month) => month.month === "2026-05")?.estimatedApiValue).toBeGreaterThan(
-    2_400,
-  );
-  expect(roi.monthly.find((month) => month.month === "2026-06")?.estimatedApiValue).toBeGreaterThan(
-    4_900,
-  );
+  expect(roi.monthly.find((month) => month.month === "2026-06")?.estimatedApiValue).toBeGreaterThan(roi.monthly.find((month) => month.month === "2026-05")!.estimatedApiValue);
 
   expect(dataset.themeChoice).toBe("EDM115");
   expect(dataset.availableThemes.length).toBeGreaterThan(20);
@@ -166,7 +170,6 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
     "Models",
     "Skills &amp; plugins",
     "Surfaces",
-    "Cloud tasks (current snapshot)",
     "Portable sources",
   ]) {
     expect(html).toContain(marker);
