@@ -4,10 +4,10 @@
 
 <img src="./codex_icon.webp" alt="Codex usage tool icon" width="128">
 
-Generate polished, self-contained Codex usage reports from local `.codex` folders, shared `usage-data.json` files, and the authenticated ChatGPT/Codex dashboard APIs.  
-The tool is designed for people who use Codex across several machines or surfaces and want one offline report that reconciles authoritative backend totals with the richer context available in local rollout files: models, reasoning effort, cached input, output tokens, cost estimates, themes, surfaces, and cloud task metadata.
+Generate self-contained, offline Codex usage reports from local `.codex` folders, shared `usage-data.json` files and authenticated ChatGPT/Codex dashboard APIs.  
+Combine usage across machines and surfaces, reconciling authoritative backend totals with local rollout details : models, reasoning effort, cached input, output tokens, cost estimates, themes, surfaces and cloud task metadata.
 
-![Demo composited](https://i.postimg.cc/xj64CjFq/codex-usage.png)
+![Demo composited](./demo.png)
 
 </div>
 
@@ -16,50 +16,60 @@ The tool is designed for people who use Codex across several machines or surface
 
 ## What it produces
 
-- Interactive `usage-report.html` with Codex-anchored 7d/30d/90d ranges, payment-aware all-time coverage, token heatmaps, smooth trend charts, token-composition drilldowns, subscription ROI, WHAM dashboard breakdowns, daily usage attribution by feature/model/surface/turn start, 5-hour and weekly plan-limit history, top chats, tool activity, messages by model/surface, local-session and prompt-cache metrics, coverage and attribution diagnostics, hover details, and per-chart SVG/PNG downloads
-- Static SVG/PNG heatmaps and charts for daily, weekly, and cumulative views, plus the available attribution, tool activity, and message charts
-- Version-4 `usage-data.json` with the normalized dataset, event identities, source manifests, local chat metadata, new account analytics, privacy-filtered payment facts, distinct session counts, attribution completeness/certainty, local coverage, parse-cache statistics, and merge diagnostics used by the report
+- Interactive `usage-report.html` with Codex-anchored 7d/30d/90d ranges, payment-aware all-time coverage, token heatmaps, smooth trend charts, token-composition drilldowns, subscription ROI, WHAM dashboard breakdowns, daily usage attribution by feature/model/surface/turn start, 5-hour and weekly plan-limit history, top chats, tool activity, messages by model/surface, local-session and prompt-cache metrics, coverage and attribution diagnostics, hover details and per-chart SVG/PNG downloads
+- Static SVG/PNG heatmaps and charts for daily, weekly and cumulative views, plus the available attribution, tool activity and message charts
+- Version-4 `usage-data.json` with the normalized dataset, event identities, source manifests, local chat metadata, new account analytics, privacy-filtered payment facts, distinct session counts, attribution completeness/certainty, local coverage, parse-cache statistics and merge diagnostics used by the report
 - `cost-estimate.csv` for daily token and cost analysis
 - Reports styled from the first selected Codex home theme, including named theme fallbacks when the config only stores a theme name
 
 ## Preview
 
-![Daily intensity](https://i.postimg.cc/FKXPqY1D/1recap.png)  
-![Usage trend](https://i.postimg.cc/rp2hbDzY/2usage.png)  
-![Return on investment](https://i.postimg.cc/YSBXVvjs/3roi.png)  
-![Models](https://i.postimg.cc/R0xP8WqY/4models.png)  
-![Surfaces](https://i.postimg.cc/43R8MYn2/5surfaces.png)  
-![Skills & Plugins](https://i.postimg.cc/N08NwQrk/6skills.png)  
-![Thinking effort + Mode mix](https://i.postimg.cc/hG8CqK70/7mix.png)  
-![Tokens repartition](https://i.postimg.cc/HL0SCT7z/8tokens.png)  
-Example of generated images can be found [here](https://github.com/EDM115/codex-usage-tool/issues/1).
+![Daily intensity](https://i.postimg.cc/rwf9kSKR/01recap.png)  
+![Usage trend](https://i.postimg.cc/BnmC0xXK/02usage.png)  
+![Return on investment](https://i.postimg.cc/pLsBHDp8/03roi.png)  
+![Total Usage history](https://i.postimg.cc/SxgGhWJ9/04usagehistory.png)  
+![Tool activity](https://i.postimg.cc/FHTx4j73/05toolactivity.png)  
+![Messages](https://i.postimg.cc/9QLBhGrP/06messages.png)  
+![Plan usage history](https://i.postimg.cc/fR8vNxJf/07planusage.png)  
+![Top chats](https://i.postimg.cc/YCdxH1hf/08topchats.png)  
+![Models](https://i.postimg.cc/T3tc6rpc/09usagemodels.png)  
+![Models (with daybreak)](https://i.postimg.cc/zGxkrnV0/10usagemodelsdaybreak.png)  
+![Thinking effort + Mode mix + Cyber access program](https://i.postimg.cc/rwf9kSKg/11usagethinkingmodedaybreak.png)  
+![Tokens repartition](https://i.postimg.cc/XYsgbwp2/12usagetokens.png)  
+![Surfaces](https://i.postimg.cc/Mp9YSyvP/13usagesurfaces.png)  
+![Skills & Plugins](https://i.postimg.cc/13vKQpf7/14usageskillsplugins.png)
+
+Generated images : [examples](https://github.com/EDM115/codex-usage-tool/issues/1).  
+Run `bun demo:image` to regenerate `demo.png` from the current deterministic demo report. Google Chrome captures a 1280 × 720 viewport at 1.5× density, producing a Full HD 1920 × 1080 image with Daily, Auto chart, All time and abbreviated counts in the EDM115, catppuccin-latte, codex-dark and matrix-dark themes. Set `DEMO_CHROME_PATH` if Chrome is outside its usual location. The four source screenshots are saved in `output/demo-capture/`.
 
 ## Data sources
 
-The report combines several data sources and keeps their roles explicit :
+The report combines these sources :
 
 - **Profile API totals** from `/profiles/me` : authoritative daily total token usage when available
-- **Local `.codex` enrichment** from streamed rollout JSONL files and SQLite thread databases : model, token breakdown, reasoning effort, source home, distinct sessions, prompt-cache savings at API-equivalent prices, attribution quality, and local cost context
+- **Local `.codex` enrichment** from streamed rollout JSONL files and SQLite thread databases : model, token breakdown, reasoning effort, source home, distinct sessions, prompt-cache savings at API-equivalent prices, attribution quality and local cost context
 - **Generated `usage-data.json` inputs** : portable normalized datasets with source and event identities that can be rendered again or combined with other machines without copying their `.codex` folders
-- **WHAM dashboard analytics** from the Codex cloud dashboard : model turns, surface tokens, current and archived task samples, PR metadata, task diff summaries, daily attribution, plan-limit history, tool activity, messages, and per-thread plan usage when local thread IDs are available
+- **WHAM dashboard analytics** from the Codex cloud dashboard : model turns, surface tokens, current and archived task samples, PR metadata, task diff summaries, daily attribution, plan-limit history, tool activity, messages and per-thread plan usage when local thread IDs are available
 - **Payment transaction history** from `/payments/transaction-history` when a live Codex home provides an authenticated account ID : paid USD subscription transactions used only for the ROI comparison
 - **Explicit monthly payment overrides** from `--payments-json` : a root JSON object such as `{"2026-06":24,"2026-07":119.87}` whose values are USD amounts
 - **Pricing metadata** from the live [OpenAI pricing reference](https://developers.openai.com/api/docs/pricing), combined with a bundled effective-dated history and [`models.dev`](https://models.dev/) fallback rows
 
-When backend totals and local files disagree, `hybrid` mode keeps backend totals authoritative and uses local files only to explain the portion it can see. Backend-only tokens remain visible instead of being silently discarded.  
-On some cases, "local enriched tokens" might appear higher than total tokens. This can happen when the day's usage haven't been processed by the backend yet, and only the local rollout data reflects that usage. This is also why in the Codex App you might see 0 token usage for the day and it only refreshes the next day.
+`hybrid` mode keeps backend totals authoritative and uses local files to explain the visible portion. Backend-only tokens remain included.  
+Local enriched tokens can exceed total tokens when the backend has not processed that day's usage yet. The Codex App may likewise show 0 tokens until the next day.
 
 ## Installation
 
 ```pwsh
+git clone https://github.com/EDM115/codex-usage-tool.git
+cd codex-usage-tool
 bun install --frozen-lockfile
 ```
 
 Requirements :
 
 - Bun 1.3 or newer
-- A readable Codex home, usually `C:\Users\<you>\.codex`, or at least one generated `usage-data.json`
-- Optional network access for Profile, WHAM dashboard, payment history, theme, and pricing refreshes (make sure you're authenticated through the Codex CLI)
+- A readable Codex home, usually `C:\Users\<you>\.codex` or at least one generated `usage-data.json`
+- Optional network access for Profile, WHAM dashboard, payment history, theme and pricing refreshes (make sure you're authenticated through the Codex CLI)
 
 ## Quick start
 
@@ -67,7 +77,7 @@ Requirements :
 bun usage generate --codex-home "C:\Users\EDM115\.codex" --out ./usage
 ```
 
-Then open `usage/usage-report.html`, or serve it with Bun while iterating :
+Then open `usage/usage-report.html` or serve it with Bun while iterating :
 
 ```pwsh
 bun usage/usage-report.html
@@ -75,9 +85,18 @@ bun usage/usage-report.html
 
 Bun serves the generated report at `http://localhost:3000/`.
 
-## Multiple codex homes
+### Updates
 
-Pass every copied `.codex` folder you want to include. This is useful when a desktop, laptop, WSL profile, or downloaded backup has local rollout data that the backend total cannot break down by itself, or when you use Codex across multiple machines.
+This tool is regularly updated with new features, bug fixes & support for newer models. Simply pull the latest changes :
+
+```pwsh
+git pull
+bun install --frozen-lockfile
+```
+
+## Multiple Codex homes
+
+Pass multiple `.codex` folders to combine usage across desktops, laptops, WSL profiles and backups, adding local detail unavailable in backend totals.
 
 ```pwsh
 bun usage generate --codex-home "C:\Users\EDM115\.codex" --codex-home "D:\Backups\Laptop\.codex" --codex-root "E:\OldMachines\DesktopProfile" --from 2026-01-01 --to 2026-06-30 --out ./usage
@@ -87,9 +106,9 @@ bun usage generate --codex-home "C:\Users\EDM115\.codex" --codex-home "D:\Backup
 
 ## Share and combine generated JSON
 
-`--usage-json` accepts the `usage-data.json` produced by an earlier run. It is repeatable and can be mixed freely with explicit Codex homes or roots, so only this one portable file needs to move between machines. When `--out/usage-data.json` already exists, generation also reads it automatically and merges event identities and dated WHAM buckets before replacing it, preserving historical API data that is no longer returned. Use `--no-history` to build from the selected sources without that saved output. Keep a backup when moving the output directory or changing the source set, since historical API buckets can only be retained if the previous JSON is still available.  
+`--usage-json` accepts a previous run's `usage-data.json`, can be repeated and can be combined with explicit Codex homes or roots. Only this portable file needs to move between machines. Generation also merges event identities and dated WHAM buckets from an existing `--out/usage-data.json` before replacing it, preserving API history no longer returned. `--no-history` ignores that saved output. Back it up before moving the output directory or changing sources : retaining historical API buckets requires the previous JSON.
 
-Rebuild every JSON, CSV, SVG, PNG, and HTML artifact from one shared dataset :
+Rebuild every JSON, CSV, SVG, PNG and HTML artifact from one shared dataset :
 
 ```pwsh
 bun usage generate --usage-json "D:\Shared\usage-data.json" --out ./usage
@@ -101,23 +120,41 @@ Combine several shared datasets with this machine's local Codex history :
 bun usage generate --codex-home "$env:USERPROFILE\.codex" --usage-json "D:\Laptop\usage-data.json" --usage-json "D:\Workstation\usage-data.json" --out ./usage
 ```
 
-When at least one explicit `--usage-json` is provided without an explicit `--codex-home` or `--codex-root`, automatic home discovery is disabled. This keeps the recipient's own Codex history out of the rebuilt report. Current portable files are merged by event identity, so overlapping inputs do not count the same local event or source twice. WHAM daily buckets merge by UTC date with the newest fetched snapshot taking precedence for overlaps, plan periods merge by period ID, and top chats merge by thread ID, while aggregate totals are recomputed from the dated buckets so the same account is not counted once per machine.  
-Older aggregate-only JSON remains accepted and is migrated in memory without rewriting the source file. Exact event overlap cannot be reconstructed from those files; when their source manifests overlap, the later aggregate is skipped conservatively and `legacyOverlaps` is surfaced in JSON, CLI warnings, and the HTML report instead of claiming an exact merge.  
-Version-2 portable files are upgraded in memory to version 3 with an unavailable payment block and are never rewritten in place. Version-3 API payment facts carry only a SHA-256 transaction fingerprint, month, and USD amount. Facts from overlapping portable inputs are deduplicated by fingerprint, so the same invoice is not counted twice. Distinct paid transactions in one month are summed. Imported monthly overrides use first-input precedence; a current `--payments-json` wins over every imported value for that month, including an explicit zero.  
-Portable JSON keeps its original timezone because its daily buckets have already been computed. Every combined JSON must use the same timezone, an explicit `--timezone` must match it. When active pricing is loaded, each daily model and service-tier breakdown is repriced with the alias, default model, and price effective on that date before multi-day totals are rebuilt. `--from` and `--to` filter dated local events, daily WHAM buckets, tool activity, top chats with known update dates, and overlapping plan periods in generated JSON when every portable input has event-level data, while aggregate-only legacy inputs cannot be reliably re-filtered.  
-Local rollout files are read as streams. Parsed event manifests are cached under the gitignored `.cache/codex-usage-tool` directory using a versioned file-state key. An unchanged file is reused; a file whose size or modification time changed, including a growing active transcript, is invalidated and streamed again in full. Cached parse diagnostics are replayed too, so a warm scan cannot turn partial coverage into an apparently complete report.
+Explicit `--usage-json` inputs without an explicit `--codex-home` or `--codex-root` disable home discovery, keeping the recipient's history out. Current portable files deduplicate local events and sources by event identity. WHAM daily buckets merge by UTC date, with the newest fetched snapshot winning overlaps, plan periods merge by period ID and top chats by thread ID. Aggregate totals are rebuilt from dated buckets to avoid counting the same account per machine.  
+Legacy aggregate-only JSON is accepted and migrated in memory without rewriting the source. Exact event overlap cannot be recovered. If source manifests overlap, the later aggregate is skipped and `legacyOverlaps` appears in JSON, CLI warnings and HTML.  
+Version-2 files upgrade in memory to version 4 with an unavailable payment block, sources are never rewritten. Since version 3, API payment facts contain only a SHA-256 transaction fingerprint, month and USD amount. Fingerprints deduplicate invoices across inputs, distinct paid transactions in a month are summed. Imported monthly overrides use first-input precedence. Current `--payments-json` values override all imported values for that month, including an explicit zero.  
+Portable JSON retains its timezone because daily buckets are already computed. All combined files and any explicit `--timezone` must match. Active pricing reprices each daily model/service-tier breakdown using that date's alias, default model and effective price before rebuilding multi-day totals. When every portable input has event-level data, `--from` and `--to` filter dated local events, daily WHAM buckets, tool activity, top chats with known update dates and overlapping plan periods in generated JSON. Aggregate-only legacy inputs cannot be reliably re-filtered.  
+Rollout JSONL files are streamed. Parsed event manifests are cached in the gitignored `.cache/codex-usage-tool` directory using versioned file-state keys. Unchanged files reuse the cache, size or modification-time changes, including growing active transcripts, trigger a full re-read. Cached parse diagnostics are replayed so warm scans still disclose partial coverage. Major tool versions can change the cache versionning, check for older versions from time to time to free up space.
 
-## Interactive ranges, composition, and ROI
+## Interactive ranges, composition & ROI
 
-The HTML report opens on the 30-day range ending at the newest Codex daily entry rather than the browser clock. The 7d, 30d, and 90d presets stay anchored to that newest Codex entry even when payment history starts earlier or ends later, and their calendar starts are not clamped. All time alone expands to the combined horizon from the first Codex day or first day of the oldest payment month through the last Codex day or last day of the newest payment month. The report displays the exact usage-day coverage and month-precision payment coverage separately. Clicking either boundary in the combined range control opens its unbounded native calendar; a manual edit switches the selector to Custom and may extend outside the discovered horizon. Every interactive chart, tooltip, breakdown, and download uses the same selected range. Exact counts affects all integer counts in tooltips and visible rows: unchecked values are shortened, while checked values use grouped exact integers. Money, percentages, fractional credits, and dates keep their own formats.  
-The Usage Breakdown includes Token composition (local input, local output, and unknown), Input details (cached versus uncached), and Output details (visible versus reasoning). Unknown is never redistributed into invented exact components: its tooltip separately reports backend-only tokens and any residual between local total and local input plus output. Malformed cached or reasoning subset counters are clamped and disclosed instead of producing negative segments.  
-The Return on investment section compares selected-range subscription spend with estimated API-equivalent usage value. Partial months allocate `monthly amount / calendar days in month` to each selected day. `Value coverage = estimated API value / amount paid * 100`; conventional `ROI = (estimated API value - amount paid) / amount paid * 100`. Both percentages are `N/A` when selected spend is zero. Payment-only months before the first Codex entry remain part of All time: they contribute their spend, zero API-equivalent value, and `-100%` conventional ROI. The comparison is green (`#50fa7b`) when cent-rounded API value exceeds spend, red (`#ff5555`) when spend exceeds value, and yellow (`#f1fa8c`) at break-even. The chart plots smooth red spend and green API-value curves against its left money axis plus a smooth yellow conventional-ROI curve against a right percentage axis. Months with zero spend leave a gap in the ROI curve instead of presenting undefined ROI as zero. Missing payment evidence renders unavailable rather than zero; partial API history keeps a visible warning. The section's SVG and PNG menus export the current selected range with all three curves and both axes.
+### Date ranges and counts
+
+The report opens on 30 days ending at the newest Codex daily entry, not the browser date. The 7d/30d/90d presets use that anchor regardless of payment dates, their calendar starts are not clamped.  
+All time spans the earlier of the first Codex day or oldest payment month's first day through the later of the last Codex day or newest payment month's last day. Exact usage-day coverage and month-precision payment coverage are shown separately.  
+Click either range boundary to open an unbounded native calendar. Manual edits select Custom and can extend beyond the discovered horizon. All interactive charts, tooltips, breakdowns and downloads share the selected range.  
+Exact counts toggles integer counts in tooltips and visible rows between abbreviated and grouped exact values. Money, percentages, fractional credits and dates retain their formats.
+
+### Token composition
+
+Usage Breakdown shows Token composition (local input, local output, unknown), Input details (cached/uncached) and Output details (visible/reasoning). Unknown tokens are never assigned invented components: the tooltip separates backend-only tokens from residuals between local total and local input plus output. Malformed cached or reasoning subset counters are clamped and disclosed to prevent negative segments.
+
+### Return on investment
+
+ROI compares selected-range subscription spend with estimated API-equivalent usage value. Partial months allocate `monthly amount / calendar days in month` per selected day.
+
+- `Value coverage = estimated API value / amount paid * 100`
+- `ROI = (estimated API value - amount paid) / amount paid * 100`
+- Both are `N/A` when selected spend is zero.
+- Payment-only months before Codex usage remain in All time, with their spend, zero API value and `-100%` ROI.
+
+The comparison uses cent-rounded amounts: green (`#50fa7b`) when API value exceeds spend, red (`#ff5555`) when spend exceeds value and yellow (`#f1fa8c`) at break-even. Smooth red spend and green API-value curves use the left money axis, a smooth yellow conventional-ROI curve uses the right percentage axis. Zero-spend months leave gaps in the ROI curve. Missing payment evidence shows as unavailable, not zero, partial API history retains a warning. SVG/PNG exports include the selected range, all three curves and both axes.
 
 ## Commands
 
 ```text
-generate   Collect data and write HTML, SVG, PNG, JSON, and CSV outputs
-collect    Collect data and write usage-data.json, usage-report.html, and cost-estimate.csv only
+generate   Collect data and write HTML, SVG, PNG, JSON and CSV outputs
+collect    Collect data and write usage-data.json, usage-report.html and cost-estimate.csv only
 help       Show CLI help (default)
 ```
 
@@ -137,30 +174,26 @@ help       Show CLI help (default)
 --analytics-json <path>                    Use saved WHAM analytics JSON instead of calling the dashboard APIs
 --sections <list>                          Comma-separated report sections (default : all), ex feature,turn or all,-chats
 --payments-json <path>                     Override monthly USD spend with a {"YYYY-MM": amount} root object
---no-api                                   Do not call Profile, WHAM, or payment APIs; explicit JSON files still load
+--no-api                                   Do not call Profile, WHAM or payment APIs, explicit JSON files still load
 --base-url <url>                           Backend base URL (default : https://chatgpt.com/backend-api)
 --pricing-source openai|bundled|models.dev Default : OpenAI current pricing plus bundled effective-dated history
 --pricing-json <path>                      Use flat current-date or effective-dated custom pricing JSON
---estimate-model <model>                   Explicit override for missing models; otherwise infer the historical primary
+--estimate-model <model>                   Explicit override for missing models, otherwise infer the historical primary
 --no-png                                   Skip static PNG export and write SVG/HTML/JSON/CSV only
---silent                                   Hide action lines, file count, and warnings, keep the progress bar and token summary
---theme <theme>                            Default : EDM115, can also be "config" for your `config.toml` one or a any of the built-in Codex themes
+--silent                                   Hide action lines, file count and warnings, keep the progress bar and token summary
+--theme <theme>                            Default : EDM115, can also be "config" for your `config.toml` one or any of the built-in Codex themes
 --help                                     Show help
 ```
 
 ## Output files
 
 ```text
-usage-report.html            Interactive offline report
-usage-data.json              Normalized report dataset
-cost-estimate.csv            Daily token and estimated-cost table
-heatmap-daily.{svg,png}      Daily token intensity heatmap
-heatmap-weekly.{svg,png}     Weekly token intensity heatmap
-heatmap-cumulative.{svg,png} Cumulative token intensity heatmap
-chart-daily.{svg,png}        Daily token trend chart
-chart-weekly.{svg,png}       Weekly token trend chart
-chart-cumulative.{svg,png}   Cumulative token trend chart
-usage-{feature,models,surfaces,turn}.{svg,png}  Daily attributed usage charts when account data is available
+usage-report.html                              Interactive offline report
+usage-data.json                                Normalized report dataset
+cost-estimate.csv                              Daily token and estimated-cost table
+heatmap-{daily,weekly,cumulative}.{svg,png}    Daily/weekly/cumulative token intensity heatmap
+{area,bar}-{daily,weekly,cumulative}.{svg,png} Daily/weekly/cumulative token trend chart
+usage-{feature,models,surfaces,turn}.{svg,png} Daily attributed usage charts when account data is available
 {plugin,skill}-activity.{svg,png}              Daily account tool activity charts when available
 messages-{model,surface}.{svg,png}             Daily account message charts when available
 ```
@@ -169,31 +202,48 @@ PNG export uses `@resvg/resvg-js` for static files. If the native renderer is un
 
 ## Authentication and privacy
 
-For live API calls, the CLI reads `auth.json` from the first configured Codex home and sends the access token only in request headers. The payment endpoint also needs `tokens.account_id`. A run driven only by `--usage-json` never discovers local auth merely to fetch payments; add `--payments-json` for an offline spend comparison. `--no-api` disables live payment fetching but does not disable an explicit payment file.  
-Access tokens, account IDs, raw transaction IDs, invoice URLs, pagination cursors, and query-bearing payment URLs are not written to generated reports, JSON, CSV, SVG, PNG, or logs. Only paid, positive, integer-cent USD transactions with valid timestamps are accepted; raw transaction IDs are replaced with SHA-256 fingerprints before portable output. If API access fails, the report records a bounded normalized warning and falls back to the data it can still read locally. Use `--profile-json`, `--analytics-json`, and `--payments-json` for reproducible offline reports.  
-`--sections` accepts `all` and these names: `summary,intensity,trend,roi,models,surfaces,cloud,skills,thinking,mode,cyber,token,input,output,details,feature,turn,chats,limits-feature,limits-model,limits-surface,limits-turn,messages-model,messages-surface`. Values are applied in order, so `all,-chats` selects everything except Top chats, and a leading exclusion starts from all. Omitted sections are absent from generated HTML markup rather than hidden with CSS, and their dedicated embedded data is removed. When `chats` is excluded, local chat metadata and per-chat usage are removed from both HTML and `usage-data.json`, the default includes chat titles in both. The `cloud` selector still controls whether cloud task data is kept in portable JSON, although the Cloud tasks card has been removed from HTML. The JSON is an archival input and can retain other personal metadata, so review it separately before sharing. Top chats uses the 100 most recently updated local roots, including portable sources from other machines, and asks the account API for limit usage, with no local token-to-limit conversion. The page's date selector filters those chats by their update date. Repeated `codex-auto-review` and `Untitled chat` rows are combined and show a chat count. The `cyber` section reads each rollout turn's `payload.cyber_access_program`, treats missing or unknown values as `standard`, and shows a breakdown only when Daybreak Blue or Daybreak Red usage exists for the selected range.  
-The daily attribution, workspace message, plugin activity, and skill activity APIs are queried in consecutive windows of up to 120 days across the available report horizon; the HTML date selector determines which fetched days are shown, while `--from` and `--to` bound collection and portable JSON. Plugin and skill requests ask for up to 500 categories per day, and the `[I/X]` progress display counts the WHAM requests. An existing output JSON preserves earlier dated buckets when the API later stops returning them. Plan usage history reads `used_basis_points` and category `basis_points` directly from `/wham/usage/plan_limit_history?days=30`, dividing by 100 for display. Live checks found that this endpoint accepts only `days=7` or `days=30`, and both returned three weekly periods for the tested Plus account; the number of available periods and whether five-hour periods exist are account/API dependent. The turn-start rows cover Tasks only and need not sum to the full-period percentage. The daily total-usage API labels its attribution values `units: "percent"`, so the report uses them for relative day heights and divides categories by each day's attribution total for the legend without treating them as a percentage of plan limits. Messages use the analytics API's daily `turns` counts.
+Live API calls read `auth.json` from the first configured Codex home and send the access token only in request headers. Payments also require `tokens.account_id`. JSON-only runs do not discover local auth to fetch payments, use `--payments-json` for offline spend comparisons. `--no-api` disables live payment fetching but still loads explicit payment files.  
+Generated reports, JSON, CSV, SVG, PNG and logs exclude access tokens, account IDs, raw transaction IDs, invoice URLs, pagination cursors and query-bearing payment URLs. Accepted transactions must be paid, positive, integer-cent USD amounts with valid timestamps, portable output replaces transaction IDs with SHA-256 fingerprints. API failures produce bounded, normalized warnings and fall back to readable local data. Use `--profile-json`, `--analytics-json` and `--payments-json` for reproducible offline reports.  
+
+### Sections and chat data
+
+`--sections` accepts `all` and :
+
+```text
+summary,intensity,trend,roi,models,surfaces,cloud,skills,thinking,mode,cyber,token,input,output,details,feature,turn,chats,limits-feature,limits-model,limits-surface,limits-turn,messages-model,messages-surface
+```
+
+Values apply in order: `all,-chats` selects everything except Top chats, a leading exclusion starts from all. Excluded sections and their dedicated embedded data are removed from HTML, not hidden with CSS.  
+Excluding `chats` also removes local chat metadata and per-chat usage from HTML and `usage-data.json`, both include chat titles by default. `cloud` controls cloud task data in portable JSON, though HTML no longer has a Cloud tasks card. Archival JSON can retain other personal metadata: review it separately before sharing.  
+Top chats uses the 100 most recently updated local roots, including portable sources from other machines. Limit usage comes from the account API, without local token-to-limit conversion. The date selector filters chats by update date. Repeated `codex-auto-review` and `Untitled chat` rows are grouped with a chat count.  
+`cyber` reads each rollout turn's `payload.cyber_access_program`, defaults missing/unknown values to `standard` and shows a breakdown only if the selected range includes Daybreak Blue or Daybreak Red usage.
+
+### Account analytics
+
+Daily attribution, workspace messages, plugin activity and skill activity are fetched in consecutive windows of up to 120 days across the report horizon. The HTML date selector filters displayed days, `--from`/`--to` bound collection and portable JSON. Plugin/skill requests ask for up to 500 categories per day. `[I/X]` tracks WHAM requests. Existing output JSON preserves dated buckets no longer returned by the API.  
+Plan usage history reads `used_basis_points` and category `basis_points` from `/wham/usage/plan_limit_history?days=30`, dividing by 100 for display. Live checks found only `days=7` and `days=30` accepted, both returned three weekly periods for the tested Plus account. Available periods, including five-hour periods, depend on the account/API. Turn-start rows cover Tasks only and may not sum to the full-period percentage.  
+The daily total-usage API labels attribution values `units: "percent"`. These determine relative day heights, legend shares divide each category by that day's attribution total. They are not treated as plan-limit percentages. Messages use the analytics API's daily `turns` counts.
 
 ## Themes
 
-The generated HTML and images use the first selected Codex home configuration. Explicit desktop theme colors take priority. If the config only contains a named theme, the tool tries the upstream `openai/codex` theme definitions and falls back to a bundled local palette for common Codex themes.
+HTML and images use the first selected Codex home's configuration. Explicit desktop colors take priority. For name-only themes, the tool tries upstream `openai/codex` definitions, then bundled palettes for common Codex themes.
 
 ## Development
 
-For pricing-cache refreshes, follow [the pricing maintenance guide](./PRICING-MAINTENANCE.md), which maps model entries, aliases, effective dates, parser formats, report colors, generated fixtures and validation to their owning files.  
-The root [`demo.json`](./demo.json) is a deterministic, fully synthetic dataset that exercises the report's local usage, cloud analytics, plan limits, top chats, tool activity, messages, capability, source, cache, attribution, payment, and ROI views without exposing user data. Refresh the tracked fixture after report-schema changes with :
+For pricing-cache refreshes, see [the pricing maintenance guide](./PRICING-MAINTENANCE.md). It maps model entries, aliases, effective dates, parser formats, report colors, generated fixtures and validation to their files.  
+Root [`demo.json`](./demo.json) is a deterministic, fully synthetic dataset covering local usage, cloud analytics, plan limits, top chats, tool activity, messages, capability, source, cache, attribution, payment and ROI views without user data. Refresh the tracked fixture after report-schema changes :
 
 ```pwsh
 bun run demo
 ```
 
-Generate a presentation-ready report from the serialized fixture with :
+Generate a report from the serialized fixture :
 
 ```pwsh
 bun run demo:report
 ```
 
-This writes the self-contained report to `output/demo/usage-report.html`. The `output/` directory is ignored, so the HTML can be opened, shared, or screenshotted without adding generated presentation files to Git.
+This writes `output/demo/usage-report.html`, a self-contained report you can open, share or screenshot. `output/` is gitignored, keeping generated presentation files out of Git.
 
 ```pwsh
 bun test
@@ -201,11 +251,11 @@ bun typecheck
 bun usage generate --codex-home "C:\Users\EDM115\.codex" --out ./usage
 ```
 
-The HTML report is intentionally self-contained. Renderer regressions should be covered by tests that extract executable script blocks from the generated HTML and parse them.
+Keep the HTML report self-contained. Cover renderer regressions with tests that extract and parse its executable script blocks.
 
 ## Notes on cost estimates
 
-Cost estimates are best-effort operational estimates, not billing statements. Explicit local models are resolved through the alias effective on their usage date. When a local event has no model, or backend totals contain tokens not covered by local rollouts, the tool selects the newest model released by that date and marked as eligible to be the primary Codex model. `--estimate-model` overrides this inference when a fixed assumption is preferable.  
-Bundled model definitions start on their documented release dates and bundled price periods remain effective until the next period for the same model.  
-Live pricing complements rather than replaces that history. If a fetched current rate differs from the active bundled rate, the new rate starts on the fetch date, so older usage keeps the older bundled price. Effective-dated custom JSON rows use `effectiveFrom` in `YYYY-MM-DD` format; legacy flat custom rows start on the report's fetch date.  
-Cached input, output, service tiers, long-context requests, and unattributed backend-only tokens all use the selected model's price effective on the usage date. The report's cache-savings figure is the API-equivalent difference between uncached input and cached-input prices for the same dated model/tier; it is not subscription money returned. Treat official OpenAI billing exports as authoritative for accounting.
+Costs are best-effort operational estimates, not billing statements. Explicit local models resolve through their usage-date aliases. For missing models or backend-only tokens, the tool selects the newest model released by that date and eligible as the primary Codex model. `--estimate-model` overrides this inference.  
+Bundled model definitions start on documented release dates, price periods last until the next period for that model.  
+Live pricing supplements this history. A fetched rate that differs from the active bundled rate starts on the fetch date, preserving older prices for older usage. Effective-dated custom JSON uses `effectiveFrom` (`YYYY-MM-DD`), legacy flat rows start on the report's fetch date.  
+Cached input, output, service tiers, long-context requests and backend-only tokens use the selected model's usage-date price. Cache savings measure the API-equivalent difference between uncached and cached-input prices for the same dated model/tier, not a subscription refund. Official OpenAI billing exports remain authoritative for accounting.

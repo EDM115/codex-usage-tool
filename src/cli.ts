@@ -622,7 +622,7 @@ Usage :
   bun usage [generate|collect|help] [options]
 
 Commands :
-  generate   Collect data and write HTML, SVG, PNG, JSON, and CSV outputs
+  generate   Collect data and write HTML, SVG, PNG, JSON and CSV outputs
   collect    Collect data and write usage-data.json/cost-estimate.csv only
   help       Show this help (default)
 
@@ -645,7 +645,7 @@ Filters :
 Pricing :
   --pricing-source <source>  openai (default) | models.dev | bundled effective-dated history
   --pricing-json <path>      Custom flat current-date or effective-dated pricing JSON
-  --estimate-model <model>   Explicit override for missing models; default follows historical primary models
+  --estimate-model <model>   Explicit override for missing models, default follows historical primary models
 
 Output :
   --out <path>               Output directory (default : outputs/codex-usage)

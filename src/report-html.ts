@@ -401,6 +401,7 @@ export function renderReportHtml(dataset: UsageDataset, sections: readonly Repor
     .analytics-show-more { margin-top: 10px; }
     .analytics-two-charts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
     .analytics-two-charts > div + div { border-top: 1px solid var(--line); padding-top: 22px; }
+    .analytics-subchart-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
     @media (max-width: 600px) { .analytics-table-head, .analytics-chat summary { grid-template-columns: minmax(0, 1fr) 90px 70px; gap: 4px; font-size: 12px; } }
     .warning { color: var(--warning); }
     .diagnostics { border-top: 1px solid var(--line); padding-top: 8px; }
@@ -509,6 +510,16 @@ export function renderReportHtml(dataset: UsageDataset, sections: readonly Repor
       </div>
     </section>
 
+    ${attributionEnabled ? `<section class="section"><div class="section-head"><div class="section-title"><h2>Total usage history</h2><p class="section-copy">Daily attributed usage, grouped by the selected dimension, shares use each day's attribution total</p></div><div class="section-actions"><label class="select-control"><select id="attributionDimension" aria-label="Total usage grouping">${enabled("feature") ? '<option value="feature">By feature</option>' : ""}${enabled("models") ? '<option value="model">By model</option>' : ""}${enabled("surfaces") ? '<option value="surface">By surface</option>' : ""}${enabled("turn") ? '<option value="turn">By turn start</option>' : ""}</select>${controlChevron()}</label>${downloadMenu("analytics-attribution")}</div></div><div id="attributionHistory"></div></section>` : ""}
+
+    ${enabled("skills") ? `<section class="section"><div class="section-head"><div class="section-title"><h2>Tool activity</h2><p class="section-copy">Account plugin calls and skill uses by UTC day</p></div></div><div class="analytics-two-charts"><div><div class="analytics-subchart-head"><h3>Plugins called</h3>${downloadMenu("analytics-plugin")}</div><div id="pluginActivity"></div></div><div><div class="analytics-subchart-head"><h3>Skills used</h3>${downloadMenu("analytics-skill")}</div><div id="skillActivity"></div></div></div></section>` : ""}
+
+    ${enabled("messages-model") || enabled("messages-surface") ? `<section class="section"><div class="section-head"><div class="section-title"><h2>Messages</h2><p class="section-copy">Daily turns reported by the account analytics API</p></div><div class="section-actions"><label class="select-control"><select id="messagesDimension" aria-label="Messages grouping">${enabled("messages-model") ? '<option value="model">By model</option>' : ""}${enabled("messages-surface") ? '<option value="surface">By surface</option>' : ""}</select>${controlChevron()}</label>${downloadMenu("analytics-messages")}</div></div><div id="messagesHistory"></div></section>` : ""}
+
+    ${limitsEnabled ? `<section class="section"><div class="section-head"><div class="section-title"><h2>Plan usage history</h2><p class="section-copy">Percent of the full plan allowance reported by the account API</p></div><label class="select-control"><select id="limitDimension" aria-label="Plan limit grouping">${enabled("limits-feature") ? '<option value="feature">By feature</option>' : ""}${enabled("limits-model") ? '<option value="model">By model</option>' : ""}${enabled("limits-surface") ? '<option value="surface">By surface</option>' : ""}${enabled("limits-turn") ? '<option value="turn">By turn start</option>' : ""}</select>${controlChevron()}</label></div><div class="analytics-limit-grid"><div id="fiveHourLimits"></div><div id="weeklyLimits"></div></div></section>` : ""}
+
+    ${enabled("chats") ? '<section class="section"><div class="section-head"><div class="section-title"><h2>Top chats</h2><p class="section-copy">Recent local chats ranked by account plan usage, chat titles may contain personal information</p></div></div><div id="topChats"></div></section>' : ""}
+
     <section class="section"${breakdownEnabled ? "" : " hidden"}>
       <div class="section-head">
         <div class="section-title">
@@ -519,17 +530,6 @@ export function renderReportHtml(dataset: UsageDataset, sections: readonly Repor
       </div>
       <div id="analyticsBreakdown" class="breakdown-grid"></div>
     </section>
-
-    ${attributionEnabled ? `<section class="section"><div class="section-head"><div class="section-title"><h2>Total usage history</h2><p class="section-copy">Daily attributed usage, grouped by the selected dimension, shares use each day's attribution total</p></div><label class="select-control"><select id="attributionDimension" aria-label="Total usage grouping">${enabled("feature") ? '<option value="feature">By feature</option>' : ""}${enabled("models") ? '<option value="model">By model</option>' : ""}${enabled("surfaces") ? '<option value="surface">By surface</option>' : ""}${enabled("turn") ? '<option value="turn">By turn start</option>' : ""}</select>${controlChevron()}</label></div><div id="attributionHistory"></div></section>` : ""}
-
-    ${enabled("chats") ? '<section class="section"><div class="section-head"><div class="section-title"><h2>Top chats</h2><p class="section-copy">Recent local chats ranked by account plan usage, chat titles may contain personal information</p></div></div><div id="topChats"></div></section>' : ""}
-
-    ${limitsEnabled ? `<section class="section"><div class="section-head"><div class="section-title"><h2>Plan usage history</h2><p class="section-copy">Percent of the full plan allowance reported by the account API</p></div><label class="select-control"><select id="limitDimension" aria-label="Plan limit grouping">${enabled("limits-feature") ? '<option value="feature">By feature</option>' : ""}${enabled("limits-model") ? '<option value="model">By model</option>' : ""}${enabled("limits-surface") ? '<option value="surface">By surface</option>' : ""}${enabled("limits-turn") ? '<option value="turn">By turn start</option>' : ""}</select>${controlChevron()}</label></div><div class="analytics-limit-grid"><div id="fiveHourLimits"></div><div id="weeklyLimits"></div></div></section>` : ""}
-
-    ${enabled("skills") ? '<section class="section"><div class="section-head"><div class="section-title"><h2>Tool activity</h2><p class="section-copy">Account plugin calls and skill uses by UTC day</p></div></div><div class="analytics-two-charts"><div id="pluginActivity"></div><div id="skillActivity"></div></div></section>' : ""}
-
-    ${enabled("messages-model") ? '<section class="section"><div class="section-head"><div class="section-title"><h2>Messages by model</h2><p class="section-copy">Daily turns reported by the account analytics API</p></div></div><div id="messagesModel"></div></section>' : ""}
-    ${enabled("messages-surface") ? '<section class="section"><div class="section-head"><div class="section-title"><h2>Messages by surface</h2><p class="section-copy">Daily turns reported by the account analytics API</p></div></div><div id="messagesSurface"></div></section>' : ""}
 
     <section class="section notes"${enabled("details") ? "" : " hidden"}>
       <div><strong>Data sources :</strong> ${escapeHtml(dataset.sourceMode)}, profile API ${dataset.profile?.endpoint ? `from ${escapeHtml(dataset.profile.endpoint)}` : "not used"}, analytics ${dataset.analytics?.fetched ? "requested from wham dashboard APIs" : "not fetched live"}</div>
@@ -611,7 +611,7 @@ export function renderReportHtml(dataset: UsageDataset, sections: readonly Repor
       { dark: '#c49aff', light: '#7446b8' },
       { dark: '#ff9f6e', light: '#a94718' }
     ];
-    const renderExtendedAnalytics = (${extendedAnalyticsRuntimeSource()})(dataset, reportSections, function () { return { from: fromDateValue, to: toDateValue }; }, function () { return theme.colors.series; });
+    const renderExtendedAnalytics = (${extendedAnalyticsRuntimeSource()})(dataset, reportSections, function () { return { from: fromDateValue, to: toDateValue }; }, function () { return theme; });
 
     function progressColor(pair) {
       return themeColorScheme(theme.colors.bg) === 'light' ? pair.light : pair.dark;
@@ -2223,6 +2223,14 @@ export function renderReportHtml(dataset: UsageDataset, sections: readonly Repor
     }
 
     async function download(target, kind) {
+      const analyticsTarget = ({ 'analytics-attribution': 'attributionHistory', 'analytics-plugin': 'pluginActivity', 'analytics-skill': 'skillActivity', 'analytics-messages': 'messagesHistory' })[target];
+      if (analyticsTarget) {
+        const exported = renderExtendedAnalytics.exportChartSvg(analyticsTarget);
+        if (!exported) return;
+        if (kind === 'svg') saveBlob(new Blob([exported.svg], {type:'image/svg+xml;charset=utf-8'}), exported.name + '.svg');
+        else await saveSvgAsPng(exported.svg, exported.name + '.png');
+        return;
+      }
       const name = target === 'heatmap' ? 'codex-usage-heatmap' : target === 'dashboard' ? 'codex-usage-dashboard' : target === 'roi' ? 'codex-usage-roi' : 'codex-usage-chart';
 
       if (target === 'dashboard' && kind === 'png') {
@@ -2506,8 +2514,10 @@ function parseDiagnostics(dataset: UsageDataset): string {
   return `<details class="diagnostics warning"><summary>Local parse diagnostics (${dataset.local.parseErrors.length})</summary><ol>${rows}</ol></details>`;
 }
 
-function downloadMenu(target: "heatmap" | "chart" | "dashboard" | "roi"): string {
-  return `<details class="download-menu"><summary aria-label="Download" title="Download"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`;
+function downloadMenu(target: "heatmap" | "chart" | "dashboard" | "roi" | "analytics-attribution" | "analytics-plugin" | "analytics-skill" | "analytics-messages"): string {
+  const labels: Record<typeof target, string> = {heatmap: "daily intensity", chart: "usage trend", dashboard: "dashboard", roi: "ROI", "analytics-attribution": "total usage history", "analytics-plugin": "plugins called", "analytics-skill": "skills used", "analytics-messages": "messages"};
+  const label = `Download ${labels[target]}`;
+  return `<details class="download-menu"><summary aria-label="${label}" title="${label}"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`;
 }
 
 function controlChevron(): string {

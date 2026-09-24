@@ -8,6 +8,7 @@ import { filterWhamAnalyticsRange, mergeWhamAnalyticsSnapshots } from "../src/an
 import { normalizePlanLimitHistory, normalizeToolActivity, normalizeTopChats, recentThreadQueries, topChatTitle } from "../src/analytics-extended";
 import { writeOutputs } from "../src/export";
 import { renderExtendedChartSvgs } from "../src/render-extended";
+import { renderReportHtml } from "../src/report-html";
 import { parseSections, REPORT_SECTIONS } from "../src/sections";
 
 test("--sections composes explicit names and exclusions in order", () => {
@@ -73,7 +74,30 @@ test("static exports render every available account chart and respect section se
   const charts = renderExtendedChartSvgs(dataset, REPORT_SECTIONS);
   expect(charts.map((chart) => chart.name)).toEqual(["usage-feature", "usage-models", "usage-surfaces", "usage-turn", "plugin-activity", "skill-activity", "messages-model", "messages-surface"]);
   expect(charts.every((chart) => chart.svg.startsWith("<svg") && chart.svg.includes("<rect"))).toBe(true);
+  expect(charts.find((chart) => chart.name === "usage-feature")?.svg).toContain("Guardian Review");
+  expect(charts.find((chart) => chart.name === "usage-surfaces")?.svg).toContain("GitHub Code Review");
+  expect(charts.find((chart) => chart.name === "usage-models")?.svg).toContain("codex-auto-review");
+  expect(charts.find((chart) => chart.name === "messages-model")?.svg).toContain("codex-auto-review");
   expect(renderExtendedChartSvgs(dataset, parseSections("messages-model")).map((chart) => chart.name)).toEqual(["messages-model"]);
+});
+
+test("account chart sections keep the requested order, one Messages selector, and download menus", async () => {
+  const dataset = await buildDemoDataset();
+  const html = renderReportHtml(dataset);
+  const headings = ["Total usage history", "Tool activity", "Messages", "Plan usage history", "Top chats", "Usage breakdown"];
+  const positions = headings.map((heading) => html.indexOf(`<h2>${heading}</h2>`));
+  expect(positions.every((position) => position >= 0)).toBe(true);
+  expect(positions).toEqual([...positions].sort((left, right) => left - right));
+  expect(html).not.toContain("<h2>Messages by model</h2>");
+  expect(html).not.toContain("<h2>Messages by surface</h2>");
+  expect(html).toContain('<select id="messagesDimension" aria-label="Messages grouping"><option value="model">By model</option><option value="surface">By surface</option>');
+  for (const target of ["analytics-attribution", "analytics-plugin", "analytics-skill", "analytics-messages"]) {
+    expect(html).toContain(`data-download-target="${target}" data-download-kind="svg"`);
+    expect(html).toContain(`data-download-target="${target}" data-download-kind="png"`);
+  }
+  const surfaceOnly = renderReportHtml(dataset, parseSections("messages-surface"));
+  expect(surfaceOnly).toContain('<select id="messagesDimension" aria-label="Messages grouping"><option value="surface">By surface</option>');
+  expect(surfaceOnly).not.toContain('<option value="model">By model</option>');
 });
 
 test("saved WHAM buckets survive later shorter API responses without doubling overlapping days", async () => {

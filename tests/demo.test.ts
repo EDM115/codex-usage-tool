@@ -83,8 +83,23 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   expect(dataset.summary.cacheSavingsUsd).toBeGreaterThan(0);
   expect(dataset.summary.estimatedCostUsd).toBeGreaterThan(0);
   expect(dataset.analytics?.bySurface.map((row) => row.surface)).toEqual(
-    expect.arrayContaining(["Desktop app", "VS Code", "Service exec"]),
+    ["Desktop App", "Vscode", "Sdk", "Work Web", "GitHub Code Review", "Exec", "Cli"],
   );
+  const attribution = dataset.analytics!.dailyTokenUsageBreakdown!.data.flatMap((day) => day.attribution ?? []);
+  const share = (field: "threadSource" | "turnTrigger" | "model" | "surface", key: string) => attribution.filter((row) => row[field] === key).reduce((sum, row) => sum + row.value, 0) / attribution.reduce((sum, row) => sum + row.value, 0);
+  expect(new Set(attribution.map((row) => row.threadSource))).toEqual(new Set(["user", "subagent", "guardian_review", "memory_consolidation", "guardian_classifier", "thread_description", "thread_title"]));
+  expect(new Set(attribution.map((row) => row.turnTrigger))).toEqual(new Set(["composer", "edit_user_message", "memory_consolidation", "user", "guardian_review", "queue", "guardian_classifier", "thread_description", "thread_title"]));
+  expect(new Set(attribution.map((row) => row.surface))).toEqual(new Set(["desktop_app", "vscode", "sdk", "work_web", "github_code_review", "exec", "cli"]));
+  expect(share("threadSource", "user")).toBeCloseTo(0.75, 2);
+  expect(share("threadSource", "subagent")).toBeCloseTo(0.15, 2);
+  expect(share("surface", "desktop_app")).toBeCloseTo(0.85, 2);
+  expect(share("turnTrigger", "composer")).toBeCloseTo(0.95, 2);
+  expect(share("model", "codex-auto-review")).toBeCloseTo(0.04, 2);
+  expect(dataset.analytics?.byModel.some((row) => row.model === "codex-auto-review")).toBe(true);
+  for (const day of dataset.analytics!.workspaceUsageCounts!.data) {
+    expect(day.clients.reduce((sum, row) => sum + Number(row.turns), 0)).toBe(day.totals.turns);
+    expect(day.models.reduce((sum, row) => sum + Number(row.turns), 0)).toBe(day.totals.turns);
+  }
   expect(dataset.analytics?.byModelVariants.map((row) => row.speed)).toEqual(
     expect.arrayContaining(["standard", "fast"]),
   );
@@ -95,6 +110,10 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   expect(dataset.analytics?.dailyTokenUsageBreakdown?.data.at(-1)?.attribution?.length).toBeGreaterThan(0);
   expect(dataset.analytics?.planLimitHistory?.periods.some((period) => period.windowMinutes === 300)).toBe(true);
   expect(dataset.analytics?.planLimitHistory?.periods.some((period) => period.windowMinutes === 10080)).toBe(true);
+  for (const period of dataset.analytics!.planLimitHistory!.periods) {
+    expect(period.usedBasisPoints).not.toBeNull();
+    for (const breakdown of period.breakdowns ?? []) expect(breakdown.rows.reduce((sum, row) => sum + row.basisPoints, 0)).toBe(period.usedBasisPoints ?? 0);
+  }
   expect(dataset.analytics?.pluginUsage?.data.length).toBeGreaterThan(0);
   expect(dataset.analytics?.skillUsage?.data.length).toBeGreaterThan(0);
   expect(dataset.analytics?.topChats?.chats.length).toBeGreaterThan(0);

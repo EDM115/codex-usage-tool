@@ -15,7 +15,7 @@ export function renderExtendedChartSvgs(dataset: UsageDataset, sections: readonl
     if (!enabled.has(section) || !daily.length) continue;
     charts.push({ name: `usage-${section}`, title: `Total usage history - ${title}`, unit: "attributed usage", points: daily.map((bucket) => {
       const values: Record<string, number> = {};
-      for (const row of bucket.attribution ?? []) values[row[field]] = (values[row[field]] ?? 0) + row.value;
+      for (const row of bucket.attribution ?? []) { const key = categoryName(row[field]); values[key] = (values[key] ?? 0) + row.value; }
       return { date: bucket.date, values };
     }) });
   }
@@ -31,7 +31,7 @@ export function renderExtendedChartSvgs(dataset: UsageDataset, sections: readonl
       const values: Record<string, number> = {};
       for (const row of bucket[field]) {
         const raw = String(field === "models" ? row.model ?? "other" : row.client_id ?? row.clientId ?? "other");
-        const label = field === "models" ? (/^(codex-auto-review|other)$/i.test(raw) ? "other" : raw) : surfaceName(raw);
+        const label = field === "models" ? (/^other$/i.test(raw) ? "other" : raw) : surfaceName(raw);
         values[label] = (values[label] ?? 0) + Number(row.turns ?? 0);
       }
       values.other = (values.other ?? 0) + Math.max(0, Number(bucket.totals.turns ?? 0) - Object.values(values).reduce((sum, value) => sum + value, 0));
@@ -79,13 +79,17 @@ function renderStackedChart(dataset: UsageDataset, chart: Chart): string {
 
 function format(value: number): string { return Math.round(value).toLocaleString("en-US"); }
 
+function categoryName(raw: string): string { return /^(gpt-|codex-)/i.test(raw) ? raw : raw.toLowerCase() === "github_code_review" ? "GitHub Code Review" : raw.replace(/^start[-_]/, "").replace(/[_-]/g, " ").replace(/\b\w/g, (match) => match.toUpperCase()); }
+
 function surfaceName(raw: string): string {
   const name = raw.toUpperCase();
-  if (["CODEX_DESKTOP_APP", "CODEX_WORK_DESKTOP", "DESKTOP_APP"].includes(name)) return "Desktop";
-  if (["CODEX_IDE_VSCODE", "IDE_VSCODE"].includes(name)) return "Extension";
+  if (["CODEX_DESKTOP_APP", "CODEX_WORK_DESKTOP", "DESKTOP_APP"].includes(name)) return "Desktop App";
+  if (["CODEX_IDE_VSCODE", "IDE_VSCODE", "VSCODE"].includes(name)) return "Vscode";
+  if (["CODEX_SDK", "SDK"].includes(name)) return "Sdk";
   if (["CODEX_WORK_WEB", "CODEX_WEB"].includes(name)) return "Work Web";
-  if (["CODEX_CLI", "CLI"].includes(name)) return "CLI";
-  if (name === "CODEX_GITHUB") return "Code review";
+  if (["CODEX_CLI", "CLI"].includes(name)) return "Cli";
+  if (["CODEX_GITHUB", "GITHUB_CODE_REVIEW"].includes(name)) return "GitHub Code Review";
+  if (["SERVICE_EXEC", "CODEX_EXEC", "EXEC"].includes(name)) return "Exec";
   if (name === "CODEX_WORK_MOBILE") return "Mobile";
   return "other";
 }

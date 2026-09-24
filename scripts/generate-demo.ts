@@ -33,15 +33,31 @@ const CODEX_HOMES: CodexHome[] = [
 ];
 
 type SurfaceDefinition = {
-  id: "desktop_app" | "ide_vscode" | "service_exec";
-  label: "Desktop app" | "VS Code" | "Service exec";
+  id: string;
+  label: string;
   share: number;
 };
 
 const SURFACES: SurfaceDefinition[] = [
-  { id: "desktop_app", label: "Desktop app", share: 0.55 },
-  { id: "ide_vscode", label: "VS Code", share: 0.35 },
-  { id: "service_exec", label: "Service exec", share: 0.1 },
+  { id: "desktop_app", label: "Desktop App", share: 0.85 },
+  { id: "vscode", label: "Vscode", share: 0.05 },
+  { id: "sdk", label: "Sdk", share: 0.03 },
+  { id: "work_web", label: "Work Web", share: 0.025 },
+  { id: "github_code_review", label: "GitHub Code Review", share: 0.02 },
+  { id: "exec", label: "Exec", share: 0.015 },
+  { id: "cli", label: "Cli", share: 0.01 },
+];
+
+const FEATURES = [
+  { key: "user", share: 0.75 }, { key: "subagent", share: 0.15 }, { key: "guardian_review", share: 0.035 },
+  { key: "memory_consolidation", share: 0.025 }, { key: "guardian_classifier", share: 0.02 },
+  { key: "thread_description", share: 0.012 }, { key: "thread_title", share: 0.008 },
+];
+
+const TURN_STARTS = [
+  { key: "composer", share: 0.95 }, { key: "edit_user_message", share: 0.018 }, { key: "memory_consolidation", share: 0.008 },
+  { key: "user", share: 0.007 }, { key: "guardian_review", share: 0.006 }, { key: "queue", share: 0.004 },
+  { key: "guardian_classifier", share: 0.003 }, { key: "thread_description", share: 0.0025 }, { key: "thread_title", share: 0.0015 },
 ];
 
 export async function buildDemoDataset(): Promise<UsageDataset> {
@@ -125,8 +141,8 @@ export async function writeDemoDataset(
 
   const [reloaded] = loadUsageDatasets([DEMO_PATH]);
   const output = await writeOutputs(reloaded, DEMO_REPORT_DIR, {
-    includePng: false,
-    reportOnly: true,
+    includePng: true,
+    reportOnly: false,
   });
   const reportPath = output.files.find((path) => path.endsWith("usage-report.html"));
   if (!reportPath) {
@@ -298,6 +314,44 @@ function buildProfile(dates: string[], localTotals: Map<string, number>): Accoun
   };
 }
 
+function categoryAt(position: number, mix: Array<{ key: string; share: number }>): string {
+  let end = 0;
+  for (const category of mix) {
+    end += category.share;
+    if (position < end) return category.key;
+  }
+  return mix.at(-1)!.key;
+}
+
+function apportionedCounts(total: number, shares: number[]): number[] {
+  const exact = shares.map((share) => total * share);
+  const counts = exact.map(Math.floor);
+  const order = shares.map((_, index) => index).sort((left, right) => (exact[right] - counts[right]) - (exact[left] - counts[left]));
+  for (let remaining = total - counts.reduce((sum, value) => sum + value, 0), index = 0; remaining > 0; remaining--, index++) counts[order[index % order.length]]++;
+  return counts;
+}
+
+function demoAttribution(relativeUsage: number, model: string) {
+  const mixes = [FEATURES, TURN_STARTS, SURFACES.map((surface) => ({ key: surface.id, share: surface.share })), [{ key: model, share: 0.96 }, { key: "codex-auto-review", share: 0.04 }]];
+  const cuts = [...new Set([0, 1, ...mixes.flatMap((mix) => { let sum = 0; return mix.map((row) => Number((sum += row.share).toFixed(6))); })])].sort((left, right) => left - right);
+  const cents = apportionedCounts(Math.round(relativeUsage * 100), cuts.slice(0, -1).map((start, index) => cuts[index + 1] - start));
+  return cuts.slice(0, -1).map((start, index) => {
+    const end = cuts[index + 1];
+    const value = cents[index] / 100;
+    const middle = (start + end) / 2;
+    return { value, threadSource: categoryAt(middle, FEATURES), turnTrigger: categoryAt(middle, TURN_STARTS), surface: categoryAt(middle, mixes[2]), model: categoryAt(middle, mixes[3]) };
+  }).filter((row) => row.value > 0);
+}
+
+function distributedCounts(total: number, startIndex: number, mix: Array<{ key: string; share: number }>): Map<string, number> {
+  const counts = new Map(mix.map((row) => [row.key, 0]));
+  for (let index = 0; index < total; index++) {
+    const key = categoryAt(((startIndex + index) * 0.618033988749895) % 1, mix);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
 function buildAnalytics(
   dates: string[],
   events: TokenEvent[],
@@ -314,10 +368,13 @@ function buildAnalytics(
     { model: string; credits: number; turns: number; threads: number; users: number }
   >();
   const variantTotals = new Map<string, { model: string; speed: string; credits: number }>();
+  const surfaceMix = SURFACES.map((surface) => ({ key: surface.id, share: surface.share }));
   let totalCredits = 0;
   let totalTurns = 0;
   let totalThreads = 0;
   let textTotalTokens = 0;
+  let allocatedTurns = 0;
+  let allocatedThreads = 0;
   const peakBackendTokens = Math.max(1, ...(profile.dailyUsageBuckets ?? []).map((bucket) => bucket.tokens));
 
   for (const [index, date] of dates.entries()) {
@@ -328,22 +385,29 @@ function buildAnalytics(
     const turns = 3 + (index % 9);
     const threads = 1 + (index % 3);
     const fastShare = index % 5 === 0 ? 0.42 : 0.18;
-    const standardCredits = roundMoney(credits * (1 - fastShare));
-    const fastCredits = roundMoney(credits - standardCredits);
+    const reviewCredits = roundMoney(credits * 0.04);
+    const primaryCredits = roundMoney(credits - reviewCredits);
+    const standardCredits = roundMoney(primaryCredits * (1 - fastShare));
+    const fastCredits = roundMoney(primaryCredits - standardCredits);
+    const reviewTurns = index % 4 === 0 ? 1 : 0;
+    const primaryTurns = turns - reviewTurns;
+    const reviewThreads = reviewTurns && threads > 1 ? 1 : 0;
+    const primaryThreads = threads - reviewThreads;
+    const surfaceTurns = distributedCounts(turns, allocatedTurns, surfaceMix);
+    const surfaceThreads = distributedCounts(threads, allocatedThreads, surfaceMix);
+    allocatedTurns += turns;
+    allocatedThreads += threads;
     const surfaceValues = Object.fromEntries(
       SURFACES.map((surface) => [surface.id, roundMoney(100 * surface.share)]),
     );
     dailyTokenUsageBreakdown.push({
       date,
       productSurfaceUsageValues: surfaceValues,
-      attribution: [
-        { value: roundMoney(relativeUsage * 0.78), threadSource: "tasks", turnTrigger: "user_message", model: event.model, surface: "desktop_app" },
-        { value: roundMoney(relativeUsage * 0.15), threadSource: "memory_updates", turnTrigger: "edited_message", model: event.model, surface: "ide_vscode" },
-        { value: roundMoney(relativeUsage * 0.07), threadSource: "auto_review", turnTrigger: "unknown", model: event.model, surface: "service_exec" },
-      ],
+      attribution: demoAttribution(relativeUsage, event.model),
       models: [
         { model: event.model, speed: "standard", credits: standardCredits },
         { model: event.model, speed: "fast", credits: fastCredits },
+        { model: "codex-auto-review", speed: "standard", credits: reviewCredits },
       ],
     });
 
@@ -352,8 +416,8 @@ function buildAnalytics(
       const cachedInput = Math.round(event.breakdown.cachedInputTokens * surface.share);
       const output = Math.round(event.breakdown.outputTokens * surface.share);
       const clientCredits = roundMoney(credits * surface.share);
-      const clientTurns = Math.max(1, Math.round(turns * surface.share));
-      const clientThreads = Math.max(1, Math.round(threads * surface.share));
+      const clientTurns = surfaceTurns.get(surface.id) ?? 0;
+      const clientThreads = surfaceThreads.get(surface.id) ?? 0;
       const total = localInput + output;
       const aggregate = surfaceTotals.get(surface.label)!;
       aggregate.credits += clientCredits;
@@ -376,18 +440,14 @@ function buildAnalytics(
         text_total_tokens: total,
       };
     });
-    const model = modelTotals.get(event.model) ?? {
-      model: event.model,
-      credits: 0,
-      turns: 0,
-      threads: 0,
-      users: 0,
-    };
-    model.credits += credits;
-    model.turns += turns;
-    model.threads += threads;
-    model.users = Math.max(model.users, 2);
-    modelTotals.set(event.model, model);
+    for (const row of [{ model: event.model, credits: primaryCredits, turns: primaryTurns, threads: primaryThreads, users: 2 }, { model: "codex-auto-review", credits: reviewCredits, turns: reviewTurns, threads: reviewThreads, users: 1 }]) {
+      const model = modelTotals.get(row.model) ?? { model: row.model, credits: 0, turns: 0, threads: 0, users: 0 };
+      model.credits += row.credits;
+      model.turns += row.turns;
+      model.threads += row.threads;
+      model.users = Math.max(model.users, row.users);
+      modelTotals.set(row.model, model);
+    }
     for (const variant of dailyTokenUsageBreakdown.at(-1)!.models) {
       const key = `${variant.model}:${variant.speed}`;
       const aggregate = variantTotals.get(key) ?? {
@@ -402,7 +462,7 @@ function buildAnalytics(
       date,
       totals: { credits, turns, threads, users: 2, text_total_tokens: backendTokens },
       clients,
-      models: [{ model: event.model, credits, turns, threads, users: 2 }],
+      models: [{ model: event.model, credits: primaryCredits, turns: primaryTurns, threads: primaryThreads, users: 2 }, { model: "codex-auto-review", credits: reviewCredits, turns: reviewTurns, threads: reviewThreads, users: 1 }],
     });
     totalCredits += credits;
     totalTurns += turns;
@@ -584,12 +644,15 @@ function buildDemoPlanHistory(): NonNullable<WhamAnalytics["planLimitHistory"]> 
 }
 
 function demoLimitBreakdowns(total: number): NonNullable<NonNullable<WhamAnalytics["planLimitHistory"]>["periods"][number]["breakdowns"]> {
-  const split = (entries: Array<[string, number]>) => entries.map(([key, share]) => ({ key, basisPoints: Math.round(total * share) }));
+  const split = (mix: Array<{ key: string; share: number }>) => {
+    const counts = apportionedCounts(total, mix.map((row) => row.share));
+    return mix.map((row, index) => ({ key: row.key, basisPoints: counts[index] }));
+  };
   return [
-    { dimension: "thread_source", rows: split([["tasks", 0.91], ["memory_updates", 0.055], ["auto_review", 0.035]]) },
-    { dimension: "model", rows: split([["gpt-6-astra", 0.76], ["gpt-5.6-sol", 0.12], ["gpt-6-sol", 0.07], ["gpt-6-luna", 0.05]]) },
-    { dimension: "surface", rows: split([["desktop_app", 0.72], ["ide_vscode", 0.2], ["service_exec", 0.08]]) },
-    { dimension: "turn_trigger", rows: split([["user_message", 0.72], ["edited_message", 0.14], ["unknown", 0.05]]) },
+    { dimension: "thread_source", rows: split(FEATURES) },
+    { dimension: "model", rows: split([{ key: "gpt-6-astra", share: 0.7296 }, { key: "gpt-5.6-sol", share: 0.1152 }, { key: "gpt-6-sol", share: 0.0672 }, { key: "gpt-6-luna", share: 0.048 }, { key: "codex-auto-review", share: 0.04 }]) },
+    { dimension: "surface", rows: split(SURFACES.map((surface) => ({ key: surface.id, share: surface.share }))) },
+    { dimension: "turn_trigger", rows: split(TURN_STARTS) },
   ];
 }
 
