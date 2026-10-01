@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { parseArgs } from "../src/cli";
 import { createModelCatalog, pricingAt, primaryModelAt, resolveModelAt } from "../src/model-catalog";
-import { estimateBreakdownCost, loadPricing } from "../src/pricing";
+import { estimateBreakdownCost, estimateCacheSavingsUsd, loadPricing } from "../src/pricing";
 import { OPENAI_PRICING_MARKDOWN_CACHE } from "../src/openai-pricing-cache";
 import type { TokenBreakdown } from "../src/types";
 
@@ -671,6 +671,82 @@ test("GPT-6 Sol and Luna begin on their release date with distinct tier and cont
 
   expect(primaryModelAt(pricing.catalog, "2026-09-23")).toBe("gpt-6-astra");
   expect(pricingAt(pricing.catalog, "gpt-5-search-api", "2026-09-16")?.inputPerMillion).toBe(1.25);
+});
+
+test("GPT-6.1 Sol starts September 29 with its own cached-input rates and preserved Sol history", async () => {
+  const sources = [await loadPricing({ source: "bundled" }), await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-09-28")];
+
+  for (const pricing of sources) {
+    expect(pricingAt(pricing.catalog, "gpt-6.1-sol", "2026-09-28")).toBeUndefined();
+    const released = pricingAt(pricing.catalog, "gpt-6.1-sol", "2026-09-29");
+    expect(released?.effectiveFrom).toBe("2026-09-29");
+    expect(released).toMatchObject({ inputPerMillion: 2, cachedInputPerMillion: 0.1, cacheWritePerMillion: 2.5, outputPerMillion: 10 });
+    expect(released?.tiers?.standard?.long).toEqual({ inputPerMillion: 4, cachedInputPerMillion: 0.2, cacheWritePerMillion: 5, outputPerMillion: 15 });
+    expect(released?.tiers?.batch?.short).toEqual({ inputPerMillion: 1, cachedInputPerMillion: 0.05, cacheWritePerMillion: 1.25, outputPerMillion: 5 });
+    expect(released?.tiers?.flex?.long).toEqual({ inputPerMillion: 2, cachedInputPerMillion: 0.1, cacheWritePerMillion: 2.5, outputPerMillion: 7.5 });
+    expect(released?.tiers?.priority?.long).toEqual({ inputPerMillion: 8, cachedInputPerMillion: 0.4, cacheWritePerMillion: 10, outputPerMillion: 30 });
+    expect(pricing.table.get("gpt-6.1-sol")?.aliasFor).toBeUndefined();
+    expect(pricing.catalog.aliases.some((row) => row.alias === "gpt-6.1")).toBe(false);
+    expect(primaryModelAt(pricing.catalog, "2026-09-29")).toBe("gpt-6-astra");
+    expect(pricingAt(pricing.catalog, "gpt-6-sol", "2026-09-22")?.cachedInputPerMillion).toBe(0.2);
+    const request = { ...ONE_MILLION_INPUT_AND_OUTPUT, totalTokens: 400_000, inputTokens: 300_000, cachedInputTokens: 100_000, outputTokens: 100_000 };
+    expect(estimate(pricing, "gpt-6.1-sol", "standard", request, 1_050_000, "2026-09-29")).toBeCloseTo(2.32);
+    expect(estimate(pricing, "gpt-6.1-sol", "fast", request, 1_050_000, "2026-09-29")).toBeCloseTo(4.64);
+    expect(estimateCacheSavingsUsd(request, "gpt-6.1-sol", pricing.catalog, undefined, { date: "2026-09-29", modelContextWindow: 1_050_000 })).toBeCloseTo(0.38);
+  }
+});
+
+test("Astra Ultrafast and image Batch start September 29 across bundled, live, and offline catalogs", async () => {
+  const offline = (async (_input: string | URL | Request): Promise<Response> => { throw new Error("offline"); }) as typeof fetch;
+  const sources = [
+    await loadPricing({ source: "bundled" }),
+    await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-09-16"),
+    await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-10-01"),
+    await loadPricing({ source: "openai", fetcher: offline, effectiveDate: "2026-09-16" }),
+  ];
+
+  for (const pricing of sources) {
+    const tiersBefore = pricingAt(pricing.catalog, "gpt-6-astra", "2026-09-28")?.tiers;
+    expect(tiersBefore).not.toHaveProperty("ultrafast");
+    expect(tiersBefore?.priority?.short.inputPerMillion).toBe(20);
+    const released = pricingAt(pricing.catalog, "gpt-6-astra", "2026-09-29");
+    expect(released?.effectiveFrom).toBe("2026-09-29");
+    expect(released?.tiers).toHaveProperty("ultrafast", { short: { inputPerMillion: 60, cachedInputPerMillion: 6, cacheWritePerMillion: 75, outputPerMillion: 300 }, long: { inputPerMillion: 120, cachedInputPerMillion: 12, cacheWritePerMillion: 150, outputPerMillion: 450 } });
+    expect(estimate(pricing, "gpt-6-astra", "ultrafast", ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-09-29")).toBeCloseTo(360);
+    const request = { ...ONE_MILLION_INPUT_AND_OUTPUT, totalTokens: 400_000, inputTokens: 300_000, cachedInputTokens: 100_000, outputTokens: 100_000 };
+    expect(estimate(pricing, "gpt-6-astra", "ultrafast", request, 1_050_000, "2026-09-29")).toBeCloseTo(70.2);
+    expect(estimateCacheSavingsUsd(request, "gpt-6-astra", pricing.catalog, undefined, { date: "2026-09-29", serviceTier: "ultrafast", modelContextWindow: 1_050_000 })).toBeCloseTo(10.8);
+    for (const model of ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"]) {
+      expect(pricingAt(pricing.catalog, model, "2026-09-28")?.tiers?.batch).toBeUndefined();
+      expect(pricingAt(pricing.catalog, model, "2026-09-29")?.effectiveFrom).toBe("2026-09-29");
+      expect(pricingAt(pricing.catalog, model, "2026-09-29")?.tiers?.batch?.short).toEqual({ inputPerMillion: 2.5, cachedInputPerMillion: 0.625, cacheWritePerMillion: undefined, outputPerMillion: 15 });
+      expect(estimate(pricing, model, "batch", ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-09-29")).toBeCloseTo(17.5);
+    }
+    for (const model of ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-image-2.5-sunburst"]) expect(pricing.table.get(model)?.tiers).not.toHaveProperty("ultrafast");
+    expect(pricing.table.has("sora-2")).toBe(false);
+    expect(pricing.table.has("sora-2-pro")).toBe(false);
+  }
+});
+
+test("Fast, Fast mode, and Ultrafast tables stay separate in both supported Markdown formats", async () => {
+  const rates = [2, 0.1, 2.5, 10];
+  const row = (factor: number) => `| gpt-tier-probe | ${rates.map((value) => `$${value * factor}`).join(" | ")} |`;
+  const header = "| Model | Input | Cached input | Cache writes | Output |\n| --- | --- | --- | --- | --- |";
+  const video = "Video generation models\nStandard\n### Grouped Pricing Table data\n| Model | Price per second |\n| --- | --- |\n| sora-2 | $0.10 |";
+  for (const fastLabel of ["Fast", "Fast mode"]) {
+    for (const generic of [false, true]) {
+      const table = (label: string, factor: number) => `${label}\n### ${generic ? "Grouped Pricing Table data" : `${label} pricing data`}\n${header}\n${row(factor)}`;
+      const pricing = await loadFixture([table("Standard", 1), table(fastLabel, 2), table("Ultrafast", 6), video].join("\n\n"), "2026-09-29");
+      expect(estimate(pricing, "gpt-tier-probe", "standard")).toBeCloseTo(12);
+      expect(estimate(pricing, "gpt-tier-probe", "priority")).toBeCloseTo(24);
+      expect(estimate(pricing, "gpt-tier-probe", "fast")).toBeCloseTo(24);
+      expect(estimate(pricing, "gpt-tier-probe", "ultrafast")).toBeCloseTo(72);
+      expect(pricing.table.has("sora-2")).toBe(false);
+    }
+  }
+  const components = ["standard", "fast", "ultrafast"].map((tier, index) => `<TextTokenPricingTables tier="${tier}" rows={[ ["gpt-component-probe", ${rates.map((value) => value * [1, 2, 6][index]).join(", ")}] ]} />`).join("\n");
+  const pricing = await loadFixture(components, "2026-09-29");
+  expect(estimate(pricing, "gpt-component-probe", "ultrafast")).toBeCloseTo(72);
 });
 
 test("Rosalind stays free until its billing date with bundled, live, and offline pricing", async () => {

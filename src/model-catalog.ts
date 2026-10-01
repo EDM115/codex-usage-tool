@@ -28,6 +28,7 @@ const SOURCES = {
   changelog: "https://developers.openai.com/api/docs/changelog",
   gpt6Astra: "https://developers.openai.com/api/docs/models/gpt-6-astra",
   gpt6Sol: "https://developers.openai.com/api/docs/models/gpt-6-sol",
+  gpt61Sol: "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
   gpt6Luna: "https://developers.openai.com/api/docs/models/gpt-6-luna",
   gpt56: "https://openai.com/index/gpt-5-6/",
   gpt56Cyber: "https://developers.openai.com/api/docs/models/gpt-5.6-cyber",
@@ -69,6 +70,7 @@ function model(
 
 export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
   model("gpt-6-astra", "2026-09-03", SOURCES.gpt6Astra, true),
+  model("gpt-6.1-sol", "2026-09-29", SOURCES.gpt61Sol),
   model("gpt-6-sol", "2026-09-22", SOURCES.gpt6Sol),
   model("gpt-6-luna", "2026-09-22", SOURCES.gpt6Luna),
   model("gpt-5.6-sol", "2026-07-09", SOURCES.gpt56, true),

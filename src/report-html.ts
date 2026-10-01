@@ -24,6 +24,7 @@ type ProgressColorPair = { dark: string; light: string };
 const MODEL_PROGRESS_COLORS: Record<string, ProgressColorPair> = {
   "chat-latest": { dark: "#67d8ef", light: "#087c94" },
   "gpt-6-astra": { dark: "#ff7ac6", light: "#a11a68" },
+  "gpt-6.1-sol": { dark: "#57e0cf", light: "#087b6c" },
   "gpt-6-sol": { dark: "#6bd9e8", light: "#087587" },
   "gpt-6-luna": { dark: "#b69aff", light: "#6742ad" },
   "gpt-image-2.5-sunburst": { dark: "#ffd166", light: "#946000" },
@@ -668,6 +669,7 @@ export function renderReportHtml(dataset: UsageDataset, sections: readonly Repor
     }
 
     function modeColor(mode) {
+      if (/ultrafast/i.test(String(mode || ''))) return theme.colors.accent2;
       return /fast|priority/i.test(String(mode || '')) ? theme.colors.accent : mixHex(theme.colors.accent, '#ffffff', 0.20);
     }
 

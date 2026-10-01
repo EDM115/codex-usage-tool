@@ -268,7 +268,7 @@ export type WhamAnalytics = {
   }>;
 };
 
-export type PricingTier = "standard" | "priority" | "batch" | "flex";
+export type PricingTier = "standard" | "priority" | "ultrafast" | "batch" | "flex";
 
 export type PricingRates = {
   inputPerMillion: number;

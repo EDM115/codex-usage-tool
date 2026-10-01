@@ -1629,6 +1629,7 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
     Object.keys(parsedColorCatalog).sort(),
   ).toEqual([...pricing.table.keys()].sort());
   expect(parsedColorCatalog["gpt-6-astra"]).toEqual({ dark: "#ff7ac6", light: "#a11a68" });
+  expect(parsedColorCatalog["gpt-6.1-sol"]).toEqual({ dark: "#57e0cf", light: "#087b6c" });
   expect(parsedColorCatalog["gpt-6-sol"]).toEqual({ dark: "#6bd9e8", light: "#087587" });
   expect(parsedColorCatalog["gpt-6-luna"]).toEqual({ dark: "#b69aff", light: "#6742ad" });
   expect(parsedColorCatalog["gpt-image-2.5-sunburst"]).toEqual({ dark: "#ffd166", light: "#946000" });

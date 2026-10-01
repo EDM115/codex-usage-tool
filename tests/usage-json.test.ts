@@ -295,6 +295,26 @@ test("mergeUsageDatasets reprices imported service-tier breakdowns with the acti
   expect(merged.pricing.source).toBe(pricing.source);
 });
 
+test("portable JSON retains Ultrafast and GPT-6.1 Sol Fast usage when repricing imported costs", async () => {
+  const root = join(tmpdir(), `codex-usage-ultrafast-${crypto.randomUUID()}`);
+  mkdirSync(root, { recursive: true });
+  const paths: string[] = [];
+  for (const [model, tier] of [["gpt-6-astra", "ultrafast"], ["gpt-6.1-sol", "fast"]]) {
+    const dataset = await createDataset({ home: model, model, tokens: 2_000_000, inputTokens: 1_000_000, outputTokens: 1_000_000, serviceTier: tier, date: "2026-09-29" });
+    dataset.local.modelUsage[0].costUsd = 999;
+    dataset.summary.knownLocalCostUsd = 999;
+    const path = join(root, `${model}.json`);
+    writeFileSync(path, JSON.stringify(dataset));
+    paths.push(path);
+  }
+  const loaded = loadUsageDatasets(paths);
+  expect(loaded.map((dataset) => dataset.local.events?.[0].serviceTier)).toEqual(["ultrafast", "fast"]);
+  const merged = mergeUsageDatasets(loaded, { from: null, to: null, timezone: "Europe/Paris", pricing: await loadPricing({ source: "bundled" }) });
+  expect(merged.local.modelUsage.find((row) => row.model === "gpt-6-astra")?.serviceTiers[0].costUsd).toBeCloseTo(360);
+  expect(merged.local.modelUsage.find((row) => row.model === "gpt-6.1-sol")?.serviceTiers[0].costUsd).toBeCloseTo(24);
+  expect(merged.summary.knownLocalCostUsd).toBeCloseTo(384);
+});
+
 test("mergeUsageDatasets reprices and rebuilds model totals from each daily price period", async () => {
   const beforeReduction = await createDataset({
     home: "before",
