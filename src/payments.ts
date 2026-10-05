@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { readFileSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 
+import type { ApiProgressUpdate } from "./progress";
 import type { CodexAuthMaterial } from "./auth";
 import type { PaymentHistory, PaymentSource, PaymentTransactionFact } from "./types";
 
@@ -34,6 +35,11 @@ export async function loadPayments(options: {
   baseUrl: string;
   auth: CodexAuthMaterial | null;
   fetchImpl?: PaymentFetch;
+  cacheDir?: string;
+  refreshCache?: boolean;
+  now?: number;
+  onRequestProgress?: ApiProgressUpdate;
+  importedHistories?: Array<{ history: PaymentHistory; generatedAt: string }>;
 }): Promise<PaymentHistory> {
   const history = emptyPaymentHistory();
 
@@ -51,22 +57,59 @@ export async function loadPayments(options: {
   }
 
   history.endpoint = PAYMENT_ENDPOINT;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const baseUrl = options.baseUrl.replace(/\/+$/, "");
+  const now = options.now ?? Date.now();
+  const cachePath =
+    options.cacheDir && options.auth?.accountId
+      ? join(
+          options.cacheDir,
+          `payments-v1-${createHash("sha256")
+            .update(JSON.stringify([baseUrl, options.auth.accountId]))
+            .digest("hex")}.json`,
+        )
+      : undefined;
+  if (!options.refreshCache) {
+    const cached = cachePath ? readPaymentCache(cachePath, now) : undefined;
+    const imported = (options.importedHistories ?? [])
+      .map((source) => ({
+        ...source,
+        savedAt: Date.parse(source.history.fetchedAt ?? source.generatedAt),
+      }))
+      .filter((source) => isFreshPaymentHistory(source.history, source.savedAt, now))
+      .sort((a, b) => b.savedAt - a.savedAt)[0];
+    const useImported = imported && (!cached || imported.savedAt > cached.savedAt);
+    const reusable = useImported ? imported : cached;
+    if (reusable) {
+      const reused = {
+        ...reusable.history,
+        fetchedAt: new Date(reusable.savedAt).toISOString(),
+        overrides: { ...reusable.history.overrides, ...history.overrides },
+        sources: [...reusable.history.sources, ...history.sources],
+        diagnostics: {
+          ...reusable.history.diagnostics,
+          cacheHit: !useImported,
+          importedHistoryHit: Boolean(useImported),
+        },
+      };
+      if (useImported && cachePath) writePaymentCache(cachePath, reusable.savedAt, reused);
+      return finalizeHistory(reused);
+    }
+  }
   if (!options.auth) {
     return failApi(history, "Payment API unavailable: no Codex authentication was found.", false);
   }
   if (!options.auth.accountId) {
     return failApi(
       history,
-      "Payment API unavailable: the Codex authentication has no account ID.",
+      "Payment API unavailable : the Codex authentication has no account ID",
       false,
     );
   }
-
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const fingerprints = new Set<string>();
   const cursors = new Set<string>();
   let cursor: string | undefined;
+  let requestPage = 0;
 
   while (true) {
     const params = new URLSearchParams({ account_id: options.auth.accountId, limit: "10" });
@@ -75,6 +118,8 @@ export async function loadPayments(options: {
     }
     const url = `${baseUrl}${PAYMENT_ENDPOINT}?${params.toString()}`;
 
+    requestPage += 1;
+    options.onRequestProgress?.(requestPage - 1, requestPage, [`payments page ${requestPage}`]);
     let response: Response;
     try {
       history.fetched = true;
@@ -92,6 +137,8 @@ export async function loadPayments(options: {
         `Payment API request failed: ${errorMessage(error)}`,
         history.diagnostics.pages > 0,
       );
+    } finally {
+      options.onRequestProgress?.(requestPage, requestPage, []);
     }
 
     if (!response.ok) {
@@ -155,7 +202,10 @@ export async function loadPayments(options: {
         : undefined;
     if (!nextCursor) {
       history.sources.push({ kind: "api", label: "transaction history", status: "complete" });
-      return finalizeHistory(history);
+      history.fetchedAt = new Date(now).toISOString();
+      const complete = finalizeHistory(history);
+      if (cachePath) writePaymentCache(cachePath, now, complete);
+      return complete;
     }
     if (cursors.has(nextCursor)) {
       history.diagnostics.repeatedCursor = true;
@@ -178,6 +228,12 @@ export function mergePaymentHistories(
 
   for (const history of histories) {
     merged.fetched ||= history.fetched;
+    if (
+      history.complete &&
+      history.fetchedAt &&
+      (!merged.fetchedAt || history.fetchedAt > merged.fetchedAt)
+    )
+      merged.fetchedAt = history.fetchedAt;
     merged.endpoint =
       currentHistory === history && history.endpoint
         ? history.endpoint
@@ -199,6 +255,12 @@ export function mergePaymentHistories(
     for (const transaction of history.transactions) {
       if (fingerprints.has(transaction.fingerprint)) {
         merged.diagnostics.duplicateTransactions += 1;
+        const existing = merged.transactions.find(
+          (known) => known.fingerprint === transaction.fingerprint,
+        )!;
+        if (transaction.paidAt) existing.paidAt = transaction.paidAt;
+        if (transaction.subscription !== undefined)
+          existing.subscription = transaction.subscription;
         continue;
       }
       fingerprints.add(transaction.fingerprint);
@@ -337,6 +399,12 @@ function normalizeTransaction(value: unknown): PaymentTransactionFact | null {
     fingerprint: createHash("sha256").update(value.id).digest("hex"),
     month: timestamp.toISOString().slice(0, 7),
     amountUsd: value.amount / 100,
+    paidAt: timestamp.toISOString().slice(0, 10),
+    ...(isRecord(value.product) &&
+    value.product.type === "subscription" &&
+    !value.product.is_seat_purchase
+      ? { subscription: true }
+      : {}),
   };
 }
 
@@ -380,4 +448,155 @@ function bounded(value: string): string {
 
 function roundCurrency(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+const PAYMENT_CACHE_TTL_MS = 7 * 86_400_000;
+
+function readPaymentCache(
+  path: string,
+  now: number,
+): { history: PaymentHistory; savedAt: number } | undefined {
+  try {
+    const cached = JSON.parse(readFileSync(path, "utf8"));
+    if (
+      cached.version !== 1 ||
+      typeof cached.savedAt !== "number" ||
+      !Number.isFinite(cached.savedAt) ||
+      cached.savedAt > now ||
+      now - cached.savedAt >= PAYMENT_CACHE_TTL_MS
+    )
+      return undefined;
+    const history = cached.history;
+    if (
+      !isRecord(history) ||
+      history.currency !== "USD" ||
+      history.complete !== true ||
+      history.fetched !== true ||
+      history.endpoint !== PAYMENT_ENDPOINT ||
+      history.error ||
+      !Array.isArray(history.transactions) ||
+      !Array.isArray(history.sources) ||
+      history.sources.length !== 1 ||
+      history.sources[0]?.kind !== "api" ||
+      history.sources[0]?.status !== "complete" ||
+      !isRecord(history.diagnostics)
+    )
+      return undefined;
+    if (
+      history.fetchedAt !== undefined &&
+      (typeof history.fetchedAt !== "string" || !Number.isFinite(Date.parse(history.fetchedAt)))
+    )
+      return undefined;
+    const diagnostics = history.diagnostics;
+    if (
+      !["pages", "skippedTransactions", "duplicateTransactions"].every(
+        (key) =>
+          typeof diagnostics[key] === "number" &&
+          Number.isInteger(diagnostics[key]) &&
+          diagnostics[key] >= 0,
+      ) ||
+      history.diagnostics.repeatedCursor !== false
+    )
+      return undefined;
+    if (
+      !history.transactions.every(
+        (row: unknown) =>
+          isRecord(row) &&
+          typeof row.fingerprint === "string" &&
+          /^[0-9a-f]{64}$/.test(row.fingerprint) &&
+          typeof row.month === "string" &&
+          MONTH_PATTERN.test(row.month) &&
+          typeof row.amountUsd === "number" &&
+          Number.isFinite(row.amountUsd) &&
+          row.amountUsd > 0 &&
+          (row.paidAt === undefined ||
+            (typeof row.paidAt === "string" &&
+              isPaymentDay(row.paidAt) &&
+              row.paidAt.slice(0, 7) === row.month)) &&
+          (row.subscription === undefined || typeof row.subscription === "boolean"),
+      )
+    )
+      return undefined;
+    if (!isFreshPaymentHistory(history as PaymentHistory, cached.savedAt, now)) return undefined;
+    return { history: history as PaymentHistory, savedAt: cached.savedAt };
+  } catch {
+    return undefined;
+  }
+}
+
+function writePaymentCache(path: string, savedAt: number, history: PaymentHistory): void {
+  try {
+    mkdirSync(join(path, ".."), { recursive: true });
+    const temporaryPath = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    writeFileSync(
+      temporaryPath,
+      JSON.stringify({
+        version: 1,
+        savedAt,
+        history: {
+          ...history,
+          overrides: {},
+          sources: history.sources.filter((source) => source.kind === "api"),
+        },
+      }),
+      { mode: 0o600 },
+    );
+    renameSync(temporaryPath, path);
+  } catch {
+    // Caching is optional, a write failure must not discard successfully fetched payment evidence
+  }
+}
+
+function isFreshPaymentHistory(history: PaymentHistory, savedAt: number, now: number): boolean {
+  if (
+    !Number.isFinite(savedAt) ||
+    savedAt > now ||
+    now - savedAt >= PAYMENT_CACHE_TTL_MS ||
+    !history.complete ||
+    history.error ||
+    !history.sources.some((source) => source.kind === "api" && source.status === "complete")
+  )
+    return false;
+  if (
+    history.transactions.some(
+      (transaction) =>
+        transaction.paidAt !== undefined &&
+        (!isPaymentDay(transaction.paidAt) || transaction.paidAt.slice(0, 7) !== transaction.month),
+    )
+  )
+    return false;
+  const paidDates = history.transactions
+    .filter((transaction) => transaction.subscription && transaction.paidAt)
+    .map((transaction) => parseIsoDay(transaction.paidAt!).getTime())
+    .sort((a, b) => b - a);
+  if (!paidDates.length) return true;
+  const lastPayment = new Date(paidDates[0]!);
+  // Repeated annual invoices imply a yearly cadence, otherwise assume the monthly subscription cadence
+  const gapMonths =
+    paidDates.length > 1
+      ? (lastPayment.getUTCFullYear() - new Date(paidDates[1]!).getUTCFullYear()) * 12 +
+        lastPayment.getUTCMonth() -
+        new Date(paidDates[1]!).getUTCMonth()
+      : 1;
+  const cadence = gapMonths >= 11 && gapMonths <= 13 ? 12 : 1;
+  let monthOffset = cadence;
+  while (true) {
+    const target = new Date(
+      Date.UTC(lastPayment.getUTCFullYear(), lastPayment.getUTCMonth() + monthOffset, 1),
+    );
+    const lastDay = new Date(
+      Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+    ).getUTCDate();
+    target.setUTCDate(Math.min(lastPayment.getUTCDate(), lastDay));
+    if (target.getTime() > savedAt) return now < target.getTime();
+    monthOffset += cadence;
+  }
+}
+
+export function isPaymentDay(value: string): boolean {
+  return (
+    DAY_PATTERN.test(value) &&
+    Number.isFinite(Date.parse(`${value}T00:00:00.000Z`)) &&
+    new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value
+  );
 }

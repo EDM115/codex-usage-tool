@@ -98,15 +98,55 @@ test("collectRolloutEvents attributes Daybreak tokens by turn context and resets
   const codexHome = join(root, ".codex");
   const sessions = join(codexHome, "sessions", "2026", "09", "23");
   mkdirSync(sessions, { recursive: true });
-  const rollout = join(sessions, "rollout-2026-09-23T16-00-00-00000000-0000-0000-0000-000000000111.jsonl");
-  const context = (minute: number, cyber_access_program?: string) => JSON.stringify({ timestamp: `2026-09-23T16:${String(minute).padStart(2, "0")}:00Z`, type: "turn_context", payload: { model: "gpt-6-luna", cyber_access_program } });
-  const tokens = (minute: number, total: number) => JSON.stringify({ timestamp: `2026-09-23T16:${String(minute).padStart(2, "0")}:00Z`, type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: total - 10, output_tokens: 10, total_tokens: total }, last_token_usage: { input_tokens: 90, output_tokens: 10, total_tokens: 100 } } } });
-  writeFileSync(rollout, [
-    JSON.stringify({ timestamp: "2026-09-23T16:00:00Z", type: "session_meta", payload: { id: "00000000-0000-0000-0000-000000000111" } }),
-    context(1, "daybreak_blue"), tokens(2, 100), context(3), tokens(4, 200), context(5, "daybreak_red"), tokens(6, 300),
-  ].join("\n"));
-  const result = await collectRolloutEvents({ homes: [{ path: codexHome, label: "test" }], timezone: "UTC", from: null, to: null });
-  expect(result.events.map((event) => event.cyberAccessProgram)).toEqual(["daybreak_blue", "standard", "daybreak_red"]);
+  const rollout = join(
+    sessions,
+    "rollout-2026-09-23T16-00-00-00000000-0000-0000-0000-000000000111.jsonl",
+  );
+  const context = (minute: number, cyber_access_program?: string) =>
+    JSON.stringify({
+      timestamp: `2026-09-23T16:${String(minute).padStart(2, "0")}:00Z`,
+      type: "turn_context",
+      payload: { model: "gpt-6-luna", cyber_access_program },
+    });
+  const tokens = (minute: number, total: number) =>
+    JSON.stringify({
+      timestamp: `2026-09-23T16:${String(minute).padStart(2, "0")}:00Z`,
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: { input_tokens: total - 10, output_tokens: 10, total_tokens: total },
+          last_token_usage: { input_tokens: 90, output_tokens: 10, total_tokens: 100 },
+        },
+      },
+    });
+  writeFileSync(
+    rollout,
+    [
+      JSON.stringify({
+        timestamp: "2026-09-23T16:00:00Z",
+        type: "session_meta",
+        payload: { id: "00000000-0000-0000-0000-000000000111" },
+      }),
+      context(1, "daybreak_blue"),
+      tokens(2, 100),
+      context(3),
+      tokens(4, 200),
+      context(5, "daybreak_red"),
+      tokens(6, 300),
+    ].join("\n"),
+  );
+  const result = await collectRolloutEvents({
+    homes: [{ path: codexHome, label: "test" }],
+    timezone: "UTC",
+    from: null,
+    to: null,
+  });
+  expect(result.events.map((event) => event.cyberAccessProgram)).toEqual([
+    "daybreak_blue",
+    "standard",
+    "daybreak_red",
+  ]);
   expect(result.events.map((event) => event.breakdown.totalTokens)).toEqual([100, 100, 100]);
 });
 
@@ -393,9 +433,24 @@ test("collectRolloutEvents reuses unchanged parse cache entries and reparses gro
     cacheDir,
   });
 
-  expect(first.cache).toMatchObject({ version: ROLLOUT_PARSE_CACHE_VERSION, hits: 0, misses: 1, invalidations: 0 });
-  expect(second.cache).toMatchObject({ version: ROLLOUT_PARSE_CACHE_VERSION, hits: 1, misses: 0, invalidations: 0 });
-  expect(grown.cache).toMatchObject({ version: ROLLOUT_PARSE_CACHE_VERSION, hits: 0, misses: 0, invalidations: 1 });
+  expect(first.cache).toMatchObject({
+    version: ROLLOUT_PARSE_CACHE_VERSION,
+    hits: 0,
+    misses: 1,
+    invalidations: 0,
+  });
+  expect(second.cache).toMatchObject({
+    version: ROLLOUT_PARSE_CACHE_VERSION,
+    hits: 1,
+    misses: 0,
+    invalidations: 0,
+  });
+  expect(grown.cache).toMatchObject({
+    version: ROLLOUT_PARSE_CACHE_VERSION,
+    hits: 0,
+    misses: 0,
+    invalidations: 1,
+  });
   expect(grown.events.map((event) => event.breakdown.totalTokens)).toEqual([100, 50]);
 });
 
@@ -590,12 +645,50 @@ test("collectRolloutEvents extracts dated skill and plugin evidence without low-
 
 test("dynamic skill reads use the selected path reported by the matching tool output", () => {
   const tracker = createCapabilityEvidenceTracker();
-  const common = { lineIndex: 0, rolloutPath: "sample.jsonl", homePath: "home", homeLabel: "test", threadId: "thread", timezone: "UTC", tracker };
-  const call = { timestamp: "2026-09-23T14:00:00Z", type: "response_item", payload: { type: "custom_tool_call", name: "functions.exec", call_id: "read-1", input: "const selected = chooseSkill(); Get-Content selected.FullName" } };
-  expect(extractCapabilityUsageEvents({ ...common, parsed: call, payload: call.payload })).toEqual([]);
-  const output = { timestamp: "2026-09-23T14:00:01Z", type: "response_item", payload: { type: "custom_tool_call_output", call_id: "read-1", output: [{ type: "text", text: "Skill : C:\\Users\\dev\\.agents\\skills\\security-and-hardening\\SKILL.md\nFirstFiveWords : Security and hardening guidance applies" }] } };
-  expect(extractCapabilityUsageEvents({ ...common, parsed: output, payload: output.payload }).map((event) => [event.name, event.evidenceType])).toEqual([["security-and-hardening", "skill_file_read"]]);
-  expect(extractCapabilityUsageEvents({ ...common, parsed: output, payload: output.payload })).toEqual([]);
+  const common = {
+    lineIndex: 0,
+    rolloutPath: "sample.jsonl",
+    homePath: "home",
+    homeLabel: "test",
+    threadId: "thread",
+    timezone: "UTC",
+    tracker,
+  };
+  const call = {
+    timestamp: "2026-09-23T14:00:00Z",
+    type: "response_item",
+    payload: {
+      type: "custom_tool_call",
+      name: "functions.exec",
+      call_id: "read-1",
+      input: "const selected = chooseSkill(); Get-Content selected.FullName",
+    },
+  };
+  expect(extractCapabilityUsageEvents({ ...common, parsed: call, payload: call.payload })).toEqual(
+    [],
+  );
+  const output = {
+    timestamp: "2026-09-23T14:00:01Z",
+    type: "response_item",
+    payload: {
+      type: "custom_tool_call_output",
+      call_id: "read-1",
+      output: [
+        {
+          type: "text",
+          text: "Skill : C:\\Users\\dev\\.agents\\skills\\security-and-hardening\\SKILL.md\nFirstFiveWords : Security and hardening guidance applies",
+        },
+      ],
+    },
+  };
+  expect(
+    extractCapabilityUsageEvents({ ...common, parsed: output, payload: output.payload }).map(
+      (event) => [event.name, event.evidenceType],
+    ),
+  ).toEqual([["security-and-hardening", "skill_file_read"]]);
+  expect(
+    extractCapabilityUsageEvents({ ...common, parsed: output, payload: output.payload }),
+  ).toEqual([]);
 });
 
 test("collectRolloutEvents follows thread settings model and service tier changes", async () => {
@@ -1622,19 +1715,24 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(html).toContain("Math.max(2,");
   const bundledColorCatalog = html.match(/const modelProgressColors = (\{[^;]+\});/);
   expect(bundledColorCatalog).not.toBeNull();
-  const parsedColorCatalog = JSON.parse(
-    bundledColorCatalog?.[1] ?? "{}",
-  ) as Record<string, { dark: string; light: string }>;
-  expect(
-    Object.keys(parsedColorCatalog).sort(),
-  ).toEqual([...pricing.table.keys()].sort());
+  const parsedColorCatalog = JSON.parse(bundledColorCatalog?.[1] ?? "{}") as Record<
+    string,
+    { dark: string; light: string }
+  >;
+  expect(Object.keys(parsedColorCatalog).sort()).toEqual([...pricing.table.keys()].sort());
   expect(parsedColorCatalog["gpt-6-astra"]).toEqual({ dark: "#ff7ac6", light: "#a11a68" });
   expect(parsedColorCatalog["gpt-6.1-sol"]).toEqual({ dark: "#57e0cf", light: "#087b6c" });
   expect(parsedColorCatalog["gpt-6-sol"]).toEqual({ dark: "#6bd9e8", light: "#087587" });
   expect(parsedColorCatalog["gpt-6-luna"]).toEqual({ dark: "#b69aff", light: "#6742ad" });
-  expect(parsedColorCatalog["gpt-image-2.5-sunburst"]).toEqual({ dark: "#ffd166", light: "#946000" });
+  expect(parsedColorCatalog["gpt-image-2.5-sunburst"]).toEqual({
+    dark: "#ffd166",
+    light: "#946000",
+  });
   expect(parsedColorCatalog["gpt-image-2.5-flare"]).toEqual({ dark: "#ff956b", light: "#ad421c" });
-  expect(parsedColorCatalog["gpt-rosalind-research"]).toEqual({ dark: "#79d7b5", light: "#16734f" });
+  expect(parsedColorCatalog["gpt-rosalind-research"]).toEqual({
+    dark: "#79d7b5",
+    light: "#16734f",
+  });
   const modelRowsScript = html.match(
     /<script id="model-rows" type="application\/json">([\s\S]*?)<\/script>/,
   );

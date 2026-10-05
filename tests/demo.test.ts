@@ -46,7 +46,15 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   });
 
   expect(new Set(dataset.local.modelUsage.map((row) => row.model)).size).toBeGreaterThanOrEqual(4);
-  for (const model of ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol"]) expect(dataset.local.modelUsage.some((row) => row.model === model)).toBe(true);
+  for (const model of [
+    "gpt-5.6-luna",
+    "gpt-5.6-terra",
+    "gpt-5.6-sol",
+    "gpt-6-astra",
+    "gpt-6-luna",
+    "gpt-6-sol",
+  ])
+    expect(dataset.local.modelUsage.some((row) => row.model === model)).toBe(true);
   expect(
     new Set(
       dataset.local.modelUsage.flatMap((row) => row.serviceTiers.map((tier) => tier.serviceTier)),
@@ -82,14 +90,48 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   expect(dataset.summary.unattributedTokens).toBeGreaterThan(0);
   expect(dataset.summary.cacheSavingsUsd).toBeGreaterThan(0);
   expect(dataset.summary.estimatedCostUsd).toBeGreaterThan(0);
-  expect(dataset.analytics?.bySurface.map((row) => row.surface)).toEqual(
-    ["Desktop App", "Vscode", "Sdk", "Work Web", "GitHub Code Review", "Exec", "Cli"],
+  expect(dataset.analytics?.bySurface.map((row) => row.surface)).toEqual([
+    "Desktop App",
+    "Vscode",
+    "Sdk",
+    "Work Web",
+    "GitHub Code Review",
+    "Exec",
+    "Cli",
+  ]);
+  const attribution = dataset.analytics!.dailyTokenUsageBreakdown!.data.flatMap(
+    (day) => day.attribution ?? [],
   );
-  const attribution = dataset.analytics!.dailyTokenUsageBreakdown!.data.flatMap((day) => day.attribution ?? []);
-  const share = (field: "threadSource" | "turnTrigger" | "model" | "surface", key: string) => attribution.filter((row) => row[field] === key).reduce((sum, row) => sum + row.value, 0) / attribution.reduce((sum, row) => sum + row.value, 0);
-  expect(new Set(attribution.map((row) => row.threadSource))).toEqual(new Set(["user", "subagent", "guardian_review", "memory_consolidation", "guardian_classifier", "thread_description", "thread_title"]));
-  expect(new Set(attribution.map((row) => row.turnTrigger))).toEqual(new Set(["composer", "edit_user_message", "memory_consolidation", "user", "guardian_review", "queue", "guardian_classifier", "thread_description", "thread_title"]));
-  expect(new Set(attribution.map((row) => row.surface))).toEqual(new Set(["desktop_app", "vscode", "sdk", "work_web", "github_code_review", "exec", "cli"]));
+  const share = (field: "threadSource" | "turnTrigger" | "model" | "surface", key: string) =>
+    attribution.filter((row) => row[field] === key).reduce((sum, row) => sum + row.value, 0) /
+    attribution.reduce((sum, row) => sum + row.value, 0);
+  expect(new Set(attribution.map((row) => row.threadSource))).toEqual(
+    new Set([
+      "user",
+      "subagent",
+      "guardian_review",
+      "memory_consolidation",
+      "guardian_classifier",
+      "thread_description",
+      "thread_title",
+    ]),
+  );
+  expect(new Set(attribution.map((row) => row.turnTrigger))).toEqual(
+    new Set([
+      "composer",
+      "edit_user_message",
+      "memory_consolidation",
+      "user",
+      "guardian_review",
+      "queue",
+      "guardian_classifier",
+      "thread_description",
+      "thread_title",
+    ]),
+  );
+  expect(new Set(attribution.map((row) => row.surface))).toEqual(
+    new Set(["desktop_app", "vscode", "sdk", "work_web", "github_code_review", "exec", "cli"]),
+  );
   expect(share("threadSource", "user")).toBeCloseTo(0.75, 2);
   expect(share("threadSource", "subagent")).toBeCloseTo(0.15, 2);
   expect(share("surface", "desktop_app")).toBeCloseTo(0.85, 2);
@@ -107,24 +149,43 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   expect(dataset.analytics?.tasks?.archivedCount).toBeGreaterThan(0);
   expect(dataset.analytics?.tasks?.pullRequests.total).toBeGreaterThan(0);
   expect(dataset.analytics?.tasks?.diffStats.linesAdded).toBeGreaterThan(0);
-  expect(dataset.analytics?.dailyTokenUsageBreakdown?.data.at(-1)?.attribution?.length).toBeGreaterThan(0);
-  expect(dataset.analytics?.planLimitHistory?.periods.some((period) => period.windowMinutes === 300)).toBe(true);
-  expect(dataset.analytics?.planLimitHistory?.periods.some((period) => period.windowMinutes === 10080)).toBe(true);
+  expect(
+    dataset.analytics?.dailyTokenUsageBreakdown?.data.at(-1)?.attribution?.length,
+  ).toBeGreaterThan(0);
+  expect(
+    dataset.analytics?.planLimitHistory?.periods.some((period) => period.windowMinutes === 300),
+  ).toBe(true);
+  expect(
+    dataset.analytics?.planLimitHistory?.periods.some((period) => period.windowMinutes === 10080),
+  ).toBe(true);
   for (const period of dataset.analytics!.planLimitHistory!.periods) {
     expect(period.usedBasisPoints).not.toBeNull();
-    for (const breakdown of period.breakdowns ?? []) expect(breakdown.rows.reduce((sum, row) => sum + row.basisPoints, 0)).toBe(period.usedBasisPoints ?? 0);
+    for (const breakdown of period.breakdowns ?? [])
+      expect(breakdown.rows.reduce((sum, row) => sum + row.basisPoints, 0)).toBe(
+        period.usedBasisPoints ?? 0,
+      );
   }
   expect(dataset.analytics?.pluginUsage?.data.length).toBeGreaterThan(0);
   expect(dataset.analytics?.skillUsage?.data.length).toBeGreaterThan(0);
   expect(dataset.analytics?.topChats?.chats.length).toBeGreaterThan(0);
-  expect(dataset.local.events?.some((event) => event.cyberAccessProgram === "daybreak_blue")).toBe(true);
-  expect(dataset.local.events?.some((event) => event.cyberAccessProgram === "daybreak_red")).toBe(true);
+  expect(dataset.local.events?.some((event) => event.cyberAccessProgram === "daybreak_blue")).toBe(
+    true,
+  );
+  expect(dataset.local.events?.some((event) => event.cyberAccessProgram === "daybreak_red")).toBe(
+    true,
+  );
 
   const fullMonths = dataset.daily.filter((day) => day.date < "2026-09-01");
   const peakByMonth = new Map<string, number>();
-  for (const day of fullMonths) peakByMonth.set(day.date.slice(0, 7), Math.max(peakByMonth.get(day.date.slice(0, 7)) ?? 0, day.totalTokens));
+  for (const day of fullMonths)
+    peakByMonth.set(
+      day.date.slice(0, 7),
+      Math.max(peakByMonth.get(day.date.slice(0, 7)) ?? 0, day.totalTokens),
+    );
   const monthlyPeaks = [...peakByMonth.values()];
-  expect(monthlyPeaks.every((peak, index) => index === 0 || peak > monthlyPeaks[index - 1])).toBe(true);
+  expect(monthlyPeaks.every((peak, index) => index === 0 || peak > monthlyPeaks[index - 1])).toBe(
+    true,
+  );
   expect(Math.max(...dataset.daily.map((day) => day.totalTokens))).toBeLessThan(250_000_000);
   expect(dataset.profile?.summary.lifetimeTokens).toBeGreaterThan(19_500_000_000);
   expect(dataset.profile?.summary.lifetimeTokens).toBeLessThan(20_500_000_000);
@@ -166,7 +227,11 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   expect(dataset.payments.sources.map((source) => source.kind)).toEqual(["api", "json"]);
   expect(Object.keys(dataset.payments.overrides)).toContain("2026-06");
   const roi = buildRoiMetrics(dataset.daily, payments, "2025-12-01", "2026-09-23");
-  expect(roi.monthly.filter((month) => month.month >= "2026-01").every((month) => month.status === "positive")).toBe(true);
+  expect(
+    roi.monthly
+      .filter((month) => month.month >= "2026-01")
+      .every((month) => month.status === "positive"),
+  ).toBe(true);
   expect(roi.monthly).toHaveLength(10);
   expect(roi.monthly[0]).toMatchObject({
     month: "2025-12",
@@ -175,7 +240,9 @@ test("demo fixture is fresh, portable, complete, coherent, and safe to share", a
   });
   expect(roi.monthly.slice(1).every((month) => month.estimatedApiValue > 0)).toBe(true);
   expect(roi.monthly.at(-1)?.conventionalRoiPercent).toBeGreaterThan(100);
-  expect(roi.monthly.find((month) => month.month === "2026-06")?.estimatedApiValue).toBeGreaterThan(roi.monthly.find((month) => month.month === "2026-05")!.estimatedApiValue);
+  expect(roi.monthly.find((month) => month.month === "2026-06")?.estimatedApiValue).toBeGreaterThan(
+    roi.monthly.find((month) => month.month === "2026-05")!.estimatedApiValue,
+  );
 
   expect(dataset.themeChoice).toBe("EDM115");
   expect(dataset.availableThemes.length).toBeGreaterThan(20);

@@ -24,19 +24,46 @@ type SvgOutput = {
 export async function writeOutputs(
   dataset: UsageDataset,
   outDir: string,
-  options: { includePng: boolean; reportOnly?: boolean; sections?: ReportSection[]; progress?: ProgressSink },
+  options: {
+    includePng: boolean;
+    reportOnly?: boolean;
+    sections?: ReportSection[];
+    progress?: ProgressSink;
+  },
 ): Promise<ExportResult> {
   ensureDir(outDir);
   const includeChats = options.sections?.includes("chats") ?? true;
-  const threadDates = new Map(dataset.local.threads.map((thread) => [thread.threadId, thread.updatedAt]));
+  const threadDates = new Map(
+    dataset.local.threads.map((thread) => [thread.threadId, thread.updatedAt]),
+  );
   const reportDataset: UsageDataset = {
     ...dataset,
-    local: { ...dataset.local, threads: includeChats ? dataset.local.threads.map((thread) => ({ ...thread, title: topChatTitle(thread.title) })) : [] },
-    analytics: dataset.analytics ? {
-      ...dataset.analytics,
-      topChats: includeChats && dataset.analytics.topChats ? { ...dataset.analytics.topChats, chats: dataset.analytics.topChats.chats.map((chat) => ({ ...chat, title: topChatTitle(chat.title), updatedAt: chat.updatedAt ?? threadDates.get(chat.threadId) ?? undefined })) } : undefined,
-      tasks: options.sections && !options.sections.includes("cloud") ? undefined : dataset.analytics.tasks,
-    } : undefined,
+    local: {
+      ...dataset.local,
+      threads: includeChats
+        ? dataset.local.threads.map((thread) => ({ ...thread, title: topChatTitle(thread.title) }))
+        : [],
+    },
+    analytics: dataset.analytics
+      ? {
+          ...dataset.analytics,
+          topChats:
+            includeChats && dataset.analytics.topChats
+              ? {
+                  ...dataset.analytics.topChats,
+                  chats: dataset.analytics.topChats.chats.map((chat) => ({
+                    ...chat,
+                    title: topChatTitle(chat.title),
+                    updatedAt: chat.updatedAt ?? threadDates.get(chat.threadId) ?? undefined,
+                  })),
+                }
+              : undefined,
+          tasks:
+            options.sections && !options.sections.includes("cloud")
+              ? undefined
+              : dataset.analytics.tasks,
+        }
+      : undefined,
   };
   const files: string[] = [];
   const warnings: string[] = [];
@@ -47,7 +74,14 @@ export async function writeOutputs(
   options.progress?.step("Generated JSON data");
 
   const htmlPath = join(outDir, "usage-report.html");
-  writeFileSync(htmlPath, renderReportHtml({ ...reportDataset, local: { ...reportDataset.local, threads: [] } }, options.sections), "utf8");
+  writeFileSync(
+    htmlPath,
+    renderReportHtml(
+      { ...reportDataset, local: { ...reportDataset.local, threads: [] } },
+      options.sections,
+    ),
+    "utf8",
+  );
   files.push(htmlPath);
   options.progress?.step("Generated HTML report");
 
@@ -59,7 +93,10 @@ export async function writeOutputs(
   const svgOutputs: SvgOutput[] = [];
 
   if (!options.reportOnly) {
-    const extendedCharts = renderExtendedChartSvgs(reportDataset, options.sections ?? REPORT_SECTIONS);
+    const extendedCharts = renderExtendedChartSvgs(
+      reportDataset,
+      options.sections ?? REPORT_SECTIONS,
+    );
     const plannedSvg = svgOutputCount() + extendedCharts.length;
     options.progress?.status(`Generating ${plannedSvg} SVG`);
     let svgIndex = 0;
@@ -122,7 +159,11 @@ export async function writeOutputs(
       files.push(chartPath);
       svgOutputs.push({ path: chartPath, svg: chart.svg });
       svgIndex += 1;
-      options.progress?.statusProgress(`Generating SVG ${svgIndex}/${plannedSvg}`, svgIndex, plannedSvg);
+      options.progress?.statusProgress(
+        `Generating SVG ${svgIndex}/${plannedSvg}`,
+        svgIndex,
+        plannedSvg,
+      );
     }
 
     options.progress?.statusDone(`Generated ${svgOutputs.length} SVG`);

@@ -144,7 +144,13 @@ export type WhamDailyBreakdownBucket = {
   date: string;
   productSurfaceUsageValues: Record<string, number>;
   models: Array<{ model: string; speed?: string; credits: number }>;
-  attribution?: Array<{ value: number; threadSource: string; turnTrigger: string; model: string; surface: string }> | null;
+  attribution?: Array<{
+    value: number;
+    threadSource: string;
+    turnTrigger: string;
+    model: string;
+    surface: string;
+  }> | null;
 };
 
 export type WhamPlanLimitHistory = {
@@ -352,6 +358,8 @@ export type WeeklyUsage = {
 };
 
 export type PaymentTransactionFact = {
+  paidAt?: string;
+  subscription?: boolean;
   fingerprint: string;
   month: string;
   amountUsd: number;
@@ -364,6 +372,7 @@ export type PaymentSource = {
 };
 
 export type PaymentHistory = {
+  fetchedAt?: string;
   currency: "USD";
   fetched: boolean;
   complete: boolean;
@@ -377,6 +386,8 @@ export type PaymentHistory = {
     skippedTransactions: number;
     duplicateTransactions: number;
     repeatedCursor: boolean;
+    cacheHit?: boolean;
+    importedHistoryHit?: boolean;
   };
 };
 
@@ -472,6 +483,7 @@ export type CliOptions = {
   codexRoots: string[];
   usageJsons: string[];
   noHistory: boolean;
+  refreshPayments?: boolean;
   outDir: string;
   from: string | null;
   to: string | null;

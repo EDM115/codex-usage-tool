@@ -684,10 +684,18 @@ function pricingTableFromOpenAiMarkdown(
     const heading = section[1].toLowerCase();
     const preceding = markdown.slice(0, section.index);
     const tierLabel = /^(?:grouped )?pricing table/.test(heading)
-      ? [...preceding.matchAll(/^[\t ]*(standard|batch|flex|priority|(?:ultra)?fast(?: mode)?|cyber models)[\t ]*\r?$/gim)].at(-1)?.[1].toLowerCase() ?? "standard"
+      ? ([
+          ...preceding.matchAll(
+            /^[\t ]*(standard|batch|flex|priority|(?:ultra)?fast(?: mode)?|cyber models)[\t ]*\r?$/gim,
+          ),
+        ]
+          .at(-1)?.[1]
+          .toLowerCase() ?? "standard")
       : heading.split(/\s+/, 1)[0];
     const tier = normalizePricingTier(tierLabel.replace(/ mode$/, ""));
-    const sectionBody = markdown.slice((section.index ?? 0) + section[0].length).split(/^[\t ]*###\s/m, 1)[0];
+    const sectionBody = markdown
+      .slice((section.index ?? 0) + section[0].length)
+      .split(/^[\t ]*###\s/m, 1)[0];
     const lines = sectionBody.split(/\r?\n/);
     const headerIndex = lines.findIndex((line) => line.trimStart().startsWith("|"));
 
@@ -721,14 +729,23 @@ function pricingTableFromOpenAiMarkdown(
       const modalityIndex = headers.indexOf("modality");
       // Preserve the existing image estimate: text input/cache plus image output
       // TokenBreakdown cannot distinguish image input from text input
-      const textRow = modalityIndex >= 0 && model.startsWith("gpt-image-") && cells[modalityIndex]?.toLowerCase() === "image"
-        ? tableRows.find((row) => row[modelIndex] === label && row[modalityIndex]?.toLowerCase() === "text")
-        : undefined;
+      const textRow =
+        modalityIndex >= 0 &&
+        model.startsWith("gpt-image-") &&
+        cells[modalityIndex]?.toLowerCase() === "image"
+          ? tableRows.find(
+              (row) => row[modelIndex] === label && row[modalityIndex]?.toLowerCase() === "text",
+            )
+          : undefined;
       if (modalityIndex >= 0 && !textRow) {
         continue;
       }
       const shortRates = textRow
-        ? parseMarkdownPricingRates(headers, cells.map((cell, index) => headers[index] === "output" ? cell : textRow[index]), "short")
+        ? parseMarkdownPricingRates(
+            headers,
+            cells.map((cell, index) => (headers[index] === "output" ? cell : textRow[index])),
+            "short",
+          )
         : parseMarkdownPricingRates(headers, cells, "short");
 
       if (!shortRates) {
@@ -1042,12 +1059,29 @@ function bundledPricingCatalog(table = bundledPricingTable()): ModelCatalog {
         pricingDefinition(row, key === "gpt-5.6-sol" ? "2026-08-21" : "2026-07-30"),
       );
     } else if (key === "gpt-rosalind-research") {
-      addPricingPeriod(catalog, standardPricingPeriod(key, effectiveFrom, 0, 0, 0, "https://developers.openai.com/api/docs/changelog"));
+      addPricingPeriod(
+        catalog,
+        standardPricingPeriod(
+          key,
+          effectiveFrom,
+          0,
+          0,
+          0,
+          "https://developers.openai.com/api/docs/changelog",
+        ),
+      );
       addPricingPeriod(catalog, pricingDefinition(row, ROSALIND_BILLING_START));
     } else {
-      addPricingPeriod(catalog, pricingDefinition(pricingForPublishedDate(row, effectiveFrom), effectiveFrom));
+      addPricingPeriod(
+        catalog,
+        pricingDefinition(pricingForPublishedDate(row, effectiveFrom), effectiveFrom),
+      );
       for (const startsOn of new Set(Object.values(BUNDLED_TIER_START_DATES[key] ?? {}))) {
-        if (startsOn > effectiveFrom) addPricingPeriod(catalog, pricingDefinition(pricingForPublishedDate(row, startsOn), startsOn));
+        if (startsOn > effectiveFrom)
+          addPricingPeriod(
+            catalog,
+            pricingDefinition(pricingForPublishedDate(row, startsOn), startsOn),
+          );
       }
     }
   }
@@ -1069,15 +1103,22 @@ function overlayCurrentPricing(
       continue;
     }
 
-    const definition = BUNDLED_MODEL_DEFINITIONS.find((candidate) => candidate.model.toLowerCase() === key);
+    const definition = BUNDLED_MODEL_DEFINITIONS.find(
+      (candidate) => candidate.model.toLowerCase() === key,
+    );
     if (respectPublishedDates && definition && definition.releasedOn > effectiveDate) {
       continue;
     }
 
-    const startsOn = respectPublishedDates && key === "gpt-rosalind-research" && effectiveDate < ROSALIND_BILLING_START
-      ? ROSALIND_BILLING_START
-      : effectiveDate;
-    const row = respectPublishedDates ? pricingForPublishedDate(snapshotRow, startsOn) : snapshotRow;
+    const startsOn =
+      respectPublishedDates &&
+      key === "gpt-rosalind-research" &&
+      effectiveDate < ROSALIND_BILLING_START
+        ? ROSALIND_BILLING_START
+        : effectiveDate;
+    const row = respectPublishedDates
+      ? pricingForPublishedDate(snapshotRow, startsOn)
+      : snapshotRow;
     ensureModelDefinition(catalog, key, startsOn, row.source);
     const current = pricingAt(catalog, key, startsOn);
 

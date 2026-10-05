@@ -1,3 +1,4 @@
+import type { ApiProgressUpdate } from "./progress";
 import type { CodexAuthMaterial } from "./auth";
 import type { AccountProfileResponse } from "./types";
 
@@ -17,6 +18,7 @@ export async function loadProfile(options: {
   noApi: boolean;
   baseUrl: string;
   auth: CodexAuthMaterial | null;
+  onRequestProgress?: ApiProgressUpdate;
 }): Promise<ProfileLoadResult> {
   if (options.profileJson) {
     const parsed = JSON.parse(readFileSync(options.profileJson, "utf8"));
@@ -33,11 +35,12 @@ export async function loadProfile(options: {
   }
 
   const endpoint = profileEndpoint(options.baseUrl);
+  options.onRequestProgress?.(0, 1, ["profile"]);
 
   try {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${options.auth.accessToken}`,
-      "User-Agent": "codex-usage-tool/3.1",
+      "User-Agent": "codex-usage-tool/3.2",
       Accept: "application/json",
     };
 
@@ -63,6 +66,8 @@ export async function loadProfile(options: {
       endpoint,
       error: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    options.onRequestProgress?.(1, 1, []);
   }
 }
 

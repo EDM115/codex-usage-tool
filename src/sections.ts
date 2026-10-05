@@ -1,6 +1,28 @@
 export const REPORT_SECTIONS = [
-  "summary", "intensity", "trend", "roi", "models", "surfaces", "cloud", "skills", "thinking", "mode", "cyber", "token", "input", "output", "details",
-  "feature", "turn", "chats", "limits-feature", "limits-model", "limits-surface", "limits-turn", "messages-model", "messages-surface",
+  "summary",
+  "intensity",
+  "trend",
+  "roi",
+  "models",
+  "surfaces",
+  "cloud",
+  "skills",
+  "thinking",
+  "mode",
+  "cyber",
+  "token",
+  "input",
+  "output",
+  "details",
+  "feature",
+  "turn",
+  "chats",
+  "limits-feature",
+  "limits-model",
+  "limits-surface",
+  "limits-turn",
+  "messages-model",
+  "messages-surface",
 ] as const;
 
 export type ReportSection = (typeof REPORT_SECTIONS)[number];
@@ -11,7 +33,9 @@ export function parseSections(value: string): ReportSection[] {
   const parts = value.split(",").map((part) => part.trim());
 
   if (parts.some((part) => !part || part === "-all")) {
-    throw new Error("--sections requires section names separated by commas; use all or all,-name for exclusions");
+    throw new Error(
+      "--sections requires section names separated by commas; use all or all,-name for exclusions",
+    );
   }
 
   const selected = new Set<ReportSection>(parts[0].startsWith("-") ? REPORT_SECTIONS : []);
@@ -25,7 +49,9 @@ export function parseSections(value: string): ReportSection[] {
     const excluded = part.startsWith("-");
     const name = excluded ? part.slice(1) : part;
     if (!sectionNames.has(name)) {
-      throw new Error(`Unknown report section ${name}; valid sections: ${REPORT_SECTIONS.join(", ")}`);
+      throw new Error(
+        `Unknown report section ${name}; valid sections: ${REPORT_SECTIONS.join(", ")}`,
+      );
     }
 
     if (excluded) selected.delete(name as ReportSection);

@@ -39,9 +39,7 @@ test("keeps a long status update within one terminal row", () => {
 
   try {
     const progress = new CliProgress({ silent: false });
-    progress.status(
-      "Processing source 687/862 : rollout-2026-09-05T17-16-54-01a04224.jsonl",
-    );
+    progress.status("Processing source 687/862 : rollout-2026-09-05T17-16-54-01a04224.jsonl");
 
     expect(writes.find((write) => write.startsWith("Processing source"))).toBe(
       "Processing source 687/862 : rollout-2026-09-05…\n",

@@ -73,15 +73,51 @@ test("loadUsageDatasets migrates version 3 chat metadata in memory", async () =>
 });
 
 test("portable analytics rejects malformed plan limits and chat percentages", async () => {
-  const source = await createDataset({ home: "invalid-analytics", model: "gpt-5", tokens: 100, analyticsModel: "gpt-5" });
+  const source = await createDataset({
+    home: "invalid-analytics",
+    model: "gpt-5",
+    tokens: 100,
+    analyticsModel: "gpt-5",
+  });
   const root = join(tmpdir(), `codex-usage-analytics-validation-${crypto.randomUUID()}`);
   mkdirSync(root, { recursive: true });
   const path = join(root, "usage-data.json");
-  source.analytics!.planLimitHistory = { dataAsOf: null, coverageStart: null, coverageComplete: true, approximate: false, boundaryToleranceSeconds: null, periods: [{ id: "week", windowMinutes: 10080, planType: "plus", startsAt: "2026-09-01T00:00:00Z", endsAt: "2026-09-08T00:00:00Z", accountingComplete: true, usedBasisPoints: -1, breakdowns: [] }] };
+  source.analytics!.planLimitHistory = {
+    dataAsOf: null,
+    coverageStart: null,
+    coverageComplete: true,
+    approximate: false,
+    boundaryToleranceSeconds: null,
+    periods: [
+      {
+        id: "week",
+        windowMinutes: 10080,
+        planType: "plus",
+        startsAt: "2026-09-01T00:00:00Z",
+        endsAt: "2026-09-08T00:00:00Z",
+        accountingComplete: true,
+        usedBasisPoints: -1,
+        breakdowns: [],
+      },
+    ],
+  };
   writeFileSync(path, JSON.stringify(source));
   expect(() => loadUsageDatasets([path])).toThrow("expected a generated usage-data.json");
   delete source.analytics!.planLimitHistory;
-  source.analytics!.topChats = { chats: [{ threadId: "chat", title: "sample", homeLabel: "local", dataStatus: "available", fiveHourLimitPercent: null, weeklyLimitPercent: "29%" as unknown as number, balanceUsageCredits: null, groups: [] }] };
+  source.analytics!.topChats = {
+    chats: [
+      {
+        threadId: "chat",
+        title: "sample",
+        homeLabel: "local",
+        dataStatus: "available",
+        fiveHourLimitPercent: null,
+        weeklyLimitPercent: "29%" as unknown as number,
+        balanceUsageCredits: null,
+        groups: [],
+      },
+    ],
+  };
   writeFileSync(path, JSON.stringify(source));
   expect(() => loadUsageDatasets([path])).toThrow("expected a generated usage-data.json");
 });
@@ -124,13 +160,39 @@ test("mergeUsageDatasets deduplicates payment transactions by fingerprint", asyn
 });
 
 test("portable merge keeps distinct Top chats from multiple machines without adding account totals", async () => {
-  const first = await createDataset({ home: "desktop", model: "gpt-5", tokens: 100, analyticsModel: "gpt-5" });
-  const second = await createDataset({ home: "laptop", model: "gpt-5", tokens: 50, analyticsModel: "gpt-5" });
-  const chat = (id: string) => ({ threadId: id, title: `Demo ${id}`, homeLabel: id, dataStatus: "available", fiveHourLimitPercent: null, weeklyLimitPercent: 2, balanceUsageCredits: 0, groups: [] });
+  const first = await createDataset({
+    home: "desktop",
+    model: "gpt-5",
+    tokens: 100,
+    analyticsModel: "gpt-5",
+  });
+  const second = await createDataset({
+    home: "laptop",
+    model: "gpt-5",
+    tokens: 50,
+    analyticsModel: "gpt-5",
+  });
+  const chat = (id: string) => ({
+    threadId: id,
+    title: `Demo ${id}`,
+    homeLabel: id,
+    dataStatus: "available",
+    fiveHourLimitPercent: null,
+    weeklyLimitPercent: 2,
+    balanceUsageCredits: 0,
+    groups: [],
+  });
   first.analytics!.topChats = { dataAsOf: "2026-09-22T00:00:00Z", chats: [chat("desktop")] };
   second.analytics!.topChats = { dataAsOf: "2026-09-23T00:00:00Z", chats: [chat("laptop")] };
-  const merged = mergeUsageDatasets([first, second], { from: null, to: null, timezone: "Europe/Paris" });
-  expect(merged.analytics?.topChats?.chats.map((row) => row.threadId).sort()).toEqual(["desktop", "laptop"]);
+  const merged = mergeUsageDatasets([first, second], {
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+  });
+  expect(merged.analytics?.topChats?.chats.map((row) => row.threadId).sort()).toEqual([
+    "desktop",
+    "laptop",
+  ]);
   expect(merged.analytics?.totals).toEqual(first.analytics?.totals);
 });
 
@@ -299,8 +361,19 @@ test("portable JSON retains Ultrafast and GPT-6.1 Sol Fast usage when repricing 
   const root = join(tmpdir(), `codex-usage-ultrafast-${crypto.randomUUID()}`);
   mkdirSync(root, { recursive: true });
   const paths: string[] = [];
-  for (const [model, tier] of [["gpt-6-astra", "ultrafast"], ["gpt-6.1-sol", "fast"]]) {
-    const dataset = await createDataset({ home: model, model, tokens: 2_000_000, inputTokens: 1_000_000, outputTokens: 1_000_000, serviceTier: tier, date: "2026-09-29" });
+  for (const [model, tier] of [
+    ["gpt-6-astra", "ultrafast"],
+    ["gpt-6.1-sol", "fast"],
+  ]) {
+    const dataset = await createDataset({
+      home: model,
+      model,
+      tokens: 2_000_000,
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      serviceTier: tier,
+      date: "2026-09-29",
+    });
     dataset.local.modelUsage[0].costUsd = 999;
     dataset.summary.knownLocalCostUsd = 999;
     const path = join(root, `${model}.json`);
@@ -308,10 +381,22 @@ test("portable JSON retains Ultrafast and GPT-6.1 Sol Fast usage when repricing 
     paths.push(path);
   }
   const loaded = loadUsageDatasets(paths);
-  expect(loaded.map((dataset) => dataset.local.events?.[0].serviceTier)).toEqual(["ultrafast", "fast"]);
-  const merged = mergeUsageDatasets(loaded, { from: null, to: null, timezone: "Europe/Paris", pricing: await loadPricing({ source: "bundled" }) });
-  expect(merged.local.modelUsage.find((row) => row.model === "gpt-6-astra")?.serviceTiers[0].costUsd).toBeCloseTo(360);
-  expect(merged.local.modelUsage.find((row) => row.model === "gpt-6.1-sol")?.serviceTiers[0].costUsd).toBeCloseTo(24);
+  expect(loaded.map((dataset) => dataset.local.events?.[0].serviceTier)).toEqual([
+    "ultrafast",
+    "fast",
+  ]);
+  const merged = mergeUsageDatasets(loaded, {
+    from: null,
+    to: null,
+    timezone: "Europe/Paris",
+    pricing: await loadPricing({ source: "bundled" }),
+  });
+  expect(
+    merged.local.modelUsage.find((row) => row.model === "gpt-6-astra")?.serviceTiers[0].costUsd,
+  ).toBeCloseTo(360);
+  expect(
+    merged.local.modelUsage.find((row) => row.model === "gpt-6.1-sol")?.serviceTiers[0].costUsd,
+  ).toBeCloseTo(24);
   expect(merged.summary.knownLocalCostUsd).toBeCloseTo(384);
 });
 

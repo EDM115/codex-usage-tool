@@ -19,7 +19,7 @@ import { basename, resolve } from "node:path";
 import { buildDataset } from "./aggregate";
 import { filterWhamAnalyticsRange, mergeWhamAnalyticsSnapshots } from "./analytics-api";
 import { primaryModelAt, resolveModelAt } from "./model-catalog";
-import { emptyPaymentHistory, mergePaymentHistories } from "./payments";
+import { emptyPaymentHistory, isPaymentDay, mergePaymentHistories } from "./payments";
 import { estimateBreakdownCost, estimateUnattributedCost, type PricingLoadResult } from "./pricing";
 import { addBreakdown, eachDate, isoWeekStart, ZERO_BREAKDOWN } from "./util";
 
@@ -56,7 +56,11 @@ export function loadUsageDatasets(paths: string[]): UsageDataset[] {
       throw new Error(`Invalid usage JSON ${path} : expected a generated usage-data.json`);
     }
 
-    value.local.capabilityEvents ??= [];
+    // Plugin calls require recorded provenance, discard obsolete namespace guesses from saved reports
+    value.local.capabilityEvents = (value.local.capabilityEvents ?? []).filter(
+      (event) =>
+        !(event.kind === "plugin" && event.detail.includes("plugin inferred from namespace")),
+    );
     value.local.threads ??= [];
 
     return value;
@@ -71,7 +75,10 @@ export function mergeUsageDatasets(
     throw new Error("At least one usage dataset is required");
   }
 
-  if ((options.from || options.to) && (!options.pricing || !datasets.every((dataset) => Array.isArray(dataset.local.events)))) {
+  if (
+    (options.from || options.to) &&
+    (!options.pricing || !datasets.every((dataset) => Array.isArray(dataset.local.events)))
+  ) {
     throw new Error(
       "Date filtering portable usage JSON requires event-level data and a pricing table",
     );
@@ -109,7 +116,11 @@ export function mergeUsageDatasets(
   const profile =
     datasets.find((dataset) => dataset.profile?.fetched)?.profile ??
     datasets.find((dataset) => dataset.profile)?.profile;
-  const analytics = filterWhamAnalyticsRange(mergeAnalyticsSnapshots(datasets), options.from, options.to);
+  const analytics = filterWhamAnalyticsRange(
+    mergeAnalyticsSnapshots(datasets),
+    options.from,
+    options.to,
+  );
   const localKnownTokens = daily.reduce((sum, day) => sum + day.localTokens.totalTokens, 0);
   const unattributedTokens = daily.reduce((sum, day) => sum + day.unattributedTokens, 0);
   const knownLocalCostUsd = daily.reduce((sum, day) => sum + day.knownLocalCostUsd, 0);
@@ -226,7 +237,11 @@ function mergeEventDatasets(
   const coverage = mergeCoverage(datasets);
   const cache = mergeCacheStats(datasets);
   const parseErrors = uniqueParseErrors(datasets);
-  const analytics = filterWhamAnalyticsRange(mergeAnalyticsSnapshots(datasets), options.from, options.to);
+  const analytics = filterWhamAnalyticsRange(
+    mergeAnalyticsSnapshots(datasets),
+    options.from,
+    options.to,
+  );
   const merged = buildDataset({
     profileResult,
     events: [...eventMap.values()],
@@ -316,13 +331,16 @@ function mergeThreads(datasets: UsageDataset[]): UsageDataset["local"]["threads"
   const threads = new Map<string, UsageDataset["local"]["threads"][number]>();
   for (const thread of datasets.flatMap((dataset) => dataset.local.threads ?? [])) {
     const previous = threads.get(thread.threadId);
-    if (!previous || (thread.updatedAt ?? "") > (previous.updatedAt ?? "")) threads.set(thread.threadId, thread);
+    if (!previous || (thread.updatedAt ?? "") > (previous.updatedAt ?? ""))
+      threads.set(thread.threadId, thread);
   }
   return [...threads.values()];
 }
 
 function mergeAnalyticsSnapshots(datasets: UsageDataset[]): UsageDataset["analytics"] {
-  return mergeWhamAnalyticsSnapshots(datasets.map((dataset) => dataset.analytics).filter((analytics) => analytics !== undefined));
+  return mergeWhamAnalyticsSnapshots(
+    datasets.map((dataset) => dataset.analytics).filter((analytics) => analytics !== undefined),
+  );
 }
 
 function uniqueSources(datasets: UsageDataset[]): UsageDataset["sources"] {
@@ -938,6 +956,8 @@ function isPaymentHistory(value: unknown): value is PaymentHistory {
   }
   if (
     (value.endpoint !== undefined && value.endpoint !== "/payments/transaction-history") ||
+    (value.fetchedAt !== undefined &&
+      (typeof value.fetchedAt !== "string" || !Number.isFinite(Date.parse(value.fetchedAt)))) ||
     (value.error !== undefined && (typeof value.error !== "string" || value.error.length > 240))
   ) {
     return false;
@@ -983,7 +1003,12 @@ function isPaymentTransaction(value: unknown): value is PaymentHistory["transact
     typeof value.fingerprint === "string" &&
     /^[0-9a-f]{64}$/.test(value.fingerprint) &&
     isPaymentMonth(value.month) &&
-    isNumber(value.amountUsd)
+    isNumber(value.amountUsd) &&
+    (value.paidAt === undefined ||
+      (typeof value.paidAt === "string" &&
+        isPaymentDay(value.paidAt) &&
+        value.paidAt.slice(0, 7) === value.month)) &&
+    (value.subscription === undefined || typeof value.subscription === "boolean")
   );
 }
 
@@ -1066,7 +1091,16 @@ function isLocalUsage(value: unknown): boolean {
 }
 
 function isLocalThreadSummary(value: unknown): boolean {
-  return isRecord(value) && typeof value.threadId === "string" && typeof value.title === "string" && (value.createdAt === null || typeof value.createdAt === "string") && (value.updatedAt === null || typeof value.updatedAt === "string") && isOptionalString(value.parentThreadId) && typeof value.archived === "boolean" && typeof value.homeLabel === "string";
+  return (
+    isRecord(value) &&
+    typeof value.threadId === "string" &&
+    typeof value.title === "string" &&
+    (value.createdAt === null || typeof value.createdAt === "string") &&
+    (value.updatedAt === null || typeof value.updatedAt === "string") &&
+    isOptionalString(value.parentThreadId) &&
+    typeof value.archived === "boolean" &&
+    typeof value.homeLabel === "string"
+  );
 }
 
 function isTokenEvent(value: unknown): boolean {
@@ -1080,7 +1114,10 @@ function isTokenEvent(value: unknown): boolean {
     typeof value.timestamp === "string" &&
     isDate(value.date) &&
     typeof value.model === "string" &&
-    (value.cyberAccessProgram === undefined || value.cyberAccessProgram === "standard" || value.cyberAccessProgram === "daybreak_blue" || value.cyberAccessProgram === "daybreak_red") &&
+    (value.cyberAccessProgram === undefined ||
+      value.cyberAccessProgram === "standard" ||
+      value.cyberAccessProgram === "daybreak_blue" ||
+      value.cyberAccessProgram === "daybreak_red") &&
     isTokenBreakdown(value.breakdown)
   );
 }
@@ -1306,7 +1343,8 @@ function isAnalytics(value: unknown): boolean {
     isRecord(value.endpoints) &&
     Object.values(value.endpoints).every((endpoint) => typeof endpoint === "string") &&
     isOptionalString(value.error) &&
-    (value.dailyTokenUsageBreakdown === undefined || isDailyBreakdown(value.dailyTokenUsageBreakdown)) &&
+    (value.dailyTokenUsageBreakdown === undefined ||
+      isDailyBreakdown(value.dailyTokenUsageBreakdown)) &&
     (value.workspaceUsageCounts === undefined || isWorkspaceCounts(value.workspaceUsageCounts)) &&
     (value.planLimitHistory === undefined || isPlanLimitHistory(value.planLimitHistory)) &&
     (value.pluginUsage === undefined || isToolActivity(value.pluginUsage)) &&
@@ -1343,23 +1381,147 @@ function isAnalytics(value: unknown): boolean {
 }
 
 function isDailyBreakdown(value: unknown): boolean {
-  return isRecord(value) && isOptionalString(value.units) && isOptionalString(value.groupBy) && isOptionalString(value.dataFreshnessTs) && Array.isArray(value.data) && value.data.every((bucket) => isRecord(bucket) && isDate(bucket.date) && isRecord(bucket.productSurfaceUsageValues) && Object.values(bucket.productSurfaceUsageValues).every(isNumber) && Array.isArray(bucket.models) && bucket.models.every((row) => isRecord(row) && typeof row.model === "string" && isOptionalString(row.speed) && isNumber(row.credits)) && (bucket.attribution === undefined || bucket.attribution === null || (Array.isArray(bucket.attribution) && bucket.attribution.every((row) => isRecord(row) && isNumber(row.value) && ["threadSource", "turnTrigger", "model", "surface"].every((key) => typeof row[key] === "string")))));
+  return (
+    isRecord(value) &&
+    isOptionalString(value.units) &&
+    isOptionalString(value.groupBy) &&
+    isOptionalString(value.dataFreshnessTs) &&
+    Array.isArray(value.data) &&
+    value.data.every(
+      (bucket) =>
+        isRecord(bucket) &&
+        isDate(bucket.date) &&
+        isRecord(bucket.productSurfaceUsageValues) &&
+        Object.values(bucket.productSurfaceUsageValues).every(isNumber) &&
+        Array.isArray(bucket.models) &&
+        bucket.models.every(
+          (row) =>
+            isRecord(row) &&
+            typeof row.model === "string" &&
+            isOptionalString(row.speed) &&
+            isNumber(row.credits),
+        ) &&
+        (bucket.attribution === undefined ||
+          bucket.attribution === null ||
+          (Array.isArray(bucket.attribution) &&
+            bucket.attribution.every(
+              (row) =>
+                isRecord(row) &&
+                isNumber(row.value) &&
+                ["threadSource", "turnTrigger", "model", "surface"].every(
+                  (key) => typeof row[key] === "string",
+                ),
+            ))),
+    )
+  );
 }
 
 function isWorkspaceCounts(value: unknown): boolean {
-  return isRecord(value) && isOptionalString(value.groupBy) && Array.isArray(value.data) && value.data.every((bucket) => isRecord(bucket) && isDate(bucket.date) && isRecord(bucket.totals) && Object.values(bucket.totals).every(isNumber) && Array.isArray(bucket.clients) && bucket.clients.every(isRecord) && Array.isArray(bucket.models) && bucket.models.every(isRecord));
+  return (
+    isRecord(value) &&
+    isOptionalString(value.groupBy) &&
+    Array.isArray(value.data) &&
+    value.data.every(
+      (bucket) =>
+        isRecord(bucket) &&
+        isDate(bucket.date) &&
+        isRecord(bucket.totals) &&
+        Object.values(bucket.totals).every(isNumber) &&
+        Array.isArray(bucket.clients) &&
+        bucket.clients.every(isRecord) &&
+        Array.isArray(bucket.models) &&
+        bucket.models.every(isRecord),
+    )
+  );
 }
 
 function isPlanLimitHistory(value: unknown): boolean {
-  return isRecord(value) && (value.dataAsOf === null || typeof value.dataAsOf === "string") && (value.coverageStart === null || typeof value.coverageStart === "string") && typeof value.coverageComplete === "boolean" && typeof value.approximate === "boolean" && isNullableNumber(value.boundaryToleranceSeconds) && Array.isArray(value.periods) && value.periods.every((period) => isRecord(period) && typeof period.id === "string" && (period.windowMinutes === 300 || period.windowMinutes === 10080) && typeof period.planType === "string" && typeof period.startsAt === "string" && typeof period.endsAt === "string" && typeof period.accountingComplete === "boolean" && isNullableNumber(period.usedBasisPoints) && (period.breakdowns === null || (Array.isArray(period.breakdowns) && period.breakdowns.every((entry) => isRecord(entry) && ["thread_source", "turn_trigger", "model", "surface"].includes(String(entry.dimension)) && Array.isArray(entry.rows) && entry.rows.every((row) => isRecord(row) && typeof row.key === "string" && isNumber(row.basisPoints))))));
+  return (
+    isRecord(value) &&
+    (value.dataAsOf === null || typeof value.dataAsOf === "string") &&
+    (value.coverageStart === null || typeof value.coverageStart === "string") &&
+    typeof value.coverageComplete === "boolean" &&
+    typeof value.approximate === "boolean" &&
+    isNullableNumber(value.boundaryToleranceSeconds) &&
+    Array.isArray(value.periods) &&
+    value.periods.every(
+      (period) =>
+        isRecord(period) &&
+        typeof period.id === "string" &&
+        (period.windowMinutes === 300 || period.windowMinutes === 10080) &&
+        typeof period.planType === "string" &&
+        typeof period.startsAt === "string" &&
+        typeof period.endsAt === "string" &&
+        typeof period.accountingComplete === "boolean" &&
+        isNullableNumber(period.usedBasisPoints) &&
+        (period.breakdowns === null ||
+          (Array.isArray(period.breakdowns) &&
+            period.breakdowns.every(
+              (entry) =>
+                isRecord(entry) &&
+                ["thread_source", "turn_trigger", "model", "surface"].includes(
+                  String(entry.dimension),
+                ) &&
+                Array.isArray(entry.rows) &&
+                entry.rows.every(
+                  (row) =>
+                    isRecord(row) && typeof row.key === "string" && isNumber(row.basisPoints),
+                ),
+            ))),
+    )
+  );
 }
 
 function isToolActivity(value: unknown): boolean {
-  return isRecord(value) && isOptionalString(value.dataFreshnessTs) && Array.isArray(value.data) && value.data.every((bucket) => isRecord(bucket) && isDate(bucket.date) && Array.isArray(bucket.rows) && bucket.rows.every((row) => isRecord(row) && typeof row.key === "string" && typeof row.label === "string" && isNumber(row.count)));
+  return (
+    isRecord(value) &&
+    isOptionalString(value.dataFreshnessTs) &&
+    Array.isArray(value.data) &&
+    value.data.every(
+      (bucket) =>
+        isRecord(bucket) &&
+        isDate(bucket.date) &&
+        Array.isArray(bucket.rows) &&
+        bucket.rows.every(
+          (row) =>
+            isRecord(row) &&
+            typeof row.key === "string" &&
+            typeof row.label === "string" &&
+            isNumber(row.count),
+        ),
+    )
+  );
 }
 
 function isTopChats(value: unknown): boolean {
-  return isRecord(value) && isOptionalString(value.dataAsOf) && Array.isArray(value.chats) && value.chats.every((chat) => isRecord(chat) && typeof chat.threadId === "string" && typeof chat.title === "string" && typeof chat.homeLabel === "string" && isOptionalString(chat.updatedAt) && typeof chat.dataStatus === "string" && isNullableNumber(chat.fiveHourLimitPercent) && isNullableNumber(chat.weeklyLimitPercent) && isNullableNumber(chat.balanceUsageCredits) && Array.isArray(chat.groups) && chat.groups.every((group) => isRecord(group) && typeof group.model === "string" && typeof group.reasoningEffort === "string" && typeof group.speed === "string" && isNullableNumber(group.fiveHourLimitPercent) && isNullableNumber(group.weeklyLimitPercent) && isNullableNumber(group.balanceUsageCredits)));
+  return (
+    isRecord(value) &&
+    isOptionalString(value.dataAsOf) &&
+    Array.isArray(value.chats) &&
+    value.chats.every(
+      (chat) =>
+        isRecord(chat) &&
+        typeof chat.threadId === "string" &&
+        typeof chat.title === "string" &&
+        typeof chat.homeLabel === "string" &&
+        isOptionalString(chat.updatedAt) &&
+        typeof chat.dataStatus === "string" &&
+        isNullableNumber(chat.fiveHourLimitPercent) &&
+        isNullableNumber(chat.weeklyLimitPercent) &&
+        isNullableNumber(chat.balanceUsageCredits) &&
+        Array.isArray(chat.groups) &&
+        chat.groups.every(
+          (group) =>
+            isRecord(group) &&
+            typeof group.model === "string" &&
+            typeof group.reasoningEffort === "string" &&
+            typeof group.speed === "string" &&
+            isNullableNumber(group.fiveHourLimitPercent) &&
+            isNullableNumber(group.weeklyLimitPercent) &&
+            isNullableNumber(group.balanceUsageCredits),
+        ),
+    )
+  );
 }
 
 function isAnalyticsTotals(value: unknown): boolean {

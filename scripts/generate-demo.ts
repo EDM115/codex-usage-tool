@@ -21,7 +21,8 @@ import { loadUsageDatasets } from "../src/usage-json";
 
 const FIRST_USAGE_DATE = "2026-01-01";
 const LAST_USAGE_DATE = "2026-09-23";
-const DEMO_DAY_COUNT = Math.round((Date.parse(LAST_USAGE_DATE) - Date.parse(FIRST_USAGE_DATE)) / 86_400_000) + 1;
+const DEMO_DAY_COUNT =
+  Math.round((Date.parse(LAST_USAGE_DATE) - Date.parse(FIRST_USAGE_DATE)) / 86_400_000) + 1;
 const GENERATED_AT = "2026-09-23T12:00:00.000Z";
 const TIMEZONE = "Europe/Paris";
 const DEMO_PATH = resolve("demo.json");
@@ -49,15 +50,25 @@ const SURFACES: SurfaceDefinition[] = [
 ];
 
 const FEATURES = [
-  { key: "user", share: 0.75 }, { key: "subagent", share: 0.15 }, { key: "guardian_review", share: 0.035 },
-  { key: "memory_consolidation", share: 0.025 }, { key: "guardian_classifier", share: 0.02 },
-  { key: "thread_description", share: 0.012 }, { key: "thread_title", share: 0.008 },
+  { key: "user", share: 0.75 },
+  { key: "subagent", share: 0.15 },
+  { key: "guardian_review", share: 0.035 },
+  { key: "memory_consolidation", share: 0.025 },
+  { key: "guardian_classifier", share: 0.02 },
+  { key: "thread_description", share: 0.012 },
+  { key: "thread_title", share: 0.008 },
 ];
 
 const TURN_STARTS = [
-  { key: "composer", share: 0.95 }, { key: "edit_user_message", share: 0.018 }, { key: "memory_consolidation", share: 0.008 },
-  { key: "user", share: 0.007 }, { key: "guardian_review", share: 0.006 }, { key: "queue", share: 0.004 },
-  { key: "guardian_classifier", share: 0.003 }, { key: "thread_description", share: 0.0025 }, { key: "thread_title", share: 0.0015 },
+  { key: "composer", share: 0.95 },
+  { key: "edit_user_message", share: 0.018 },
+  { key: "memory_consolidation", share: 0.008 },
+  { key: "user", share: 0.007 },
+  { key: "guardian_review", share: 0.006 },
+  { key: "queue", share: 0.004 },
+  { key: "guardian_classifier", share: 0.003 },
+  { key: "thread_description", share: 0.0025 },
+  { key: "thread_title", share: 0.0015 },
 ];
 
 export async function buildDemoDataset(): Promise<UsageDataset> {
@@ -173,7 +184,14 @@ function buildTokenEvent(date: string, index: number): TokenEvent {
   const reasoningEffortAttribution = index % 7 === 0 ? "metadata" : "observed";
   const serviceTierAttribution = index % 11 === 0 ? "inferred" : "observed";
   const breakdown = buildTokenBreakdown(index, date);
-  const cyberAccessProgram = date >= "2026-09-03" && index % 7 === 0 ? "daybreak_blue" : date >= "2026-09-22" && index % 5 === 0 ? "daybreak_red" : index % 13 === 0 ? "standard" : undefined;
+  const cyberAccessProgram =
+    date >= "2026-09-03" && index % 7 === 0
+      ? "daybreak_blue"
+      : date >= "2026-09-22" && index % 5 === 0
+        ? "daybreak_red"
+        : index % 13 === 0
+          ? "standard"
+          : undefined;
   const eventNumber = String(index + 1).padStart(4, "0");
   return {
     eventId: `demo-event-${eventNumber}`,
@@ -237,7 +255,14 @@ function modelForDate(date: string, index: number): string {
 }
 
 function buildDemoThreads(): UsageDataset["local"]["threads"] {
-  const titles = ["Refine a sample product dashboard", "Untitled chat", "Untitled chat", "Compare two demo API designs", "codex-auto-review", "codex-auto-review"];
+  const titles = [
+    "Refine a sample product dashboard",
+    "Untitled chat",
+    "Untitled chat",
+    "Compare two demo API designs",
+    "codex-auto-review",
+    "codex-auto-review",
+  ];
   return titles.map((title, index) => ({
     threadId: `demo-chat-${String(index + 1).padStart(3, "0")}`,
     title,
@@ -326,24 +351,64 @@ function categoryAt(position: number, mix: Array<{ key: string; share: number }>
 function apportionedCounts(total: number, shares: number[]): number[] {
   const exact = shares.map((share) => total * share);
   const counts = exact.map(Math.floor);
-  const order = shares.map((_, index) => index).sort((left, right) => (exact[right] - counts[right]) - (exact[left] - counts[left]));
-  for (let remaining = total - counts.reduce((sum, value) => sum + value, 0), index = 0; remaining > 0; remaining--, index++) counts[order[index % order.length]]++;
+  const order = shares
+    .map((_, index) => index)
+    .sort((left, right) => exact[right] - counts[right] - (exact[left] - counts[left]));
+  for (
+    let remaining = total - counts.reduce((sum, value) => sum + value, 0), index = 0;
+    remaining > 0;
+    remaining--, index++
+  )
+    counts[order[index % order.length]]++;
   return counts;
 }
 
 function demoAttribution(relativeUsage: number, model: string) {
-  const mixes = [FEATURES, TURN_STARTS, SURFACES.map((surface) => ({ key: surface.id, share: surface.share })), [{ key: model, share: 0.96 }, { key: "codex-auto-review", share: 0.04 }]];
-  const cuts = [...new Set([0, 1, ...mixes.flatMap((mix) => { let sum = 0; return mix.map((row) => Number((sum += row.share).toFixed(6))); })])].sort((left, right) => left - right);
-  const cents = apportionedCounts(Math.round(relativeUsage * 100), cuts.slice(0, -1).map((start, index) => cuts[index + 1] - start));
-  return cuts.slice(0, -1).map((start, index) => {
-    const end = cuts[index + 1];
-    const value = cents[index] / 100;
-    const middle = (start + end) / 2;
-    return { value, threadSource: categoryAt(middle, FEATURES), turnTrigger: categoryAt(middle, TURN_STARTS), surface: categoryAt(middle, mixes[2]), model: categoryAt(middle, mixes[3]) };
-  }).filter((row) => row.value > 0);
+  const mixes = [
+    FEATURES,
+    TURN_STARTS,
+    SURFACES.map((surface) => ({ key: surface.id, share: surface.share })),
+    [
+      { key: model, share: 0.96 },
+      { key: "codex-auto-review", share: 0.04 },
+    ],
+  ];
+  const cuts = [
+    ...new Set([
+      0,
+      1,
+      ...mixes.flatMap((mix) => {
+        let sum = 0;
+        return mix.map((row) => Number((sum += row.share).toFixed(6)));
+      }),
+    ]),
+  ].sort((left, right) => left - right);
+  const cents = apportionedCounts(
+    Math.round(relativeUsage * 100),
+    cuts.slice(0, -1).map((start, index) => cuts[index + 1] - start),
+  );
+  return cuts
+    .slice(0, -1)
+    .map((start, index) => {
+      const end = cuts[index + 1];
+      const value = cents[index] / 100;
+      const middle = (start + end) / 2;
+      return {
+        value,
+        threadSource: categoryAt(middle, FEATURES),
+        turnTrigger: categoryAt(middle, TURN_STARTS),
+        surface: categoryAt(middle, mixes[2]),
+        model: categoryAt(middle, mixes[3]),
+      };
+    })
+    .filter((row) => row.value > 0);
 }
 
-function distributedCounts(total: number, startIndex: number, mix: Array<{ key: string; share: number }>): Map<string, number> {
+function distributedCounts(
+  total: number,
+  startIndex: number,
+  mix: Array<{ key: string; share: number }>,
+): Map<string, number> {
   const counts = new Map(mix.map((row) => [row.key, 0]));
   for (let index = 0; index < total; index++) {
     const key = categoryAt(((startIndex + index) * 0.618033988749895) % 1, mix);
@@ -375,12 +440,15 @@ function buildAnalytics(
   let textTotalTokens = 0;
   let allocatedTurns = 0;
   let allocatedThreads = 0;
-  const peakBackendTokens = Math.max(1, ...(profile.dailyUsageBuckets ?? []).map((bucket) => bucket.tokens));
+  const peakBackendTokens = Math.max(
+    1,
+    ...(profile.dailyUsageBuckets ?? []).map((bucket) => bucket.tokens),
+  );
 
   for (const [index, date] of dates.entries()) {
     const event = events[index];
     const backendTokens = profile.dailyUsageBuckets?.[index]?.tokens ?? event.breakdown.totalTokens;
-    const relativeUsage = 100 * backendTokens / peakBackendTokens;
+    const relativeUsage = (100 * backendTokens) / peakBackendTokens;
     const credits = roundMoney(8 + backendTokens / 290_000);
     const turns = 3 + (index % 9);
     const threads = 1 + (index % 3);
@@ -440,8 +508,29 @@ function buildAnalytics(
         text_total_tokens: total,
       };
     });
-    for (const row of [{ model: event.model, credits: primaryCredits, turns: primaryTurns, threads: primaryThreads, users: 2 }, { model: "codex-auto-review", credits: reviewCredits, turns: reviewTurns, threads: reviewThreads, users: 1 }]) {
-      const model = modelTotals.get(row.model) ?? { model: row.model, credits: 0, turns: 0, threads: 0, users: 0 };
+    for (const row of [
+      {
+        model: event.model,
+        credits: primaryCredits,
+        turns: primaryTurns,
+        threads: primaryThreads,
+        users: 2,
+      },
+      {
+        model: "codex-auto-review",
+        credits: reviewCredits,
+        turns: reviewTurns,
+        threads: reviewThreads,
+        users: 1,
+      },
+    ]) {
+      const model = modelTotals.get(row.model) ?? {
+        model: row.model,
+        credits: 0,
+        turns: 0,
+        threads: 0,
+        users: 0,
+      };
       model.credits += row.credits;
       model.turns += row.turns;
       model.threads += row.threads;
@@ -462,7 +551,22 @@ function buildAnalytics(
       date,
       totals: { credits, turns, threads, users: 2, text_total_tokens: backendTokens },
       clients,
-      models: [{ model: event.model, credits: primaryCredits, turns: primaryTurns, threads: primaryThreads, users: 2 }, { model: "codex-auto-review", credits: reviewCredits, turns: reviewTurns, threads: reviewThreads, users: 1 }],
+      models: [
+        {
+          model: event.model,
+          credits: primaryCredits,
+          turns: primaryTurns,
+          threads: primaryThreads,
+          users: 2,
+        },
+        {
+          model: "codex-auto-review",
+          credits: reviewCredits,
+          turns: reviewTurns,
+          threads: reviewThreads,
+          users: 1,
+        },
+      ],
     });
     totalCredits += credits;
     totalTurns += turns;
@@ -613,7 +717,11 @@ function buildAnalytics(
 
 function buildDemoPlanHistory(): NonNullable<WhamAnalytics["planLimitHistory"]> {
   const periods: NonNullable<WhamAnalytics["planLimitHistory"]>["periods"] = [];
-  for (const [index, start] of ["2026-09-07T00:00:00Z", "2026-09-14T00:00:00Z", "2026-09-21T00:00:00Z"].entries()) {
+  for (const [index, start] of [
+    "2026-09-07T00:00:00Z",
+    "2026-09-14T00:00:00Z",
+    "2026-09-21T00:00:00Z",
+  ].entries()) {
     const used = [4840, 3720, 570][index];
     periods.push({
       id: `demo-week-${index + 1}`,
@@ -640,29 +748,63 @@ function buildDemoPlanHistory(): NonNullable<WhamAnalytics["planLimitHistory"]> 
       breakdowns: demoLimitBreakdowns(used),
     });
   }
-  return { dataAsOf: "2026-09-23T03:15:00Z", coverageStart: "2026-09-07T00:00:00Z", coverageComplete: false, approximate: true, boundaryToleranceSeconds: 60, periods };
+  return {
+    dataAsOf: "2026-09-23T03:15:00Z",
+    coverageStart: "2026-09-07T00:00:00Z",
+    coverageComplete: false,
+    approximate: true,
+    boundaryToleranceSeconds: 60,
+    periods,
+  };
 }
 
-function demoLimitBreakdowns(total: number): NonNullable<NonNullable<WhamAnalytics["planLimitHistory"]>["periods"][number]["breakdowns"]> {
+function demoLimitBreakdowns(
+  total: number,
+): NonNullable<NonNullable<WhamAnalytics["planLimitHistory"]>["periods"][number]["breakdowns"]> {
   const split = (mix: Array<{ key: string; share: number }>) => {
-    const counts = apportionedCounts(total, mix.map((row) => row.share));
+    const counts = apportionedCounts(
+      total,
+      mix.map((row) => row.share),
+    );
     return mix.map((row, index) => ({ key: row.key, basisPoints: counts[index] }));
   };
   return [
     { dimension: "thread_source", rows: split(FEATURES) },
-    { dimension: "model", rows: split([{ key: "gpt-6-astra", share: 0.7296 }, { key: "gpt-5.6-sol", share: 0.1152 }, { key: "gpt-6-sol", share: 0.0672 }, { key: "gpt-6-luna", share: 0.048 }, { key: "codex-auto-review", share: 0.04 }]) },
-    { dimension: "surface", rows: split(SURFACES.map((surface) => ({ key: surface.id, share: surface.share }))) },
+    {
+      dimension: "model",
+      rows: split([
+        { key: "gpt-6-astra", share: 0.7296 },
+        { key: "gpt-5.6-sol", share: 0.1152 },
+        { key: "gpt-6-sol", share: 0.0672 },
+        { key: "gpt-6-luna", share: 0.048 },
+        { key: "codex-auto-review", share: 0.04 },
+      ]),
+    },
+    {
+      dimension: "surface",
+      rows: split(SURFACES.map((surface) => ({ key: surface.id, share: surface.share }))),
+    },
     { dimension: "turn_trigger", rows: split(TURN_STARTS) },
   ];
 }
 
-function buildDemoToolActivity(dates: string[], kind: "plugin" | "skill"): NonNullable<WhamAnalytics["pluginUsage"]> {
-  const names = kind === "plugin" ? ["Unified Computer Use", "Codex App Tools", "Thoughts", "Other"] : ["Using Superpowers", "Thoughts", "Verification Before Completion", "Other"];
+function buildDemoToolActivity(
+  dates: string[],
+  kind: "plugin" | "skill",
+): NonNullable<WhamAnalytics["pluginUsage"]> {
+  const names =
+    kind === "plugin"
+      ? ["Unified Computer Use", "Codex App Tools", "Thoughts", "Other"]
+      : ["Using Superpowers", "Thoughts", "Verification Before Completion", "Other"];
   return {
     dataFreshnessTs: "2026-09-23T03:15:00.000Z",
     data: dates.slice(-30).map((date, index) => ({
       date,
-      rows: names.map((label, nameIndex) => ({ key: label.toLowerCase().replaceAll(" ", "-"), label, count: (index * 7 + nameIndex * 3) % (kind === "plugin" ? 12 : 6) })),
+      rows: names.map((label, nameIndex) => ({
+        key: label.toLowerCase().replaceAll(" ", "-"),
+        label,
+        count: (index * 7 + nameIndex * 3) % (kind === "plugin" ? 12 : 6),
+      })),
     })),
   };
 }
@@ -680,8 +822,22 @@ function buildDemoTopChats(): NonNullable<WhamAnalytics["topChats"]> {
       weeklyLimitPercent: weekly[index],
       balanceUsageCredits: index % 3 === 0 ? 0 : roundMoney(index * 0.35),
       groups: [
-        { model: index % 2 ? "gpt-5.6-sol" : "gpt-6-astra", reasoningEffort: "medium", speed: "fast", fiveHourLimitPercent: roundMoney(weekly[index] / 4), weeklyLimitPercent: roundMoney(weekly[index] * 0.83), balanceUsageCredits: 0 },
-        { model: "gpt-6-luna", reasoningEffort: "low", speed: "standard", fiveHourLimitPercent: roundMoney(weekly[index] / 12), weeklyLimitPercent: roundMoney(weekly[index] * 0.17), balanceUsageCredits: index % 3 === 0 ? 0 : roundMoney(index * 0.35) },
+        {
+          model: index % 2 ? "gpt-5.6-sol" : "gpt-6-astra",
+          reasoningEffort: "medium",
+          speed: "fast",
+          fiveHourLimitPercent: roundMoney(weekly[index] / 4),
+          weeklyLimitPercent: roundMoney(weekly[index] * 0.83),
+          balanceUsageCredits: 0,
+        },
+        {
+          model: "gpt-6-luna",
+          reasoningEffort: "low",
+          speed: "standard",
+          fiveHourLimitPercent: roundMoney(weekly[index] / 12),
+          weeklyLimitPercent: roundMoney(weekly[index] * 0.17),
+          balanceUsageCredits: index % 3 === 0 ? 0 : roundMoney(index * 0.35),
+        },
       ],
     })),
   };

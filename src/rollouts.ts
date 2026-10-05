@@ -1,8 +1,15 @@
 import type { ProgressSink } from "./progress";
-import type { CapabilityUsageEvent, CodexHome, CyberAccessProgram, LocalThreadSummary, ThreadMetadata, TokenEvent } from "./types";
+import type {
+  CapabilityUsageEvent,
+  CodexHome,
+  CyberAccessProgram,
+  LocalThreadSummary,
+  ThreadMetadata,
+  TokenEvent,
+} from "./types";
 
 import { createReadStream } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 
 import { discoverFromSqlite } from "./sqlite";
 import { createCapabilityEvidenceTracker, extractCapabilityUsageEvents } from "./capabilities";
@@ -57,6 +64,7 @@ export async function collectRolloutEvents(options: {
   to: string | null;
   progress?: ProgressSink;
   cacheDir?: string;
+  onDiscovered?: (discovery: { threads: LocalThreadSummary[]; dates: string[] }) => void;
 }): Promise<RolloutCollection> {
   const sqlite = discoverFromSqlite(options.homes, options.progress);
   const paths = new Set<string>(sqlite.rolloutPaths);
@@ -74,7 +82,7 @@ export async function collectRolloutEvents(options: {
     if (dirExists(root)) {
       for (const file of walkFiles(
         root,
-        (candidate) => /^rollout-.*\.jsonl$/i.test(basename(candidate)),
+        (candidate) => /^rollout-.*\.jsonl(?:\.zst)?$/i.test(basename(candidate)),
         (path, error) =>
           discoveryErrors.push({
             path,
@@ -91,6 +99,13 @@ export async function collectRolloutEvents(options: {
   }
 
   options.progress?.statusDone(`Discovered ${paths.size} ${pluralize("rollout file", paths.size)}`);
+
+  options.onDiscovered?.({
+    threads: sqlite.threads,
+    dates: [...paths].flatMap(
+      (path) => basename(path).match(/^rollout-(\d{4}-\d{2}-\d{2})T/)?.[1] ?? [],
+    ),
+  });
 
   const parseErrors: Array<{ path: string; line?: number; error: string }> = [...discoveryErrors];
   const eventMap = new Map<string, TokenEvent>();
@@ -530,7 +545,14 @@ async function* readJsonlLines(path: string): AsyncGenerator<string> {
   // Bun 1.4's node:readline treats U+2028 inside valid JSON strings as a line boundary, JSONL records are separated only on physical LF or CRLF delimiters here
   const fragments: string[] = [];
 
-  for await (const chunk of createReadStream(path, { encoding: "utf8" })) {
+  const chunks = /\.zst$/i.test(path)
+    ? Bun.file(path)
+        .stream()
+        .pipeThrough(new DecompressionStream("zstd" as CompressionFormat))
+        .pipeThrough(new TextDecoderStream())
+    : createReadStream(path, { encoding: "utf8" });
+
+  for await (const chunk of chunks) {
     const text = String(chunk);
     let start = 0;
     let end = text.indexOf("\n", start);
@@ -582,7 +604,7 @@ function pruneCacheEntries(
   homes: CodexHome[],
   livePaths: ReadonlySet<string>,
 ): void {
-  const roots = homes.map((home) => `${resolve(home.path).toLowerCase()}\\`);
+  const roots = homes.map((home) => `${resolve(home.path).toLowerCase()}${sep}`);
   const normalizedLivePaths = new Set([...livePaths].map((path) => resolve(path).toLowerCase()));
 
   for (const path of entries.keys()) {

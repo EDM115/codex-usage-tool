@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { ensureDir, fileExists } from "./util";
 
-export const ROLLOUT_PARSE_CACHE_VERSION = 4 as const;
+export const ROLLOUT_PARSE_CACHE_VERSION = 5 as const;
 
 export type CachedRollout = {
   size: number;
@@ -169,7 +169,8 @@ function isCapabilityEvent(value: unknown): value is CapabilityUsageEvent {
     typeof value.date === "string" &&
     (value.kind === "skill" || value.kind === "plugin") &&
     typeof value.name === "string" &&
-    typeof value.detail === "string"
+    typeof value.detail === "string" &&
+    !(value.kind === "plugin" && value.detail.includes("plugin inferred from namespace"))
   );
 }
 

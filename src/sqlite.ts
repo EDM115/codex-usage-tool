@@ -49,7 +49,10 @@ export function discoverFromSqlite(homes: CodexHome[], progress?: ProgressSink):
         const metadata: ThreadMetadata = {
           threadId,
           rolloutPath,
-          title: optionalString(row.name) ?? optionalString(row.title) ?? optionalString(row.preview)?.slice(0, 60),
+          title:
+            optionalString(row.name) ??
+            optionalString(row.title) ??
+            optionalString(row.preview)?.slice(0, 60),
           createdAt: sqliteTimestamp(row.created_at_ms ?? row.created_at),
           updatedAt: sqliteTimestamp(row.updated_at_ms ?? row.updated_at),
           parentThreadId: rolloutPath ? parentThreadIdFromRollout(rolloutPath) : undefined,
@@ -130,9 +133,30 @@ function readThreads(dbPath: string): Array<Record<string, unknown>> | null {
       return null;
     }
 
-    const columns = new Set((db.query("pragma table_info(threads)").all() as Array<{ name: string }>).map((row) => row.name));
-    const selected = ["id", "rollout_path", "source", "tokens_used", "archived", "model", "reasoning_effort", "name", "title", "preview", "created_at_ms", "created_at", "updated_at_ms", "updated_at"].filter((column) => columns.has(column));
-    return db.query(`select ${selected.join(", ")} from threads`).all() as Array<Record<string, unknown>>;
+    const columns = new Set(
+      (db.query("pragma table_info(threads)").all() as Array<{ name: string }>).map(
+        (row) => row.name,
+      ),
+    );
+    const selected = [
+      "id",
+      "rollout_path",
+      "source",
+      "tokens_used",
+      "archived",
+      "model",
+      "reasoning_effort",
+      "name",
+      "title",
+      "preview",
+      "created_at_ms",
+      "created_at",
+      "updated_at_ms",
+      "updated_at",
+    ].filter((column) => columns.has(column));
+    return db.query(`select ${selected.join(", ")} from threads`).all() as Array<
+      Record<string, unknown>
+    >;
   } catch {
     return null;
   } finally {

@@ -9,11 +9,12 @@ type PluginAttribution = {
 
 export type CapabilityEvidenceTracker = {
   plugins: Map<string, PluginAttribution>;
+  pluginTools: Map<string, string[]>;
   skillReadCalls: Set<string>;
 };
 
 export function createCapabilityEvidenceTracker(): CapabilityEvidenceTracker {
-  return { plugins: new Map(), skillReadCalls: new Set() };
+  return { plugins: new Map(), pluginTools: new Map(), skillReadCalls: new Set() };
 }
 
 export function extractCapabilityUsageEvents(args: {
@@ -43,17 +44,32 @@ export function extractCapabilityUsageEvents(args: {
   };
   const events: CapabilityUsageEvent[] = [];
 
-  if (args.payload?.type === "custom_tool_call_output" || args.payload?.type === "function_call_output") {
+  if (
+    args.payload?.type === "custom_tool_call_output" ||
+    args.payload?.type === "function_call_output"
+  ) {
+    registerPluginToolMetadata(args.tracker, args.payload.output);
     const callId = String(args.payload.call_id ?? "");
     if (!args.tracker.skillReadCalls.delete(callId)) return events;
-    const output = typeof args.payload.output === "string" ? args.payload.output : messageText({ content: args.payload.output });
+    const output =
+      typeof args.payload.output === "string"
+        ? args.payload.output
+        : messageText({ content: args.payload.output });
     if (!/FirstFiveWords\s*:/i.test(output)) return events;
     const selectedPath = output.match(/^\s*Skill\s*:\s*(.+SKILL\.md)\s*$/im)?.[1];
     if (!selectedPath) return events;
     for (const path of skillPaths(selectedPath)) {
       const name = skillNameFromPath(path);
       if (!name) continue;
-      events.push({ ...common, eventId: capabilityEventId(args, "skill", name, events.length), kind: "skill", name, evidenceType: "skill_file_read", confidence: "medium", detail: `Read skill instructions from ${path}` });
+      events.push({
+        ...common,
+        eventId: capabilityEventId(args, "skill", name, events.length),
+        kind: "skill",
+        name,
+        evidenceType: "skill_file_read",
+        confidence: "medium",
+        detail: `Read skill instructions from ${path}`,
+      });
     }
     return events;
   }
@@ -108,22 +124,31 @@ export function extractCapabilityUsageEvents(args: {
   }
 
   const callName = typeof args.payload.name === "string" ? args.payload.name : "";
-  const plugin = pluginForToolCall(args.tracker, callName);
-
-  if (plugin) {
-    events.push({
-      ...common,
-      eventId: capabilityEventId(args, "plugin", plugin.name, events.length),
-      kind: "plugin",
-      name: plugin.name,
-      evidenceType: "tool_call",
-      confidence: "high",
-      detail: `Called plugin tool ${callName}`,
-    });
-  }
-
   const bodies = callBodies(args.payload);
-  if (args.payload.call_id && bodies.some((body) => looksLikeFileRead(callName, body))) args.tracker.skillReadCalls.add(String(args.payload.call_id));
+  const calls = [callName];
+  if (/(?:^|\.)exec$/.test(callName)) {
+    for (const body of bodies) {
+      for (const match of body.matchAll(/\btools\.([A-Za-z_]\w*)\s*\(/g)) calls.push(match[1]);
+    }
+  }
+  for (const toolName of calls) {
+    const exactNames = args.tracker.pluginTools.get(toolName);
+    const plugin = pluginForToolCall(args.tracker, toolName);
+    const names = exactNames ?? (plugin ? [plugin.name] : []);
+    for (const name of names) {
+      events.push({
+        ...common,
+        eventId: capabilityEventId(args, "plugin", name, events.length),
+        kind: "plugin",
+        name,
+        evidenceType: "tool_call",
+        confidence: "high",
+        detail: `Called plugin tool ${toolName}`,
+      });
+    }
+  }
+  if (args.payload.call_id && bodies.some((body) => looksLikeFileRead(callName, body)))
+    args.tracker.skillReadCalls.add(String(args.payload.call_id));
   for (const body of bodies) {
     if (!looksLikeFileRead(callName, body)) {
       continue;
@@ -203,6 +228,42 @@ function normalizeIdentifier(value: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
+function registerPluginToolMetadata(
+  tracker: CapabilityEvidenceTracker,
+  value: unknown,
+  depth = 0,
+): void {
+  if (depth > 8) return;
+  if (typeof value === "string") {
+    try {
+      registerPluginToolMetadata(tracker, JSON.parse(value), depth + 1);
+    } catch {
+      /* Plain tool output carries no structured provenance */
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => registerPluginToolMetadata(tracker, item, depth + 1));
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.name === "string" &&
+    typeof record.description === "string" &&
+    record.name.startsWith("mcp__")
+  ) {
+    const provenance = record.description.match(
+      /This tool is part of plugins? ((?:`[^`]+`(?:,?\s*(?:and\s+)?))+)/,
+    );
+    const names = provenance
+      ? [...provenance[1].matchAll(/`([^`]+)`/g)].map((match) => match[1])
+      : [];
+    if (names.length) tracker.pluginTools.set(record.name, names);
+  }
+  Object.values(record).forEach((item) => registerPluginToolMetadata(tracker, item, depth + 1));
+}
+
 function callBodies(payload: any): string[] {
   const bodies: string[] = [];
 
@@ -252,10 +313,10 @@ function looksLikeFileRead(callName: string, body: string): boolean {
 function skillPaths(body: string): string[] {
   const normalizedBody = body.replace(/\\\\/g, "\\");
   const matches = normalizedBody.match(
-    /(?:[A-Za-z]:[\\/]|(?:~|\.\.?)[\\/])[^"'`<>\r\n]*?[\\/]SKILL\.md/gi,
+    /(?:[A-Za-z]:[\\/]|(?:~|\.\.?)[\\/]|\/)[^"'`<>\r\n;|]*?[\\/]SKILL\.md/gi,
   );
 
-  return (matches ?? [])
+  return [...new Set(matches ?? [])]
     .map((path) => path.replaceAll("\\", "/"))
     .filter((path) => {
       const normalized = path.toLowerCase();

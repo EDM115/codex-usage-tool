@@ -134,18 +134,60 @@ export function buildReportModelRows(dataset: UsageDataset): ReportModelRow[] {
   return [...localRows, ...cloudOnlyRows];
 }
 
-export function renderReportHtml(dataset: UsageDataset, sections: readonly ReportSection[] = REPORT_SECTIONS): string {
+export function renderReportHtml(
+  dataset: UsageDataset,
+  sections: readonly ReportSection[] = REPORT_SECTIONS,
+): string {
   const enabled = (section: ReportSection) => sections.includes(section);
-  const breakdownEnabled = ["models", "surfaces", "skills", "thinking", "mode", "cyber", "token", "input", "output"].some((section) => enabled(section as ReportSection));
-  const breakdownExportEnabled = ["models", "surfaces", "skills", "thinking", "mode", "cyber", "token", "input", "output"].every((section) => enabled(section as ReportSection));
-  const attributionEnabled = ["feature", "models", "surfaces", "turn"].some((section) => enabled(section as ReportSection));
-  const limitsEnabled = ["limits-feature", "limits-model", "limits-surface", "limits-turn"].some((section) => enabled(section as ReportSection));
+  const breakdownEnabled = [
+    "models",
+    "surfaces",
+    "skills",
+    "thinking",
+    "mode",
+    "cyber",
+    "token",
+    "input",
+    "output",
+  ].some((section) => enabled(section as ReportSection));
+  const breakdownExportEnabled = [
+    "models",
+    "surfaces",
+    "skills",
+    "thinking",
+    "mode",
+    "cyber",
+    "token",
+    "input",
+    "output",
+  ].every((section) => enabled(section as ReportSection));
+  const attributionEnabled = ["feature", "models", "surfaces", "turn"].some((section) =>
+    enabled(section as ReportSection),
+  );
+  const limitsEnabled = ["limits-feature", "limits-model", "limits-surface", "limits-turn"].some(
+    (section) => enabled(section as ReportSection),
+  );
   const sectionsJson = JSON.stringify(sections).replaceAll("</", "<\\/");
   const embedded: any = JSON.parse(JSON.stringify(dataset));
   embedded.local.threads = [];
   embedded.local.modelUsage = [];
-  embedded.local.events = enabled("cyber") ? (embedded.local.events ?? []).map((event: any) => ({ date: event.date, model: event.model, cyberAccessProgram: event.cyberAccessProgram, breakdown: { totalTokens: event.breakdown.totalTokens } })) : [];
-  embedded.local.capabilityEvents = enabled("skills") ? embedded.local.capabilityEvents.map((event: any) => ({ date: event.date, kind: event.kind, name: event.name, evidenceType: event.evidenceType, confidence: event.confidence })) : [];
+  embedded.local.events = enabled("cyber")
+    ? (embedded.local.events ?? []).map((event: any) => ({
+        date: event.date,
+        model: event.model,
+        cyberAccessProgram: event.cyberAccessProgram,
+        breakdown: { totalTokens: event.breakdown.totalTokens },
+      }))
+    : [];
+  embedded.local.capabilityEvents = enabled("skills")
+    ? embedded.local.capabilityEvents.map((event: any) => ({
+        date: event.date,
+        kind: event.kind,
+        name: event.name,
+        evidenceType: event.evidenceType,
+        confidence: event.confidence,
+      }))
+    : [];
   embedded.local.parseErrors = [];
   embedded.local.coverage.missingRoots = [];
   embedded.codexHomes = [];
@@ -154,14 +196,28 @@ export function renderReportHtml(dataset: UsageDataset, sections: readonly Repor
   if (embedded.analytics) {
     embedded.analytics.tasks = undefined;
     if (!enabled("chats")) embedded.analytics.topChats = undefined;
-    if (!attributionEnabled && !enabled("models") && !enabled("surfaces")) embedded.analytics.dailyTokenUsageBreakdown = undefined;
-    if (!enabled("messages-model") && !enabled("messages-surface") && !enabled("models") && !enabled("surfaces")) embedded.analytics.workspaceUsageCounts = undefined;
+    if (!attributionEnabled && !enabled("models") && !enabled("surfaces"))
+      embedded.analytics.dailyTokenUsageBreakdown = undefined;
+    if (
+      !enabled("messages-model") &&
+      !enabled("messages-surface") &&
+      !enabled("models") &&
+      !enabled("surfaces")
+    )
+      embedded.analytics.workspaceUsageCounts = undefined;
     if (!limitsEnabled) embedded.analytics.planLimitHistory = undefined;
-    if (!enabled("skills")) { embedded.analytics.pluginUsage = undefined; embedded.analytics.skillUsage = undefined; }
+    if (!enabled("skills")) {
+      embedded.analytics.pluginUsage = undefined;
+      embedded.analytics.skillUsage = undefined;
+    }
   }
   const dataJson = JSON.stringify(embedded).replaceAll("</", "<\\/");
-  const modelRowsNeeded = ["models", "thinking", "mode", "cyber"].some((section) => enabled(section as ReportSection));
-  const modelRowsJson = JSON.stringify(modelRowsNeeded ? buildReportModelRows(dataset) : []).replaceAll("</", "<\\/");
+  const modelRowsNeeded = ["models", "thinking", "mode", "cyber"].some((section) =>
+    enabled(section as ReportSection),
+  );
+  const modelRowsJson = JSON.stringify(
+    modelRowsNeeded ? buildReportModelRows(dataset) : [],
+  ).replaceAll("</", "<\\/");
   const paymentMonths = paymentMonthTotals(dataset.payments);
   const paymentMonthsJson = JSON.stringify(paymentMonths).replaceAll("</", "<\\/");
   const paymentEntryMonths = Object.keys(paymentMonths).sort();
@@ -1670,7 +1726,7 @@ export function renderReportHtml(dataset: UsageDataset, sections: readonly Repor
       const rows = filteredCapabilityRows();
 
       if (!rows.length) {
-        return '<div class="model-section capability-section"><h4>Skills &amp; plugins</h4><p>No high- or medium-confidence usage evidence in this date range</p></div>';
+        return '<div class="model-section capability-section"><h4>Skills &amp; plugins</h4><p>No high/medium-confidence usage evidence in this date range</p></div>';
       }
 
       const max = Math.max.apply(null, rows.map(function (row) { return row.count; }));
@@ -2335,7 +2391,10 @@ export function renderReportHtml(dataset: UsageDataset, sections: readonly Repor
   </script>
 </body>
 </html>`;
-  return html.replace(/<section class="(?:stats|section(?: notes)?)" hidden>[\s\S]*?<\/section>\s*/g, "");
+  return html.replace(
+    /<section class="(?:stats|section(?: notes)?)" hidden>[\s\S]*?<\/section>\s*/g,
+    "",
+  );
 }
 
 export function formatGeneratedAt(timestamp: string, timezone: string): string {
@@ -2377,12 +2436,12 @@ function dateEntryCoverage(reportDates: string[], paymentMonths: string[]): stri
   const rows: string[] = [];
   if (reportDates.length > 0) {
     rows.push(
-    `Usage entries : ${displayIsoDay(reportDates[0])} - ${displayIsoDay(reportDates.at(-1)!)}`,
+      `Usage entries : ${displayIsoDay(reportDates[0])} - ${displayIsoDay(reportDates.at(-1)!)}`,
     );
   }
   if (paymentMonths.length > 0) {
     rows.push(
-    `Payment entries : ${escapeHtml(paymentMonths[0])} - ${escapeHtml(paymentMonths.at(-1)!)}`,
+      `Payment entries : ${escapeHtml(paymentMonths[0])} - ${escapeHtml(paymentMonths.at(-1)!)}`,
     );
   }
   return rows.length > 0 ? `<div class="date-entry-coverage">${rows.join(" · ")}</div>` : "";
@@ -2516,8 +2575,27 @@ function parseDiagnostics(dataset: UsageDataset): string {
   return `<details class="diagnostics warning"><summary>Local parse diagnostics (${dataset.local.parseErrors.length})</summary><ol>${rows}</ol></details>`;
 }
 
-function downloadMenu(target: "heatmap" | "chart" | "dashboard" | "roi" | "analytics-attribution" | "analytics-plugin" | "analytics-skill" | "analytics-messages"): string {
-  const labels: Record<typeof target, string> = {heatmap: "daily intensity", chart: "usage trend", dashboard: "dashboard", roi: "ROI", "analytics-attribution": "total usage history", "analytics-plugin": "plugins called", "analytics-skill": "skills used", "analytics-messages": "messages"};
+function downloadMenu(
+  target:
+    | "heatmap"
+    | "chart"
+    | "dashboard"
+    | "roi"
+    | "analytics-attribution"
+    | "analytics-plugin"
+    | "analytics-skill"
+    | "analytics-messages",
+): string {
+  const labels: Record<typeof target, string> = {
+    heatmap: "daily intensity",
+    chart: "usage trend",
+    dashboard: "dashboard",
+    roi: "ROI",
+    "analytics-attribution": "total usage history",
+    "analytics-plugin": "plugins called",
+    "analytics-skill": "skills used",
+    "analytics-messages": "messages",
+  };
   const label = `Download ${labels[target]}`;
   return `<details class="download-menu"><summary aria-label="${label}" title="${label}"><svg class="download-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></summary><div class="download-panel"><button type="button" data-download-target="${target}" data-download-kind="svg">SVG</button><button type="button" data-download-target="${target}" data-download-kind="png">PNG</button></div></details>`;
 }

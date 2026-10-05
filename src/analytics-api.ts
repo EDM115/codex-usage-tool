@@ -7,12 +7,17 @@ import type {
   LocalThreadSummary,
 } from "./types";
 import type { ReportSection } from "./sections";
-import type { ProgressSink } from "./progress";
+import type { ApiProgressUpdate, ProgressSink } from "./progress";
 
 import { readFileSync } from "node:fs";
 
 import { numberFrom } from "./util";
-import { normalizePlanLimitHistory, normalizeToolActivity, normalizeTopChats, recentThreadQueries } from "./analytics-extended";
+import {
+  normalizePlanLimitHistory,
+  normalizeToolActivity,
+  normalizeTopChats,
+  recentThreadQueries,
+} from "./analytics-extended";
 
 export async function loadWhamAnalytics(options: {
   analyticsJson?: string;
@@ -24,10 +29,21 @@ export async function loadWhamAnalytics(options: {
   threads?: LocalThreadSummary[];
   sections?: readonly ReportSection[];
   progress?: ProgressSink;
+  onRequestsComplete?: (count: number) => void;
+  onRequestProgress?: ApiProgressUpdate;
 }): Promise<WhamAnalytics | undefined> {
   const range = analyticsDateRange(options.from, options.to);
   const endpoints = endpointMap(options.baseUrl, range.from, range.to);
-  const sections = new Set(options.sections ?? ["chats", "limits-feature", "limits-model", "limits-surface", "limits-turn", "skills"]);
+  const sections = new Set(
+    options.sections ?? [
+      "chats",
+      "limits-feature",
+      "limits-model",
+      "limits-surface",
+      "limits-turn",
+      "skills",
+    ],
+  );
 
   if (options.analyticsJson) {
     const parsed = JSON.parse(readFileSync(options.analyticsJson, "utf8"));
@@ -46,7 +62,7 @@ export async function loadWhamAnalytics(options: {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${options.auth.accessToken}`,
     Accept: "application/json",
-    "User-Agent": "codex-usage-tool/3.1",
+    "User-Agent": "codex-usage-tool/3.2",
     Referer: "https://chatgpt.com/codex/cloud/settings/analytics",
   };
 
@@ -63,19 +79,52 @@ export async function loadWhamAnalytics(options: {
       { key: "tasksArchived", url: endpoints.tasksArchived },
     ];
     if (wantsLimits) requests.push({ key: "planHistory", url: endpoints.planLimitHistory });
-    if (sections.has("chats") && threadSelection.queries.length > 0) requests.push({ key: "threadUsage", url: endpoints.threadUsageQuery, init: { method: "POST", body: JSON.stringify({ threads: threadSelection.queries }) } });
+    if (sections.has("chats") && threadSelection.queries.length > 0)
+      requests.push({
+        key: "threadUsage",
+        url: endpoints.threadUsageQuery,
+        init: { method: "POST", body: JSON.stringify({ threads: threadSelection.queries }) },
+      });
     for (const chunk of analyticsDateChunks(range.from, range.to)) {
       const urls = endpointMap(options.baseUrl, chunk.from, chunk.to);
-      requests.push({ key: "dailyBreakdown", url: urls.dailyTokenUsageBreakdown }, { key: "workspaceCounts", url: urls.dailyWorkspaceUsageCounts });
-      if (sections.has("skills")) requests.push({ key: "pluginUsage", url: urls.dailyPluginUsageMetrics }, { key: "skillUsage", url: urls.dailySkillUsageMetrics });
+      requests.push(
+        { key: "dailyBreakdown", url: urls.dailyTokenUsageBreakdown },
+        { key: "workspaceCounts", url: urls.dailyWorkspaceUsageCounts },
+      );
+      if (sections.has("skills"))
+        requests.push(
+          { key: "pluginUsage", url: urls.dailyPluginUsageMetrics },
+          { key: "skillUsage", url: urls.dailySkillUsageMetrics },
+        );
     }
-    const results = await fetchAnalyticsRequests(requests, headers, options.progress);
+    const results = await fetchAnalyticsRequests(
+      requests,
+      headers,
+      options.progress,
+      options.onRequestProgress,
+    );
+    options.onRequestsComplete?.(requests.length);
     const first = (key: string) => results.find((result) => result.key === key)?.response.value;
     const combined = (key: string) => {
-      const values = results.filter((result) => result.key === key && result.response.ok && Array.isArray(result.response.value?.data)).map((result) => result.response.value);
-      return values.length ? { ...values.at(-1), data: values.flatMap((value) => value.data) } : undefined;
+      const values = results
+        .filter(
+          (result) =>
+            result.key === key && result.response.ok && Array.isArray(result.response.value?.data),
+        )
+        .map((result) => result.response.value);
+      return values.length
+        ? { ...values.at(-1), data: values.flatMap((value) => value.data) }
+        : undefined;
     };
-    const errors = [...new Set(results.flatMap(({ key, response }) => !response.ok && !(key === "planHistory" && response.status === 404) ? [response.error] : []))];
+    const errors = [
+      ...new Set(
+        results.flatMap(({ key, response }) =>
+          !response.ok && !(key === "planHistory" && response.status === 404)
+            ? [response.error]
+            : [],
+        ),
+      ),
+    ];
     const analytics = normalizeWhamAnalytics(
       {
         usage: first("usage"),
@@ -92,7 +141,9 @@ export async function loadWhamAnalytics(options: {
     );
 
     if (errors.length) {
-      analytics.error = errors.slice(0, 5).join(", ") + (errors.length > 5 ? `, ${errors.length - 5} more API errors` : "");
+      analytics.error =
+        errors.slice(0, 5).join(", ") +
+        (errors.length > 5 ? `, ${errors.length - 5} more API errors` : "");
     }
 
     return analytics;
@@ -147,21 +198,36 @@ async function fetchAnalyticsRequests(
   requests: Array<{ key: string; url: string; init?: { method: "POST"; body: string } }>,
   headers: Record<string, string>,
   progress?: ProgressSink,
+  onRequestProgress?: ApiProgressUpdate,
 ): Promise<Array<{ key: string; response: Awaited<ReturnType<typeof fetchJson>> }>> {
-  const results: Array<{ key: string; response: Awaited<ReturnType<typeof fetchJson>> }> = new Array(requests.length);
+  const results: Array<{ key: string; response: Awaited<ReturnType<typeof fetchJson>> }> =
+    new Array(requests.length);
   let next = 0;
   let completed = 0;
+  const active = new Map<number, string>();
+  const update = () => onRequestProgress?.(completed, requests.length, [...active.values()]);
+  update();
   progress?.statusProgress(`Fetching WHAM API [0/${requests.length}]`, 0, requests.length);
-  await Promise.all(Array.from({ length: Math.min(4, requests.length) }, async () => {
-    while (next < requests.length) {
-      const index = next++;
-      const request = requests[index];
-      const response = await fetchJson(request.url, headers, request.init);
-      results[index] = { key: request.key, response };
-      completed += 1;
-      progress?.statusProgress(`Fetching WHAM API [${completed}/${requests.length}] : ${request.key}`, completed, requests.length);
-    }
-  }));
+  await Promise.all(
+    Array.from({ length: Math.min(4, requests.length) }, async () => {
+      while (next < requests.length) {
+        const index = next++;
+        const request = requests[index];
+        active.set(index, request.key);
+        update();
+        const response = await fetchJson(request.url, headers, request.init);
+        results[index] = { key: request.key, response };
+        completed += 1;
+        active.delete(index);
+        update();
+        progress?.statusProgress(
+          `Fetching WHAM API [${completed}/${requests.length}] : ${request.key}`,
+          completed,
+          requests.length,
+        );
+      }
+    }),
+  );
   return results;
 }
 
@@ -183,12 +249,21 @@ async function fetchJson(
   url: string,
   headers: Record<string, string>,
   init?: { method: "POST"; body: string },
-): Promise<{ ok: true; value: any; status?: number } | { ok: false; error: string; status?: number; value?: any }> {
+): Promise<
+  | { ok: true; value: any; status?: number }
+  | { ok: false; error: string; status?: number; value?: any }
+> {
   let response: Response;
   try {
-    response = await fetch(url, { headers: init ? { ...headers, "Content-Type": "application/json" } : headers, ...init });
+    response = await fetch(url, {
+      headers: init ? { ...headers, "Content-Type": "application/json" } : headers,
+      ...init,
+    });
   } catch (error) {
-    return { ok: false, error: `${new URL(url).pathname} failed: ${error instanceof Error ? error.message : String(error)}` };
+    return {
+      ok: false,
+      error: `${new URL(url).pathname} failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
   const text = await response.text();
   let value: any;
@@ -220,8 +295,13 @@ function normalizeWhamAnalytics(
   const dailyTokenUsageBreakdown = normalizeDailyBreakdown(
     raw?.dailyTokenUsageBreakdown ?? raw?.daily_token_usage_breakdown,
   );
-  const planLimitHistory = normalizePlanLimitHistory(raw?.planLimitHistory ?? raw?.plan_limit_history);
-  const pluginUsage = normalizeToolActivity(raw?.pluginUsage ?? raw?.dailyPluginUsageMetrics, "plugin");
+  const planLimitHistory = normalizePlanLimitHistory(
+    raw?.planLimitHistory ?? raw?.plan_limit_history,
+  );
+  const pluginUsage = normalizeToolActivity(
+    raw?.pluginUsage ?? raw?.dailyPluginUsageMetrics,
+    "plugin",
+  );
   const skillUsage = normalizeToolActivity(raw?.skillUsage ?? raw?.dailySkillUsageMetrics, "skill");
   const workspaceUsageCounts = normalizeWorkspaceCounts(
     raw?.workspaceUsageCounts ??
@@ -276,44 +356,126 @@ function normalizeWhamAnalytics(
 export function mergeWhamAnalyticsSnapshots(snapshots: WhamAnalytics[]): WhamAnalytics | undefined {
   const primary = snapshots.find((snapshot) => snapshot.fetched) ?? snapshots[0];
   if (!primary) return undefined;
-  const byDate = <T extends { date: string }>(pick: (snapshot: WhamAnalytics) => { data: T[] } | undefined): T[] => {
+  const byDate = <T extends { date: string }>(
+    pick: (snapshot: WhamAnalytics) => { data: T[] } | undefined,
+  ): T[] => {
     const rows = new Map<string, T>();
-    for (const snapshot of [...snapshots].reverse()) for (const row of pick(snapshot)?.data ?? []) rows.set(row.date, row);
+    for (const snapshot of [...snapshots].reverse())
+      for (const row of pick(snapshot)?.data ?? []) rows.set(row.date, row);
     return [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
   };
   const daily = byDate((snapshot) => snapshot.dailyTokenUsageBreakdown);
   const workspace = byDate((snapshot) => snapshot.workspaceUsageCounts);
   const plugins = byDate((snapshot) => snapshot.pluginUsage);
   const skills = byDate((snapshot) => snapshot.skillUsage);
-  const periodMap = new Map<string, NonNullable<WhamAnalytics["planLimitHistory"]>["periods"][number]>();
-  for (const snapshot of [...snapshots].reverse()) for (const period of snapshot.planLimitHistory?.periods ?? []) periodMap.set(period.id || `${period.windowMinutes}:${period.startsAt}:${period.endsAt}`, period);
+  const periodMap = new Map<
+    string,
+    NonNullable<WhamAnalytics["planLimitHistory"]>["periods"][number]
+  >();
+  for (const snapshot of [...snapshots].reverse())
+    for (const period of snapshot.planLimitHistory?.periods ?? [])
+      periodMap.set(
+        period.id || `${period.windowMinutes}:${period.startsAt}:${period.endsAt}`,
+        period,
+      );
   const chatMap = new Map<string, NonNullable<WhamAnalytics["topChats"]>["chats"][number]>();
-  for (const snapshot of [...snapshots].reverse()) for (const chat of snapshot.topChats?.chats ?? []) {
-    const previous = chatMap.get(chat.threadId);
-    if (chat.dataStatus !== "unavailable" || !previous || previous.dataStatus === "unavailable") chatMap.set(chat.threadId, chat);
-  }
-  const newest = <T>(pick: (snapshot: WhamAnalytics) => T | undefined): T | undefined => snapshots.map(pick).find((value) => value !== undefined);
-  const computed = normalizeWhamAnalytics({
-    dailyTokenUsageBreakdown: daily.length ? { ...newest((snapshot) => snapshot.dailyTokenUsageBreakdown), data: daily } : undefined,
-    workspaceUsageCounts: workspace.length ? { ...newest((snapshot) => snapshot.workspaceUsageCounts), data: workspace } : undefined,
-    pluginUsage: plugins.length ? { ...newest((snapshot) => snapshot.pluginUsage), data: plugins } : undefined,
-    skillUsage: skills.length ? { ...newest((snapshot) => snapshot.skillUsage), data: skills } : undefined,
-    planLimitHistory: periodMap.size ? { ...newest((snapshot) => snapshot.planLimitHistory), periods: [...periodMap.values()] } : undefined,
-    topChats: chatMap.size ? { dataAsOf: newest((snapshot) => snapshot.topChats?.dataAsOf), chats: [...chatMap.values()] } : undefined,
-  }, primary.endpoints, primary.fetched);
-  return { ...computed, totals: workspace.length ? computed.totals : primary.totals, byModel: workspace.length || daily.length ? computed.byModel : primary.byModel, byModelVariants: daily.length ? computed.byModelVariants : primary.byModelVariants, bySurface: workspace.length || daily.length ? computed.bySurface : primary.bySurface, bySource: workspace.length ? computed.bySource : primary.bySource, usage: newest((snapshot) => snapshot.usage), tasks: newest((snapshot) => snapshot.tasks), error: primary.error };
+  for (const snapshot of [...snapshots].reverse())
+    for (const chat of snapshot.topChats?.chats ?? []) {
+      const previous = chatMap.get(chat.threadId);
+      if (chat.dataStatus !== "unavailable" || !previous || previous.dataStatus === "unavailable")
+        chatMap.set(chat.threadId, chat);
+    }
+  const newest = <T>(pick: (snapshot: WhamAnalytics) => T | undefined): T | undefined =>
+    snapshots.map(pick).find((value) => value !== undefined);
+  const computed = normalizeWhamAnalytics(
+    {
+      dailyTokenUsageBreakdown: daily.length
+        ? { ...newest((snapshot) => snapshot.dailyTokenUsageBreakdown), data: daily }
+        : undefined,
+      workspaceUsageCounts: workspace.length
+        ? { ...newest((snapshot) => snapshot.workspaceUsageCounts), data: workspace }
+        : undefined,
+      pluginUsage: plugins.length
+        ? { ...newest((snapshot) => snapshot.pluginUsage), data: plugins }
+        : undefined,
+      skillUsage: skills.length
+        ? { ...newest((snapshot) => snapshot.skillUsage), data: skills }
+        : undefined,
+      planLimitHistory: periodMap.size
+        ? { ...newest((snapshot) => snapshot.planLimitHistory), periods: [...periodMap.values()] }
+        : undefined,
+      topChats: chatMap.size
+        ? {
+            dataAsOf: newest((snapshot) => snapshot.topChats?.dataAsOf),
+            chats: [...chatMap.values()],
+          }
+        : undefined,
+    },
+    primary.endpoints,
+    primary.fetched,
+  );
+  return {
+    ...computed,
+    totals: workspace.length ? computed.totals : primary.totals,
+    byModel: workspace.length || daily.length ? computed.byModel : primary.byModel,
+    byModelVariants: daily.length ? computed.byModelVariants : primary.byModelVariants,
+    bySurface: workspace.length || daily.length ? computed.bySurface : primary.bySurface,
+    bySource: workspace.length ? computed.bySource : primary.bySource,
+    usage: newest((snapshot) => snapshot.usage),
+    tasks: newest((snapshot) => snapshot.tasks),
+    error: primary.error,
+  };
 }
 
-export function filterWhamAnalyticsRange(snapshot: WhamAnalytics | undefined, from: string | null, to: string | null): WhamAnalytics | undefined {
+export function filterWhamAnalyticsRange(
+  snapshot: WhamAnalytics | undefined,
+  from: string | null,
+  to: string | null,
+): WhamAnalytics | undefined {
   if (!snapshot || (!from && !to)) return snapshot;
   const within = (date: string) => (!from || date >= from) && (!to || date <= to);
-  const daily = snapshot.dailyTokenUsageBreakdown && { ...snapshot.dailyTokenUsageBreakdown, data: snapshot.dailyTokenUsageBreakdown.data.filter((row) => within(row.date)) };
-  const workspace = snapshot.workspaceUsageCounts && { ...snapshot.workspaceUsageCounts, data: snapshot.workspaceUsageCounts.data.filter((row) => within(row.date)) };
-  const pluginUsage = snapshot.pluginUsage && { ...snapshot.pluginUsage, data: snapshot.pluginUsage.data.filter((row) => within(row.date)) };
-  const skillUsage = snapshot.skillUsage && { ...snapshot.skillUsage, data: snapshot.skillUsage.data.filter((row) => within(row.date)) };
-  const planLimitHistory = snapshot.planLimitHistory && { ...snapshot.planLimitHistory, periods: snapshot.planLimitHistory.periods.filter((period) => (!from || period.endsAt.slice(0, 10) >= from) && (!to || period.startsAt.slice(0, 10) <= to)) };
-  const topChats = snapshot.topChats && { ...snapshot.topChats, chats: snapshot.topChats.chats.filter((chat) => !chat.updatedAt || within(chat.updatedAt.slice(0, 10))) };
-  const filtered = normalizeWhamAnalytics({ dailyTokenUsageBreakdown: daily, workspaceUsageCounts: workspace, pluginUsage, skillUsage, planLimitHistory, topChats }, snapshot.endpoints, snapshot.fetched);
+  const daily = snapshot.dailyTokenUsageBreakdown && {
+    ...snapshot.dailyTokenUsageBreakdown,
+    data: snapshot.dailyTokenUsageBreakdown.data.filter((row) => within(row.date)),
+  };
+  const workspace = snapshot.workspaceUsageCounts && {
+    ...snapshot.workspaceUsageCounts,
+    data: snapshot.workspaceUsageCounts.data.filter((row) => within(row.date)),
+  };
+  const pluginUsage = snapshot.pluginUsage && {
+    ...snapshot.pluginUsage,
+    data: snapshot.pluginUsage.data.filter((row) => within(row.date)),
+  };
+  const skillUsage = snapshot.skillUsage && {
+    ...snapshot.skillUsage,
+    data: snapshot.skillUsage.data.filter((row) => within(row.date)),
+  };
+  const planLimitHistory = snapshot.planLimitHistory && {
+    ...snapshot.planLimitHistory,
+    periods: snapshot.planLimitHistory.periods.filter(
+      (period) =>
+        (!from || period.endsAt.slice(0, 10) >= from) &&
+        (!to || period.startsAt.slice(0, 10) <= to),
+    ),
+  };
+  const topChats = snapshot.topChats && {
+    ...snapshot.topChats,
+    chats: snapshot.topChats.chats.filter(
+      (chat) => !chat.updatedAt || within(chat.updatedAt.slice(0, 10)),
+    ),
+  };
+  const filtered = normalizeWhamAnalytics(
+    {
+      dailyTokenUsageBreakdown: daily,
+      workspaceUsageCounts: workspace,
+      pluginUsage,
+      skillUsage,
+      planLimitHistory,
+      topChats,
+    },
+    snapshot.endpoints,
+    snapshot.fetched,
+  );
   return { ...filtered, error: snapshot.error };
 }
 
@@ -492,13 +654,18 @@ function normalizeDailyBreakdown(
     dataFreshnessTs: value?.data_freshness_ts ?? value?.dataFreshnessTs,
     data: data.map((bucket: any): WhamDailyBreakdownBucket => ({
       date: String(bucket.date ?? bucket.start_date ?? bucket.startDate),
-      attribution: bucket.attribution === null ? null : Array.isArray(bucket.attribution) ? bucket.attribution.map((row: any) => ({
-        value: numberFrom(row.value),
-        threadSource: String(row.thread_source ?? row.threadSource ?? "Unknown"),
-        turnTrigger: String(row.turn_trigger ?? row.turnTrigger ?? "Unknown"),
-        model: String(row.model ?? "Unknown"),
-        surface: String(row.surface ?? "Unknown"),
-      })) : undefined,
+      attribution:
+        bucket.attribution === null
+          ? null
+          : Array.isArray(bucket.attribution)
+            ? bucket.attribution.map((row: any) => ({
+                value: numberFrom(row.value),
+                threadSource: String(row.thread_source ?? row.threadSource ?? "Unknown"),
+                turnTrigger: String(row.turn_trigger ?? row.turnTrigger ?? "Unknown"),
+                model: String(row.model ?? "Unknown"),
+                surface: String(row.surface ?? "Unknown"),
+              }))
+            : undefined,
       productSurfaceUsageValues: normalizeNumberRecord(
         bucket.product_surface_usage_values ?? bucket.productSurfaceUsageValues,
       ),

@@ -159,3 +159,40 @@ export const noopProgress: ProgressSink = {
   statusDone() {},
   finish() {},
 };
+
+export type ApiProgressUpdate = (completed: number, total: number, active: string[]) => void;
+
+export class AccountApiProgress {
+  private readonly groups = new Map<
+    string,
+    { completed: number; total: number; active: string[] }
+  >();
+  private visible = false;
+
+  constructor(private readonly progress: ProgressSink) {}
+
+  update(group: string): ApiProgressUpdate {
+    return (completed, total, active) => {
+      this.groups.set(group, { completed, total, active });
+      if (this.visible) this.render();
+    };
+  }
+
+  show(): void {
+    this.visible = true;
+    this.render();
+  }
+
+  private render(): void {
+    const groups = [...this.groups.values()];
+    const completed = groups.reduce((sum, group) => sum + group.completed, 0);
+    const total = groups.reduce((sum, group) => sum + group.total, 0);
+    if (!total) return;
+    const active = groups.flatMap((group) => group.active);
+    this.progress.statusProgress(
+      `Fetching account APIs [${completed}/${total}]${active.length ? ` : ${active.join(", ")}` : ""}`,
+      completed,
+      total,
+    );
+  }
+}

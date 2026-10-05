@@ -13,7 +13,7 @@ import { loadPayments } from "./payments";
 import { loadPricing } from "./pricing";
 import { ROLLOUT_PARSE_CACHE_VERSION } from "./parse-cache";
 import { loadProfile } from "./profile-api";
-import { CliProgress } from "./progress";
+import { AccountApiProgress, CliProgress } from "./progress";
 import { collectRolloutEvents } from "./rollouts";
 import { parseSections, REPORT_SECTIONS } from "./sections";
 import { resolveUsageThemes, validateThemeChoice } from "./theme";
@@ -44,7 +44,12 @@ async function main() {
   progress.status("Reading usage JSON inputs");
   const savedOutput = resolve(options.outDir, "usage-data.json");
   const inputFiles = [...options.usageJsons];
-  if (!options.noHistory && existsSync(savedOutput) && !inputFiles.some((path) => resolve(path) === savedOutput)) inputFiles.push(savedOutput);
+  if (
+    !options.noHistory &&
+    existsSync(savedOutput) &&
+    !inputFiles.some((path) => resolve(path) === savedOutput)
+  )
+    inputFiles.push(savedOutput);
   const importedDatasets = loadUsageDatasets(inputFiles);
   progress.step(
     importedDatasets.length > 0
@@ -113,20 +118,20 @@ async function main() {
         ? "Skipping payment API because --no-api is set"
         : "Fetching payment transaction history",
   );
-  const payments = await loadPayments({
+  const apiProgress = new AccountApiProgress(progress);
+  const paymentsPromise = loadPayments({
     paymentsJson: options.paymentsJson,
     noApi: options.noApi,
     baseUrl: options.baseUrl,
     auth,
+    cacheDir: resolve(".cache", "codex-usage-tool"),
+    refreshCache: options.refreshPayments,
+    onRequestProgress: apiProgress.update("payments"),
+    importedHistories: importedDatasets.map((dataset) => ({
+      history: dataset.payments,
+      generatedAt: dataset.generatedAt,
+    })),
   });
-  progress.step(
-    paymentStatus(payments),
-    payments.complete
-      ? "success"
-      : payments.sources.length === 0 || options.noApi
-        ? "neutral"
-        : "failure",
-  );
   progress.status("Resolving report theme");
   const themeResolution = resolveUsageThemes(codexHomes, options.theme);
   progress.step(`Theme : ${themeResolution.themeChoice}`);
@@ -139,33 +144,57 @@ async function main() {
           ? "Skipping profile API because --no-api is set"
           : "Fetching profile API",
   );
-  const profileResult =
+  const profilePromise =
     options.source === "local"
-      ? { fetched: false, error: "Profile API skipped because --source local was selected" }
-      : await loadProfile({
+      ? Promise.resolve({
+          fetched: false,
+          error: "Profile API skipped because --source local was selected",
+          profile: undefined,
+        })
+      : loadProfile({
+          onRequestProgress: apiProgress.update("profile"),
           profileJson: options.profileJson,
           noApi: options.noApi,
           baseUrl: options.baseUrl,
           auth,
         });
-  const profileSkipped = !profileResult.profile && (options.source === "local" || options.noApi);
-  progress.step(
-    profileResult.profile
-      ? "Profile data ready"
-      : profileSkipped
-        ? "Profile API skipped"
-        : "Profile data unavailable",
-    profileResult.profile ? "success" : profileSkipped ? "neutral" : "failure",
-  );
-
-  if (options.source === "backend" && !profileResult.profile) {
-    progress.finish();
-
-    throw new Error(
-      `Backend source requested but Profile API data is unavailable : ${profileResult.error ?? "unknown error"}`,
+  // Attach rejection handlers immediately while local processing runs
+  void paymentsPromise.catch(() => {});
+  void profilePromise.catch(() => {});
+  let analyticsPromise: ReturnType<typeof loadWhamAnalytics> | undefined;
+  let whamRequestCount = 0;
+  const startAnalytics = (
+    threads: Parameters<typeof loadWhamAnalytics>[0]["threads"],
+    localDates: string[],
+  ) => {
+    analyticsPromise = profilePromise.then((profileResult) =>
+      loadWhamAnalytics({
+        analyticsJson: options.analyticsJson,
+        noApi: options.noApi,
+        baseUrl: options.baseUrl,
+        auth,
+        from:
+          options.from ??
+          [
+            ...localDates,
+            ...(profileResult.profile?.dailyUsageBuckets ?? []).map((bucket) => bucket.startDate),
+            ...importedDatasets.flatMap((dataset) => dataset.daily.map((day) => day.date)),
+          ].sort()[0] ??
+          null,
+        to: options.to,
+        threads: [
+          ...(threads ?? []),
+          ...importedDatasets.flatMap((dataset) => dataset.local.threads ?? []),
+        ],
+        sections: options.sections,
+        onRequestsComplete: (count) => {
+          whamRequestCount = count;
+        },
+        onRequestProgress: apiProgress.update("wham"),
+      }),
     );
-  }
-
+    void analyticsPromise.catch(() => {});
+  };
   const local =
     options.source === "backend"
       ? (() => {
@@ -203,33 +232,49 @@ async function main() {
           to: options.to,
           progress,
           cacheDir: resolve(".cache", "codex-usage-tool"),
+          onDiscovered: ({ threads, dates }) => {
+            if (options.from || dates.length) startAnalytics(threads, dates);
+          },
         });
 
-  progress.status(
-    options.analyticsJson
-      ? "Reading WHAM analytics JSON"
-      : options.noApi
-        ? "Skipping WHAM analytics APIs because --no-api is set"
-        : "Fetching WHAM analytics APIs",
+  apiProgress.show();
+  const profileResult = await profilePromise;
+  const profileSkipped = !profileResult.profile && (options.source === "local" || options.noApi);
+  progress.step(
+    profileResult.profile
+      ? "Profile data ready"
+      : profileSkipped
+        ? "Profile API skipped"
+        : "Profile data unavailable",
+    profileResult.profile ? "success" : profileSkipped ? "neutral" : "failure",
   );
-  const analytics = await loadWhamAnalytics({
-    analyticsJson: options.analyticsJson,
-    noApi: options.noApi,
-    baseUrl: options.baseUrl,
-    auth,
-    from: options.from ?? [
-      ...local.events.map((event) => event.date),
-      ...(profileResult.profile?.dailyUsageBuckets ?? []).map((bucket) => bucket.startDate),
-      ...importedDatasets.flatMap((dataset) => dataset.daily.map((day) => day.date)),
-    ].sort()[0] ?? null,
-    to: options.to,
-    threads: [...local.threads, ...importedDatasets.flatMap((dataset) => dataset.local.threads ?? [])],
-    sections: options.sections,
-    progress,
-  });
+
+  if (options.source === "backend" && !profileResult.profile) {
+    progress.finish();
+
+    throw new Error(
+      `Backend source requested but Profile API data is unavailable : ${profileResult.error ?? "unknown error"}`,
+    );
+  }
+
+  if (!analyticsPromise)
+    startAnalytics(
+      local.threads,
+      local.events.map((event) => event.date),
+    );
+  apiProgress.show();
+  const [payments, analytics] = await Promise.all([paymentsPromise, analyticsPromise!]);
+  progress.step(
+    paymentStatus(payments),
+    payments.complete
+      ? "success"
+      : payments.sources.length === 0 || options.noApi
+        ? "neutral"
+        : "failure",
+  );
   progress.step(
     analytics && !analytics.error
-      ? "WHAM analytics ready"
+      ? `WHAM analytics ready${whamRequestCount ? ` [${whamRequestCount}/${whamRequestCount}]` : ""}`
       : options.noApi
         ? "WHAM analytics skipped"
         : "WHAM analytics unavailable or partial",
@@ -458,6 +503,9 @@ export function parseArgs(args: string[]): CliOptions {
         options.usageJsons.push(next());
 
         break;
+      case "--refresh-payments":
+        options.refreshPayments = true;
+        break;
       case "--no-history":
         options.noHistory = true;
 
@@ -578,10 +626,10 @@ function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
     1, // Read optional usage JSON inputs
     1, // Load the pricing table
     1, // Read locally available authentication material
-    1, // Fetch payment history or read explicit monthly overrides
     1, // Resolve the report theme
-    1, // Fetch or read profile data
     ...localWeights,
+    1, // Fetch or read profile data
+    2, // Fetch payment history or read explicit monthly overrides
     1, // Fetch or read WHAM analytics
     1, // Aggregate the final usage dataset
     ...outputProgressWeights({
@@ -630,6 +678,7 @@ Data options :
   --codex-home <path>        Add a .codex directory, repeatable
   --codex-root <path>        Add a parent directory containing .codex, repeatable
   --usage-json <path>        Add a generated usage-data.json, repeatable
+  --refresh-payments         Refresh payment history even if its seven-day cache is fresh
   --no-history               Do not reuse usage-data.json already in --out
   --source <mode>            hybrid (default) | backend | local
   --profile-json <path>      Use a saved /profiles/me JSON response
@@ -676,7 +725,7 @@ function paymentStatus(history: PaymentHistory): string {
     return "Payment history ready with explicit monthly overrides";
   }
   if (history.complete && hasApi) {
-    return "Payment transaction history ready";
+    return `Payment transaction history ready${history.diagnostics.importedHistoryHit ? " (reused from usage JSON)" : history.diagnostics.cacheHit ? " (cached, up to 7 days old)" : ""}`;
   }
   if (history.complete && hasJson) {
     return "Payment monthly overrides ready";

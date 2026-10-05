@@ -73,7 +73,7 @@ export function renderCapabilitiesPieSvg(dataset: UsageDataset): string {
   const range =
     dates.length > 0
       ? `Every qualifying event · ${dates[0]} to ${dates.at(-1)} · ${compactNumber(total)} total uses`
-      : "No high- or medium-confidence usage evidence";
+      : "No high/medium-confidence usage evidence";
 
   if (visible.length === 0) {
     return svgWrap(
