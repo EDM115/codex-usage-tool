@@ -818,10 +818,45 @@ test("Astra Ultrafast and image Batch start September 29 across bundled, live, a
         estimate(pricing, model, "batch", ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-09-29"),
       ).toBeCloseTo(17.5);
     }
-    for (const model of ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-image-2.5-sunburst"])
+    expect(pricingAt(pricing.catalog, "gpt-6.1-sol", "2026-10-07")?.tiers?.ultrafast).toBeUndefined();
+    for (const model of ["gpt-6-sol", "gpt-6-luna", "gpt-image-2.5-sunburst"])
       expect(pricing.table.get(model)?.tiers).not.toHaveProperty("ultrafast");
     expect(pricing.table.has("sora-2")).toBe(false);
     expect(pricing.table.has("sora-2-pro")).toBe(false);
+  }
+});
+
+test("GPT-6.1 Sol Ultrafast starts October 8 without repricing earlier tier history", async () => {
+  const offline = (async (_input: string | URL | Request): Promise<Response> => { throw new Error("offline"); }) as typeof fetch;
+  const sources = [
+    await loadPricing({ source: "bundled" }),
+    await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-10-07"),
+    await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-10-09"),
+    await loadPricing({ source: "openai", fetcher: offline, effectiveDate: "2026-10-07" }),
+  ];
+
+  for (const pricing of sources) {
+    expect(pricingAt(pricing.catalog, "gpt-6.1-sol", "2026-09-28")).toBeUndefined();
+    for (const date of ["2026-09-29", "2026-10-07"]) {
+      const before = pricingAt(pricing.catalog, "gpt-6.1-sol", date);
+      expect(before?.effectiveFrom).toBe("2026-09-29");
+      expect(before?.tiers?.ultrafast).toBeUndefined();
+      expect(before?.tiers?.standard?.short.cachedInputPerMillion).toBe(0.1);
+      expect(estimate(pricing, "gpt-6.1-sol", "standard", ONE_MILLION_INPUT_AND_OUTPUT, undefined, date)).toBeCloseTo(12);
+      expect(estimate(pricing, "gpt-6.1-sol", "fast", ONE_MILLION_INPUT_AND_OUTPUT, undefined, date)).toBeCloseTo(24);
+    }
+    const released = pricingAt(pricing.catalog, "gpt-6.1-sol", "2026-10-08");
+    expect(released?.effectiveFrom).toBe("2026-10-08");
+    expect(released?.tiers?.ultrafast).toEqual({
+      short: { inputPerMillion: 12, cachedInputPerMillion: 0.6, cacheWritePerMillion: 15, outputPerMillion: 60 },
+      long: { inputPerMillion: 24, cachedInputPerMillion: 1.2, cacheWritePerMillion: 30, outputPerMillion: 90 },
+    });
+    expect(estimate(pricing, "gpt-6.1-sol", "ultrafast", ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-10-08")).toBeCloseTo(72);
+    const request = { ...ONE_MILLION_INPUT_AND_OUTPUT, totalTokens: 400_000, inputTokens: 300_000, cachedInputTokens: 100_000, outputTokens: 100_000 };
+    expect(estimate(pricing, "gpt-6.1-sol", "ultrafast", request, undefined, "2026-10-08")).toBeCloseTo(8.46);
+    expect(estimate(pricing, "gpt-6.1-sol", "ultrafast", request, 1_050_000, "2026-10-08")).toBeCloseTo(13.92);
+    expect(estimateCacheSavingsUsd(request, "gpt-6.1-sol", pricing.catalog, undefined, { date: "2026-10-08", serviceTier: "ultrafast", modelContextWindow: 1_050_000 })).toBeCloseTo(2.28);
+    expect(pricingAt(pricing.catalog, "gpt-6-astra", "2026-09-29")?.tiers?.ultrafast?.short.inputPerMillion).toBe(60);
   }
 });
 
