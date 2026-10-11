@@ -147,7 +147,7 @@ export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
   model("gpt-rosalind-research", "2026-09-08", SOURCES.changelog),
   // Duration-priced sessions are catalogued, but have no per-token pricing row
   model("gpt-live-1", "2026-09-10", SOURCES.changelog),
-  // First observed in the 2026-09-16 pricing cache; its release date is not established here.
+  // First observed in the 2026-09-16 pricing cache, its release date is not established here
   model("gpt-5-search-api", "2026-09-16", SOURCES.pricing),
   model("text-embedding-3-large", "2024-01-25", SOURCES.embeddings),
   model("text-embedding-3-small", "2024-01-25", SOURCES.embeddings),
@@ -198,13 +198,13 @@ export const BUNDLED_MODEL_ALIASES: ModelAliasDefinition[] = [
     alias: "codex-auto-review",
     target: "gpt-5.6-luna",
     effectiveFrom: "2026-07-30",
-    source: `user-supplied mapping; ${SOURCES.gpt56}`,
+    source: `user-supplied mapping, ${SOURCES.gpt56}`,
   },
   {
     alias: "guardian",
     target: "gpt-5.6-luna",
     effectiveFrom: "2026-07-30",
-    source: `user-supplied mapping; ${SOURCES.gpt56}`,
+    source: `user-supplied mapping, ${SOURCES.gpt56}`,
   },
   { alias: "gpt-5.6", target: "gpt-5.6-sol", effectiveFrom: "2026-07-09", source: SOURCES.gpt56 },
   {

@@ -28,7 +28,7 @@ function assertSameGeometry(reference: Rectangle[], current: Rectangle[], theme:
     for (const key of ["x", "y", "width", "height"] as const) {
       if (Math.abs(reference[index][key] - current[index][key]) > 0.1)
         throw new Error(
-          `${theme} moved report element ${index} (${key}: ${reference[index][key]} -> ${current[index][key]})`,
+          `${theme} moved report element ${index} (${key} : ${reference[index][key]} -> ${current[index][key]})`,
         );
     }
   }
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
       writeFileSync(join(captureDir, `${theme}.png`), shot);
       shots.push(shot);
     }
-    if (pageErrors.length) throw new Error(`Demo page error: ${pageErrors.join(" | ")}`);
+    if (pageErrors.length) throw new Error(`Demo page error : ${pageErrors.join(" | ")}`);
 
     const base64 = await page.evaluate(
       async ({ sources, width, height, topCuts, diagonalShift }) => {

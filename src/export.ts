@@ -1,5 +1,5 @@
 import type { ProgressSink } from "./progress";
-import type { UsageDataset } from "./types";
+import type { UsageDataset, WhamAnalytics } from "./types";
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -36,6 +36,15 @@ export async function writeOutputs(
   const threadDates = new Map(
     dataset.local.threads.map((thread) => [thread.threadId, thread.updatedAt]),
   );
+  const prepareAnalytics = (analytics: WhamAnalytics): WhamAnalytics => ({
+    ...analytics,
+    accounts: analytics.accounts?.map(prepareAnalytics),
+    topChats: includeChats && analytics.topChats ? {
+      ...analytics.topChats,
+      chats: analytics.topChats.chats.map((chat) => ({ ...chat, title: topChatTitle(chat.title), updatedAt: chat.updatedAt ?? threadDates.get(chat.threadId) ?? undefined })),
+    } : undefined,
+    tasks: options.sections && !options.sections.includes("cloud") ? undefined : analytics.tasks,
+  });
   const reportDataset: UsageDataset = {
     ...dataset,
     local: {
@@ -44,26 +53,7 @@ export async function writeOutputs(
         ? dataset.local.threads.map((thread) => ({ ...thread, title: topChatTitle(thread.title) }))
         : [],
     },
-    analytics: dataset.analytics
-      ? {
-          ...dataset.analytics,
-          topChats:
-            includeChats && dataset.analytics.topChats
-              ? {
-                  ...dataset.analytics.topChats,
-                  chats: dataset.analytics.topChats.chats.map((chat) => ({
-                    ...chat,
-                    title: topChatTitle(chat.title),
-                    updatedAt: chat.updatedAt ?? threadDates.get(chat.threadId) ?? undefined,
-                  })),
-                }
-              : undefined,
-          tasks:
-            options.sections && !options.sections.includes("cloud")
-              ? undefined
-              : dataset.analytics.tasks,
-        }
-      : undefined,
+    analytics: dataset.analytics ? prepareAnalytics(dataset.analytics) : undefined,
   };
   const files: string[] = [];
   const warnings: string[] = [];

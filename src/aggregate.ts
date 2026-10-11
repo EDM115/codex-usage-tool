@@ -1,5 +1,6 @@
 import type {
   AccountProfileResponse,
+  AccountProfileSnapshot,
   CapabilityUsageEvent,
   CodexHome,
   DailyUsage,
@@ -48,6 +49,7 @@ export function buildDataset(args: {
     fetched: boolean;
     endpoint?: string;
     error?: string;
+    accounts?: AccountProfileSnapshot[];
   };
   events: TokenEvent[];
   capabilityEvents?: CapabilityUsageEvent[];
@@ -72,6 +74,7 @@ export function buildDataset(args: {
   availableThemes: UsageThemeOption[];
   analytics?: WhamAnalytics;
   payments?: PaymentHistory;
+  authentication?: UsageDataset["authentication"];
 }): UsageDataset {
   const backendByDate = new Map<string, number>();
 
@@ -87,6 +90,7 @@ export function buildDataset(args: {
   const localModelUsage: LocalModelUsageAccumulator = new Map();
   const localModelUsageByDate = new Map<string, LocalModelUsageAccumulator>();
   const effectiveEvents: TokenEvent[] = [];
+  const localTokensByHomeDate = new Map<string, Map<string, number>>();
 
   for (const event of args.events) {
     const eventModel =
@@ -100,6 +104,9 @@ export function buildDataset(args: {
         ? event
         : { ...event, model: eventModel, modelAttribution: "inferred" as const };
     effectiveEvents.push(effectiveEvent);
+    const homeTotals = localTokensByHomeDate.get(event.date) ?? new Map<string, number>();
+    homeTotals.set(event.homePath, (homeTotals.get(event.homePath) ?? 0) + event.breakdown.totalTokens);
+    localTokensByHomeDate.set(event.date, homeTotals);
     const day = getOrCreateDay(localByDate, event.date);
     const eventCostUsd = estimateBreakdownCost(
       effectiveEvent.breakdown,
@@ -145,12 +152,20 @@ export function buildDataset(args: {
   }
 
   const dates = completeDateRange(backendByDate, localByDate, args.from, args.to);
+  const accountProfiles = args.profileResult.accounts?.filter((account) => account.dailyUsageBuckets !== undefined) ?? [];
   const daily = dates.map((date) => {
     const base = getOrCreateDay(localByDate, date);
     const backendTokens = backendByDate.get(date);
     const localTotal = base.localTokens.totalTokens;
-    const totalTokens = backendTokens ?? localTotal;
-    const unattributedTokens = Math.max(0, totalTokens - localTotal);
+    const coveredHomes = new Set(accountProfiles.filter((account) => account.dailyUsageBuckets?.some((bucket) => bucket.startDate === date)).flatMap((account) => account.sourceHomes ?? []));
+    const homeTotals = localTokensByHomeDate.get(date);
+    const coveredLocalTokens = accountProfiles.length ? [...coveredHomes].reduce((sum, home) => sum + (homeTotals?.get(home) ?? 0), 0) : localTotal;
+    const totalTokens = backendTokens === undefined ? localTotal : backendTokens + localTotal - coveredLocalTokens;
+    const unattributedTokens = accountProfiles.length ? accountProfiles.reduce((sum, account) => {
+      const tokens = account.dailyUsageBuckets?.find((bucket) => bucket.startDate === date)?.tokens ?? 0;
+      const local = (account.sourceHomes ?? []).reduce((sum, home) => sum + (homeTotals?.get(home) ?? 0), 0);
+      return sum + Math.max(0, tokens - local);
+    }, 0) : Math.max(0, totalTokens - localTotal);
     const knownLocalCostUsd = base.knownLocalCostUsd;
 
     const estimatedUnattributedCostUsd = estimateUnattributedCost(
@@ -177,6 +192,10 @@ export function buildDataset(args: {
 
   const weekly = buildWeekly(daily);
   const summary = buildSummary(daily, args.profileResult.profile);
+  if (accountProfiles.length && args.profileResult.profile?.summary.lifetimeTokens !== null && args.profileResult.profile?.summary.lifetimeTokens !== undefined) {
+    const coveredHomes = new Set(accountProfiles.filter((account) => account.summary.lifetimeTokens !== null).flatMap((account) => account.sourceHomes ?? []));
+    summary.lifetimeTokens += effectiveEvents.filter((event) => !coveredHomes.has(event.homePath)).reduce((sum, event) => sum + event.breakdown.totalTokens, 0);
+  }
   const modelUsage = buildLocalModelUsage(localModelUsage);
   const attribution = summarizeAttribution(effectiveEvents);
   const distinctSessions = new Set(effectiveEvents.map((event) => event.threadId)).size;
@@ -189,6 +208,7 @@ export function buildDataset(args: {
     sourceMode: args.sourceMode,
     dateRange: { from: args.from, to: args.to },
     codexHomes: args.codexHomes,
+    authentication: args.authentication,
     sources: buildSources(args.codexHomes, effectiveEvents, coverage.status),
     profile: args.profileResult.profile
       ? {
@@ -196,6 +216,7 @@ export function buildDataset(args: {
           endpoint: args.profileResult.endpoint,
           error: args.profileResult.error,
           summary: args.profileResult.profile.summary,
+          accounts: args.profileResult.accounts,
         }
       : args.profileResult.error
         ? {
@@ -203,6 +224,7 @@ export function buildDataset(args: {
             endpoint: args.profileResult.endpoint,
             error: args.profileResult.error,
             summary: emptyProfileSummary(),
+            accounts: args.profileResult.accounts,
           }
         : undefined,
     local: {

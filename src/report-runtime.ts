@@ -87,7 +87,7 @@ export function rangeForPreset(
 
   const days = preset === "7d" ? 7 : preset === "30d" ? 30 : preset === "90d" ? 90 : 0;
   if (days === 0) {
-    throw new Error(`Unknown report range preset ${String(preset)}.`);
+    throw new Error(`Unknown report range preset ${String(preset)}`);
   }
   const newestCodex = sortedCodex.at(-1) ?? combinedTo;
   return { from: formatUtcDay(addUtcDays(parseUtcDay(newestCodex), -(days - 1))), to: newestCodex };
@@ -241,7 +241,7 @@ export function buildRoiMetrics(
   const start = parseUtcDay(from);
   const end = parseUtcDay(to);
   if (start.getTime() > end.getTime()) {
-    throw new Error(`ROI range start ${from} is after end ${to}.`);
+    throw new Error(`ROI range start ${from} is after end ${to}`);
   }
 
   const byMonth: Record<string, { amountPaid: number; estimatedApiValue: number }> = {};
@@ -351,7 +351,7 @@ function isIsoMonth(value: string): boolean {
 
 function parseUtcDay(value: string): Date {
   if (!isIsoDay(value)) {
-    throw new Error(`Invalid ISO date ${JSON.stringify(value)}.`);
+    throw new Error(`Invalid ISO date ${JSON.stringify(value)}`);
   }
   return new Date(`${value}T00:00:00.000Z`);
 }

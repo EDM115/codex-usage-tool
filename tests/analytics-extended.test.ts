@@ -149,7 +149,7 @@ test("thread usage queries include each thread once when local and saved JSON in
 
 test("auto-review transcript titles collapse without merging usage rows", () => {
   const prefix = "The following is the Codex agent history whose request action you are assessing";
-  expect(topChatTitle(`${prefix}: private request`)).toBe("codex-auto-review");
+  expect(topChatTitle(`${prefix} : private request`)).toBe("codex-auto-review");
   expect(topChatTitle("Review task >>> TRANSCRIPT START private transcript")).toBe(
     "codex-auto-review",
   );
@@ -226,7 +226,7 @@ test("static exports render every available account chart and respect section se
   ).toEqual(["messages-model"]);
 });
 
-test("account chart sections keep the requested order, one Messages selector, and download menus", async () => {
+test("account chart sections keep the requested order, one Messages selector and download menus", async () => {
   const dataset = await buildDemoDataset();
   const html = renderReportHtml(dataset);
   const headings = [
@@ -349,7 +349,7 @@ test("excluding chats removes their titles and IDs from both portable JSON and H
   expect(privateJson.analytics.tasks).toBeUndefined();
 
   const prefix = "The following is the Codex agent history whose request action you are assessing";
-  dataset.local.threads[0].title = `${prefix}: private request`;
+  dataset.local.threads[0].title = `${prefix} : private request`;
   dataset.analytics!.topChats!.chats[0].title =
     "Review task >>> TRANSCRIPT START private transcript";
   const normalizedOut = join(tmpdir(), `codex-usage-normalized-chats-${crypto.randomUUID()}`);

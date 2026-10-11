@@ -10,7 +10,7 @@ import { loadUsageDatasets } from "../src/usage-json";
 
 const DEMO_PATH = resolve("demo.json");
 
-test("demo fixture is fresh, portable, complete, coherent, and safe to share", async () => {
+test("demo fixture is fresh, portable, complete, coherent and safe to share", async () => {
   const dataset = await buildDemoDataset();
   const serialized = serializeDemoDataset(dataset);
 

@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-tool",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "private": true,
   "description": "Generate self-contained Codex usage reports from local .codex files and dashboard APIs",
   "homepage": "https://github.com/EDM115/codex-usage-tool#readme",
@@ -41,6 +41,7 @@
     "usage": "bun src/cli.ts"
   },
   "dependencies": {
+    "@noble/ciphers": "^2.4.0",
     "@resvg/resvg-js": "^2.6.2"
   },
   "devDependencies": {

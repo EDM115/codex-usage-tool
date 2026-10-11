@@ -55,6 +55,7 @@ export type ThreadMetadata = {
 };
 
 export type LocalThreadSummary = {
+  homePath?: string;
   threadId: string;
   title: string;
   createdAt: string | null;
@@ -122,6 +123,17 @@ export type AccountProfileResponse = {
   dailyUsageBuckets: AccountTokenUsageDailyBucket[] | null;
 };
 
+export type AccountProfileSnapshot = {
+  /** Opaque report scope from paymentAccountScope, never the raw authenticated account ID */
+  accountId?: string;
+  sourceHomes?: string[];
+  fetched: boolean;
+  endpoint?: string;
+  error?: string;
+  summary: AccountTokenUsageSummary;
+  dailyUsageBuckets?: AccountTokenUsageDailyBucket[] | null;
+};
+
 export type WhamUsageResponse = {
   planType?: string;
   rateLimit?: {
@@ -180,6 +192,8 @@ export type WhamToolActivity = {
 };
 
 export type WhamTopChat = {
+  /** Opaque account scope, inherited from its analytics snapshot when absent */
+  accountId?: string;
   threadId: string;
   title: string;
   homeLabel: string;
@@ -206,6 +220,11 @@ export type WhamWorkspaceUsageBucket = {
 };
 
 export type WhamAnalytics = {
+  /** Opaque report scope from paymentAccountScope */
+  accountId?: string;
+  accountLabel?: string;
+  /** Flat account snapshots, each keeps its own plan and rate limits */
+  accounts?: WhamAnalytics[];
   fetched: boolean;
   endpoints: Record<string, string>;
   error?: string;
@@ -358,6 +377,8 @@ export type WeeklyUsage = {
 };
 
 export type PaymentTransactionFact = {
+  /** Opaque account scope, part of the invoice identity when present */
+  accountId?: string;
   paidAt?: string;
   subscription?: boolean;
   fingerprint: string;
@@ -372,6 +393,10 @@ export type PaymentSource = {
 };
 
 export type PaymentHistory = {
+  /** Opaque report scope from paymentAccountScope */
+  accountId?: string;
+  /** Flat account histories retaining separate fetch timestamps and renewal evidence */
+  accounts?: PaymentHistory[];
   fetchedAt?: string;
   currency: "USD";
   fetched: boolean;
@@ -402,7 +427,12 @@ export type UsageDataset = {
   };
   codexHomes: CodexHome[];
   sources: UsageSource[];
+  authentication?: {
+    homes: Array<{ homePath: string; homeLabel: string; mode: "chatgpt" | "api-key" | "unavailable"; accountId?: string }>;
+    diagnostics: string[];
+  };
   profile?: {
+    accounts?: AccountProfileSnapshot[];
     fetched: boolean;
     endpoint?: string;
     error?: string;

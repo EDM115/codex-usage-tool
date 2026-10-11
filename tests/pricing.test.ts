@@ -130,7 +130,7 @@ function estimate(
   });
 }
 
-test("model defaults, aliases, and bundled prices change only on their effective dates", async () => {
+test("model defaults, aliases and bundled prices change only on their effective dates", async () => {
   const pricing = await loadPricing({ source: "bundled" });
 
   expect(primaryModelAt(pricing.catalog, "2026-07-08")).toBe("gpt-5.5");
@@ -747,7 +747,7 @@ test("GPT-6.1 Sol starts September 29 with its own cached-input rates and preser
   }
 });
 
-test("Astra Ultrafast and image Batch start September 29 across bundled, live, and offline catalogs", async () => {
+test("Astra Ultrafast and image Batch start September 29 across bundled, live and offline catalogs", async () => {
   const offline = (async (_input: string | URL | Request): Promise<Response> => {
     throw new Error("offline");
   }) as typeof fetch;
@@ -825,7 +825,7 @@ test("Astra Ultrafast and image Batch start September 29 across bundled, live, a
   }
 });
 
-test("Fast, Fast mode, and Ultrafast tables stay separate in both supported Markdown formats", async () => {
+test("Fast, Fast mode and Ultrafast tables stay separate in both supported Markdown formats", async () => {
   const rates = [2, 0.1, 2.5, 10];
   const row = (factor: number) =>
     `| gpt-tier-probe | ${rates.map((value) => `$${value * factor}`).join(" | ")} |`;
@@ -858,7 +858,7 @@ test("Fast, Fast mode, and Ultrafast tables stay separate in both supported Mark
   expect(estimate(pricing, "gpt-component-probe", "ultrafast")).toBeCloseTo(72);
 });
 
-test("Rosalind stays free until its billing date with bundled, live, and offline pricing", async () => {
+test("Rosalind stays free until its billing date with bundled, live and offline pricing", async () => {
   const offline = (async (_input: string | URL | Request): Promise<Response> => {
     throw new Error("offline");
   }) as typeof fetch;

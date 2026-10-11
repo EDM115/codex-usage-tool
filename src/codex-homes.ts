@@ -76,6 +76,7 @@ function looksLikeCodexHome(dir: string): boolean {
     existsSync(join(dir, "sessions")) ||
     existsSync(join(dir, "archived_sessions")) ||
     existsSync(join(dir, "auth.json")) ||
+    existsSync(join(dir, "config.toml")) ||
     hasStateSqlite(dir)
   );
 }

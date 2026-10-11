@@ -71,6 +71,7 @@ export function discoverFromSqlite(homes: CodexHome[], progress?: ProgressSink):
           parentThreadId: metadata.parentThreadId,
           archived: metadata.archived ?? false,
           homeLabel: item.home.label,
+          homePath: item.home.path,
         });
 
         if (rolloutPath && fileExists(rolloutPath)) {

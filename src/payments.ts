@@ -12,6 +12,11 @@ const DAY_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const MAX_ERROR_LENGTH = 240;
 type PaymentFetch = (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>;
 
+/** Stable report scope that never exposes the raw billing account ID */
+export function paymentAccountScope(accountId: string): string {
+  return `account-${createHash("sha256").update(accountId).digest("hex")}`;
+}
+
 export function emptyPaymentHistory(): PaymentHistory {
   return {
     currency: "USD",
@@ -40,8 +45,11 @@ export async function loadPayments(options: {
   now?: number;
   onRequestProgress?: ApiProgressUpdate;
   importedHistories?: Array<{ history: PaymentHistory; generatedAt: string }>;
+  allowUnscopedImportedHistory?: boolean;
 }): Promise<PaymentHistory> {
   const history = emptyPaymentHistory();
+  const accountScope = options.auth?.accountId ? paymentAccountScope(options.auth.accountId) : undefined;
+  history.accountId = accountScope;
 
   if (options.paymentsJson) {
     history.overrides = readPaymentOverrides(options.paymentsJson);
@@ -72,6 +80,8 @@ export async function loadPayments(options: {
   if (!options.refreshCache) {
     const cached = cachePath ? readPaymentCache(cachePath, now) : undefined;
     const imported = (options.importedHistories ?? [])
+      .flatMap((source) => paymentAccountHistories(source.history).map((history) => ({ ...source, history })))
+      .filter((source) => (accountScope !== undefined && source.history.accountId === accountScope) || (source.history.accountId === undefined && options.allowUnscopedImportedHistory !== false && source.history.transactions.every((transaction) => !transaction.accountId || transaction.accountId === accountScope)))
       .map((source) => ({
         ...source,
         savedAt: Date.parse(source.history.fetchedAt ?? source.generatedAt),
@@ -83,6 +93,8 @@ export async function loadPayments(options: {
     if (reusable) {
       const reused = {
         ...reusable.history,
+        accountId: accountScope ?? reusable.history.accountId,
+        transactions: reusable.history.transactions.map((transaction) => ({ ...transaction, accountId: accountScope ?? transaction.accountId })),
         fetchedAt: new Date(reusable.savedAt).toISOString(),
         overrides: { ...reusable.history.overrides, ...history.overrides },
         sources: [...reusable.history.sources, ...history.sources],
@@ -97,7 +109,7 @@ export async function loadPayments(options: {
     }
   }
   if (!options.auth) {
-    return failApi(history, "Payment API unavailable: no Codex authentication was found.", false);
+    return failApi(history, "Payment API unavailable : no Codex authentication was found", false);
   }
   if (!options.auth.accountId) {
     return failApi(
@@ -134,7 +146,7 @@ export async function loadPayments(options: {
     } catch (error) {
       return failApi(
         history,
-        `Payment API request failed: ${errorMessage(error)}`,
+        `Payment API request failed : ${errorMessage(error)}`,
         history.diagnostics.pages > 0,
       );
     } finally {
@@ -157,7 +169,7 @@ export async function loadPayments(options: {
     } catch (error) {
       return failApi(
         history,
-        `Payment API returned invalid JSON: ${errorMessage(error)}`,
+        `Payment API returned invalid JSON : ${errorMessage(error)}`,
         history.diagnostics.pages > 0,
       );
     }
@@ -165,7 +177,7 @@ export async function loadPayments(options: {
     if (!isRecord(payload) || !Array.isArray(payload.transactions)) {
       return failApi(
         history,
-        "Payment API response has no transactions array.",
+        "Payment API response has no transactions array",
         history.diagnostics.pages > 0,
       );
     }
@@ -176,7 +188,7 @@ export async function loadPayments(options: {
     ) {
       return failApi(
         history,
-        "Payment API response has an invalid next_cursor.",
+        "Payment API response has an invalid next_cursor",
         history.diagnostics.pages > 0,
       );
     }
@@ -193,6 +205,7 @@ export async function loadPayments(options: {
         continue;
       }
       fingerprints.add(transaction.fingerprint);
+      transaction.accountId = accountScope;
       history.transactions.push(transaction);
     }
 
@@ -209,7 +222,7 @@ export async function loadPayments(options: {
     }
     if (cursors.has(nextCursor)) {
       history.diagnostics.repeatedCursor = true;
-      return failApi(history, "Payment API repeated a pagination cursor.", true);
+      return failApi(history, "Payment API repeated a pagination cursor", true);
     }
     cursors.add(nextCursor);
     cursor = nextCursor;
@@ -220,11 +233,70 @@ export function mergePaymentHistories(
   importedHistories: PaymentHistory[],
   currentHistory?: PaymentHistory,
 ): PaymentHistory {
+  const groups = new Map<string | undefined, { imported: PaymentHistory[]; current?: PaymentHistory }>();
+  for (const history of importedHistories.flatMap(paymentAccountHistories)) {
+    if (isEmptyPaymentHistory(history)) continue;
+    const group = groups.get(history.accountId) ?? { imported: [] };
+    group.imported.push(history);
+    groups.set(history.accountId, group);
+  }
+  if (currentHistory) for (const history of paymentAccountHistories(currentHistory)) {
+    if (isEmptyPaymentHistory(history)) continue;
+    const group = groups.get(history.accountId) ?? { imported: [] };
+    group.current = history;
+    groups.set(history.accountId, group);
+  }
+  // Older reports have no account scope. An identical invoice already scoped elsewhere is fallback evidence, not a second payment
+  const scopedFingerprints = new Set([...groups.entries()].filter(([accountId]) => accountId !== undefined).flatMap(([, group]) => [...group.imported, ...(group.current ? [group.current] : [])].flatMap((history) => history.transactions.map((transaction) => transaction.fingerprint))));
+  const unscoped = groups.get(undefined);
+  if (unscoped && scopedFingerprints.size) {
+    const trim = (history: PaymentHistory) => ({ ...history, transactions: history.transactions.filter((transaction) => !scopedFingerprints.has(transaction.fingerprint)) });
+    unscoped.imported = unscoped.imported.map(trim);
+    if (unscoped.current) unscoped.current = trim(unscoped.current);
+  }
+  const accounts = [...groups.entries()].map(([accountId, group]) => ({ ...mergePaymentAccountSnapshots(group.imported, group.current), accountId }));
+  const overrides: Record<string, number> = {};
+  for (const history of importedHistories)
+    for (const [month, amount] of Object.entries(history.overrides))
+      if (!Object.hasOwn(overrides, month)) overrides[month] = amount;
+  if (currentHistory) Object.assign(overrides, currentHistory.overrides);
+  if (accounts.length <= 1) return { ...(accounts[0] ?? emptyPaymentHistory()), overrides };
+  const merged = mergePaymentAccountSnapshots(accounts);
+  merged.accounts = accounts;
+  merged.overrides = overrides;
+  // Freshness belongs to each account. A newer account must not make another account's history fresh
+  delete merged.fetchedAt;
+  merged.complete = accounts.every((account) => account.complete);
+  return merged;
+}
+
+function isEmptyPaymentHistory(history: PaymentHistory): boolean {
+  return !history.fetched && !history.error && !history.transactions.length && !history.sources.length && !Object.keys(history.overrides).length;
+}
+
+function paymentAccountHistories(history: PaymentHistory): PaymentHistory[] {
+  if (history.accounts?.length) return history.accounts.flatMap(paymentAccountHistories);
+  return [history];
+}
+
+function transactionKey(transaction: PaymentTransactionFact, accountId?: string): string {
+  return JSON.stringify([transaction.accountId ?? accountId ?? null, transaction.fingerprint]);
+}
+
+function mergePaymentAccountSnapshots(
+  importedHistories: PaymentHistory[],
+  currentHistory?: PaymentHistory,
+): PaymentHistory {
   const merged = emptyPaymentHistory();
   const histories = currentHistory ? [...importedHistories, currentHistory] : importedHistories;
   const fingerprints = new Set<string>();
   const sourceKeys = new Set<string>();
   const errors = new Set<string>();
+  const reuseSources = currentHistory?.fetched ? [currentHistory] : histories.filter((history) => history.fetched);
+  if (reuseSources.length) {
+    merged.diagnostics.importedHistoryHit = reuseSources.every((history) => history.diagnostics.importedHistoryHit === true);
+    merged.diagnostics.cacheHit = reuseSources.every((history) => history.diagnostics.cacheHit === true);
+  }
 
   for (const history of histories) {
     merged.fetched ||= history.fetched;
@@ -253,18 +325,19 @@ export function mergePaymentHistories(
       }
     }
     for (const transaction of history.transactions) {
-      if (fingerprints.has(transaction.fingerprint)) {
+      const key = transactionKey(transaction, history.accountId);
+      if (fingerprints.has(key)) {
         merged.diagnostics.duplicateTransactions += 1;
         const existing = merged.transactions.find(
-          (known) => known.fingerprint === transaction.fingerprint,
+          (known) => transactionKey(known) === key,
         )!;
         if (transaction.paidAt) existing.paidAt = transaction.paidAt;
         if (transaction.subscription !== undefined)
           existing.subscription = transaction.subscription;
         continue;
       }
-      fingerprints.add(transaction.fingerprint);
-      merged.transactions.push({ ...transaction });
+      fingerprints.add(key);
+      merged.transactions.push({ ...transaction, accountId: transaction.accountId ?? history.accountId });
     }
   }
 
@@ -304,10 +377,11 @@ export function paymentMonthTotals(history: PaymentHistory): Record<string, numb
   const totals: Record<string, number> = {};
   const fingerprints = new Set<string>();
   for (const transaction of history.transactions) {
-    if (fingerprints.has(transaction.fingerprint)) {
+    const key = transactionKey(transaction, history.accountId);
+    if (fingerprints.has(key)) {
       continue;
     }
-    fingerprints.add(transaction.fingerprint);
+    fingerprints.add(key);
     totals[transaction.month] = roundCurrency(
       (totals[transaction.month] ?? 0) + transaction.amountUsd,
     );
@@ -328,7 +402,7 @@ export function proratedPaymentAmount(
   const start = parseIsoDay(from);
   const end = parseIsoDay(to);
   if (start.getTime() > end.getTime()) {
-    throw new Error(`Payment range start ${from} is after end ${to}.`);
+    throw new Error(`Payment range start ${from} is after end ${to}`);
   }
 
   let amount = 0;
@@ -352,19 +426,19 @@ function readPaymentOverrides(path: string): Record<string, number> {
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    throw new Error(`Unable to read payment JSON ${path}: ${errorMessage(error)}`);
+    throw new Error(`Unable to read payment JSON ${path} : ${errorMessage(error)}`);
   }
   if (!isRecord(parsed)) {
-    throw new Error(`Payment JSON ${path} must contain a root object.`);
+    throw new Error(`Payment JSON ${path} must contain a root object`);
   }
 
   const overrides: Record<string, number> = {};
   for (const [month, amount] of Object.entries(parsed)) {
     if (!MONTH_PATTERN.test(month)) {
-      throw new Error(`Payment JSON ${path} contains invalid month ${JSON.stringify(month)}.`);
+      throw new Error(`Payment JSON ${path} contains invalid month ${JSON.stringify(month)}`);
     }
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) {
-      throw new Error(`Payment JSON ${path} contains an invalid amount for ${month}.`);
+      throw new Error(`Payment JSON ${path} contains an invalid amount for ${month}`);
     }
     overrides[month] = amount;
   }
@@ -425,11 +499,11 @@ function finalizeHistory(history: PaymentHistory): PaymentHistory {
 
 function parseIsoDay(value: string): Date {
   if (!DAY_PATTERN.test(value)) {
-    throw new Error(`Invalid ISO date ${JSON.stringify(value)}.`);
+    throw new Error(`Invalid ISO date ${JSON.stringify(value)}`);
   }
   const date = new Date(`${value}T00:00:00.000Z`);
   if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-    throw new Error(`Invalid ISO date ${JSON.stringify(value)}.`);
+    throw new Error(`Invalid ISO date ${JSON.stringify(value)}`);
   }
   return date;
 }
@@ -535,6 +609,9 @@ function writePaymentCache(path: string, savedAt: number, history: PaymentHistor
         savedAt,
         history: {
           ...history,
+          accountId: undefined,
+          accounts: undefined,
+          transactions: history.transactions.map((transaction) => ({ ...transaction, accountId: undefined })),
           overrides: {},
           sources: history.sources.filter((source) => source.kind === "api"),
         },

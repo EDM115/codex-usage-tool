@@ -459,7 +459,7 @@ export async function loadPricing(options: {
 
       validateModelCatalog(catalog);
     } else {
-      // Only explicit file rows override history; bundled rows retain their billing dates.
+      // Only explicit file rows override history, bundled rows retain their billing dates
       const overrides = new Map([...table].filter(([, row]) => row.source === source));
       overlayCurrentPricing(catalog, overrides, effectiveDate);
     }
@@ -533,7 +533,7 @@ export async function loadPricing(options: {
     catalog,
     source: `bundled effective-dated history + ${openAiSource} current snapshot + models.dev fallback`,
     fetchedAt,
-    warning: warnings.length > 0 ? warnings.join("; ") : undefined,
+    warning: warnings.length > 0 ? warnings.join(", ") : undefined,
   };
 }
 
@@ -727,7 +727,7 @@ function pricingTableFromOpenAiMarkdown(
       }
       const model = normalizeOpenAiModelLabel(label);
       const modalityIndex = headers.indexOf("modality");
-      // Preserve the existing image estimate: text input/cache plus image output
+      // Preserve the existing image estimate : text input/cache plus image output
       // TokenBreakdown cannot distinguish image input from text input
       const textRow =
         modalityIndex >= 0 &&
@@ -1048,7 +1048,7 @@ function bundledPricingCatalog(table = bundledPricingTable()): ModelCatalog {
     const definition = BUNDLED_MODEL_DEFINITIONS.find(
       (candidate) => candidate.model.toLowerCase() === key,
     );
-    // An unlisted model is only known as of this snapshot, not an invented release date.
+    // An unlisted model is only known as of this snapshot, not an invented release date
     const effectiveFrom = definition?.releasedOn ?? BUNDLED_PRICING_DATE;
     ensureModelDefinition(catalog, key, effectiveFrom, row.source);
 
@@ -1409,8 +1409,8 @@ function findPricing(model: string, pricing: Map<string, ModelPricing>): ModelPr
 
 function applyOpenAiAliases(table: Map<string, ModelPricing>, officialKeys: Set<string>): void {
   // Auto-review is reported as a private codex-auto-review/guardian model. Keep a current-table
-  // alias for compatibility until an exact public pricing row appears; dated resolution lives in
-  // model-catalog.ts.
+  // alias for compatibility until an exact public pricing row appears, dated resolution lives in
+  // model-catalog.ts
   // https://alignment.openai.com/auto-review/
   // https://github.com/openai/codex/issues/20981
   // https://github.com/openai/codex/issues/19420

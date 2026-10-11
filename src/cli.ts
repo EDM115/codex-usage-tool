@@ -6,18 +6,18 @@ import { resolve } from "node:path";
 
 import { buildDataset } from "./aggregate";
 import { loadWhamAnalytics } from "./analytics-api";
-import { loadAuthFromHomes } from "./auth";
+import { resolveAuthFromHomes, deduplicateChatGptAccounts } from "./auth";
+import { startAccountRequests, accountScope } from "./account-api";
 import { resolveCodexHomes } from "./codex-homes";
 import { outputProgressWeights, writeOutputs } from "./export";
 import { loadPayments } from "./payments";
 import { loadPricing } from "./pricing";
 import { ROLLOUT_PARSE_CACHE_VERSION } from "./parse-cache";
-import { loadProfile } from "./profile-api";
 import { AccountApiProgress, CliProgress } from "./progress";
 import { collectRolloutEvents } from "./rollouts";
 import { parseSections, REPORT_SECTIONS } from "./sections";
 import { resolveUsageThemes, validateThemeChoice } from "./theme";
-import { loadUsageDatasets, mergeUsageDatasets } from "./usage-json";
+import { loadUsageDatasets, mergeUsageDatasets, resolvePortableAccountScopes } from "./usage-json";
 import { compactNumber, money, pluralize } from "./util";
 
 async function main() {
@@ -50,7 +50,7 @@ async function main() {
     !inputFiles.some((path) => resolve(path) === savedOutput)
   )
     inputFiles.push(savedOutput);
-  const importedDatasets = loadUsageDatasets(inputFiles);
+  let importedDatasets = loadUsageDatasets(inputFiles);
   progress.step(
     importedDatasets.length > 0
       ? `Loaded ${importedDatasets.length} ${pluralize("usage JSON", importedDatasets.length)}`
@@ -62,7 +62,7 @@ async function main() {
   if (codexHomes.length === 0 && importedDatasets.length === 0) {
     progress.finish();
 
-    throw new Error("No usage sources found, pass --codex-home, --codex-root, or --usage-json");
+    throw new Error("No usage sources found, pass --codex-home, --codex-root or --usage-json");
   }
 
   progress.status("Loading pricing table");
@@ -106,93 +106,36 @@ async function main() {
     return;
   }
 
-  const auth = loadAuthFromHomes(codexHomes);
+  progress.status("Resolving Codex credential stores");
+  const resolvedAuth = await resolveAuthFromHomes(codexHomes, { skipKeyring: options.noApi });
+  const accounts = deduplicateChatGptAccounts(resolvedAuth.credentials);
+  const apiKeyHomes = resolvedAuth.credentials.filter((credential) => credential.kind === "api-key");
   progress.step(
-    auth ? "Auth material found" : "No auth material found",
-    auth ? "success" : "neutral",
+    accounts.length ? `Auth material found : ${accounts.length} ${pluralize("ChatGPT account", accounts.length)}${apiKeyHomes.length ? `, ${apiKeyHomes.length} API-key ${pluralize("home", apiKeyHomes.length)}` : ""}`
+      : apiKeyHomes.length ? "API-key authentication found : using local usage, account APIs skipped"
+      : "No account authentication found : using local usage",
+    accounts.length || apiKeyHomes.length ? "success" : "neutral",
   );
-  progress.status(
-    options.paymentsJson
-      ? "Reading payment overrides and transaction history"
-      : options.noApi
-        ? "Skipping payment API because --no-api is set"
-        : "Fetching payment transaction history",
-  );
+  const authentication = {
+    homes: codexHomes.map((home) => {
+      const account = accounts.find((candidate) => candidate.sourceHomes.includes(home.path));
+      return { homePath: home.path, homeLabel: home.label, mode: resolvedAuth.credentials.find((credential) => credential.sourceHome === home.path)?.kind ?? "unavailable" as const, accountId: account ? accountScope(account) : undefined };
+    }),
+    diagnostics: resolvedAuth.diagnostics,
+  };
+  // Cache freshness requires an account scope recorded in the payment input itself
+  const importedPaymentHistories = importedDatasets.map((dataset) => ({ history: dataset.payments, generatedAt: dataset.generatedAt }));
+  importedDatasets = resolvePortableAccountScopes(importedDatasets, authentication.homes);
   const apiProgress = new AccountApiProgress(progress);
-  const paymentsPromise = loadPayments({
-    paymentsJson: options.paymentsJson,
-    noApi: options.noApi,
-    baseUrl: options.baseUrl,
-    auth,
-    cacheDir: resolve(".cache", "codex-usage-tool"),
-    refreshCache: options.refreshPayments,
-    onRequestProgress: apiProgress.update("payments"),
-    importedHistories: importedDatasets.map((dataset) => ({
-      history: dataset.payments,
-      generatedAt: dataset.generatedAt,
-    })),
-  });
+  const accountRequests = startAccountRequests({ accounts, homes: codexHomes, options, importedDatasets, importedPaymentHistories, cacheDir: resolve(".cache", "codex-usage-tool"), progress: apiProgress });
+  const { profilePromise, paymentsPromise } = accountRequests;
   progress.status("Resolving report theme");
   const themeResolution = resolveUsageThemes(codexHomes, options.theme);
   progress.step(`Theme : ${themeResolution.themeChoice}`);
-  progress.status(
-    options.source === "local"
-      ? "Skipping profile API for local source"
-      : options.profileJson
-        ? "Reading profile JSON"
-        : options.noApi
-          ? "Skipping profile API because --no-api is set"
-          : "Fetching profile API",
-  );
-  const profilePromise =
-    options.source === "local"
-      ? Promise.resolve({
-          fetched: false,
-          error: "Profile API skipped because --source local was selected",
-          profile: undefined,
-        })
-      : loadProfile({
-          onRequestProgress: apiProgress.update("profile"),
-          profileJson: options.profileJson,
-          noApi: options.noApi,
-          baseUrl: options.baseUrl,
-          auth,
-        });
-  // Attach rejection handlers immediately while local processing runs
-  void paymentsPromise.catch(() => {});
-  void profilePromise.catch(() => {});
   let analyticsPromise: ReturnType<typeof loadWhamAnalytics> | undefined;
-  let whamRequestCount = 0;
-  const startAnalytics = (
-    threads: Parameters<typeof loadWhamAnalytics>[0]["threads"],
-    localDates: string[],
-  ) => {
-    analyticsPromise = profilePromise.then((profileResult) =>
-      loadWhamAnalytics({
-        analyticsJson: options.analyticsJson,
-        noApi: options.noApi,
-        baseUrl: options.baseUrl,
-        auth,
-        from:
-          options.from ??
-          [
-            ...localDates,
-            ...(profileResult.profile?.dailyUsageBuckets ?? []).map((bucket) => bucket.startDate),
-            ...importedDatasets.flatMap((dataset) => dataset.daily.map((day) => day.date)),
-          ].sort()[0] ??
-          null,
-        to: options.to,
-        threads: [
-          ...(threads ?? []),
-          ...importedDatasets.flatMap((dataset) => dataset.local.threads ?? []),
-        ],
-        sections: options.sections,
-        onRequestsComplete: (count) => {
-          whamRequestCount = count;
-        },
-        onRequestProgress: apiProgress.update("wham"),
-      }),
-    );
+  const startAnalytics = (threads: Parameters<typeof loadWhamAnalytics>[0]["threads"], localDates: string[]) => {
+    if (analyticsPromise) return;
+    analyticsPromise = accountRequests.startAnalytics([...(threads ?? []), ...importedDatasets.flatMap((dataset) => dataset.local.threads ?? [])], localDates);
     void analyticsPromise.catch(() => {});
   };
   const local =
@@ -239,7 +182,7 @@ async function main() {
 
   apiProgress.show();
   const profileResult = await profilePromise;
-  const profileSkipped = !profileResult.profile && (options.source === "local" || options.noApi);
+  const profileSkipped = !profileResult.profile && (options.source === "local" || options.noApi || !accounts.length);
   progress.step(
     profileResult.profile
       ? "Profile data ready"
@@ -253,7 +196,7 @@ async function main() {
     progress.finish();
 
     throw new Error(
-      `Backend source requested but Profile API data is unavailable : ${profileResult.error ?? "unknown error"}`,
+      `Backend source requested but Profile API data is unavailable : ${profileResult.error ?? (apiKeyHomes.length ? "API-key authentication supports local reporting, use --source local or hybrid" : "no usable ChatGPT account credential")}`,
     );
   }
 
@@ -272,18 +215,21 @@ async function main() {
         ? "neutral"
         : "failure",
   );
+  const whamRequestCount = accountRequests.requestCount();
+  const analyticsSkipped = options.noApi || (!accounts.length && !options.analyticsJson);
   progress.step(
     analytics && !analytics.error
       ? `WHAM analytics ready${whamRequestCount ? ` [${whamRequestCount}/${whamRequestCount}]` : ""}`
-      : options.noApi
+      : analyticsSkipped
         ? "WHAM analytics skipped"
         : "WHAM analytics unavailable or partial",
-    analytics && !analytics.error ? "success" : options.noApi ? "neutral" : "failure",
+    analytics && !analytics.error ? "success" : analyticsSkipped ? "neutral" : "failure",
   );
 
-  progress.status("Aggregating daily, weekly, model, and cost summaries");
+  progress.status("Aggregating daily, weekly, model and cost summaries");
   const currentDataset = buildDataset({
     profileResult,
+    authentication,
     events: local.events,
     capabilityEvents: local.capabilityEvents,
     codexHomes,
@@ -351,7 +297,7 @@ async function writeDataset(
     if (dataset.sourceMode !== "backend" && dataset.local.coverage.status !== "complete") {
       const coverage = dataset.local.coverage;
       console.warn(
-        `Local coverage warning : ${coverage.status}; parsed ${coverage.parsedFiles}/${coverage.discoveredFiles}, failed ${coverage.failedFiles}, malformed lines ${coverage.malformedLines}`,
+        `Local coverage warning : ${coverage.status}, parsed ${coverage.parsedFiles}/${coverage.discoveredFiles}, failed ${coverage.failedFiles}, malformed lines ${coverage.malformedLines}`,
       );
     }
 
@@ -382,6 +328,8 @@ async function writeDataset(
         `Portable overlap warning : ${dataset.local.merge.legacyOverlaps} legacy aggregate ${pluralize("overlap", dataset.local.merge.legacyOverlaps)} could only be handled conservatively because event identities were unavailable`,
       );
     }
+
+    for (const diagnostic of dataset.authentication?.diagnostics ?? []) console.warn(`Authentication warning : ${diagnostic}`);
 
     if (dataset.profile?.error) {
       console.warn(`Profile API warning : ${dataset.profile.error}`);
@@ -592,7 +540,7 @@ export function parseArgs(args: string[]): CliOptions {
 }
 
 function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
-  // Weights are relative progress-bar budget, not measurements of elapsed time. A loop updates its own `completed / total` fraction within this budget, so expensive local work stays visible without making the bar jump backwards when the number of rollout files is discovered at runtime.
+  // Weights are relative progress-bar budget, not measurements of elapsed time. A loop updates its own `completed / total` fraction within this budget, so expensive local work stays visible without making the bar jump backwards when the number of rollout files is discovered at runtime
   if (
     options.usageJsons.length > 0 &&
     options.codexHomes.length === 0 &&
@@ -652,7 +600,7 @@ function validateSource(value: string): SourceMode {
     return value;
   }
 
-  throw new Error("--source must be hybrid, backend, or local");
+  throw new Error("--source must be hybrid, backend or local");
 }
 
 function validatePricingSource(value: string): PricingSource {
@@ -660,7 +608,7 @@ function validatePricingSource(value: string): PricingSource {
     return value;
   }
 
-  throw new Error("--pricing-source must be openai, bundled, or models.dev");
+  throw new Error("--pricing-source must be openai, bundled or models.dev");
 }
 
 function helpText(): string {
@@ -683,7 +631,7 @@ Data options :
   --source <mode>            hybrid (default) | backend | local
   --profile-json <path>      Use a saved /profiles/me JSON response
   --payments-json <path>     Override monthly USD spend with a {"YYYY-MM": amount} JSON object
-  --no-api                   Disable Profile, WHAM analytics, and payment API calls
+  --no-api                   Disable Profile, WHAM analytics and payment API calls
   --base-url <url>           Default : https://chatgpt.com/backend-api
 
 Filters :
@@ -701,7 +649,7 @@ Output :
   --no-png                   Skip PNG export
   --analytics-json <path>    Use saved wham analytics JSON instead of calling the dashboard APIs
   --sections <list>          Report sections, comma-separated (all/all,-chats), default all
-  --silent                   Hide action lines, file count, and warnings, keep the progress bar and token summary
+  --silent                   Hide action lines, file count and warnings, keep the progress bar and token summary
 
 Theme :
   --theme <theme>            EDM115 | config | a built-in theme, defaults to config when usable, otherwise EDM115

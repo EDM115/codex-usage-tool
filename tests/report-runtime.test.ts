@@ -130,7 +130,7 @@ test("buildRoiMetrics prorates partial months and exposes both percentages", () 
   ]);
 });
 
-test("buildRoiMetrics handles leap February, zero spend, negative value, and cent equality", () => {
+test("buildRoiMetrics handles leap February, zero spend, negative value and cent equality", () => {
   const leap = buildRoiMetrics(
     [reportDayWithCost("2028-02-29", 1)],
     { "2028-02": 29 },

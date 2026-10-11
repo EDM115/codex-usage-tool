@@ -116,8 +116,8 @@ export function setupExtendedAnalytics(
             const height = total > 0 ? (value / total) * 100 : 0;
             const description =
               unit === "attribution"
-                ? `${titleCase(key)}: ${percent(total ? (value / total) * 100 : 0)} of the day's attributed usage`
-                : `${titleCase(key)}: ${count(value)} ${unit}`;
+                ? `${titleCase(key)} : ${percent(total ? (value / total) * 100 : 0)} of the day's attributed usage`
+                : `${titleCase(key)} : ${count(value)} ${unit}`;
             return value > 0
               ? `<span class="${selection.category && selection.category !== key ? "analytics-segment-muted" : ""}" style="height:${height}%;background:${color(index)}" title="${escape(description)}"></span>`
               : "";
@@ -125,8 +125,8 @@ export function setupExtendedAnalytics(
           .join("");
         const label =
           unit === "attribution"
-            ? `${point.date}: attributed usage`
-            : `${point.date}: ${count(total)} ${unit}`;
+            ? `${point.date} : attributed usage`
+            : `${point.date} : ${count(total)} ${unit}`;
         return `<button type="button" class="analytics-day${point.date === selection.day ? " selected" : ""}${selection.day && point.date !== selection.day ? " analytics-day-muted" : ""}" data-date="${escape(point.date)}" aria-label="${escape(label)}" aria-pressed="${point.date === selection.day}"><span class="analytics-day-stack" style="height:${Math.max(2, (total / max) * 100)}%">${segments}</span></button>`;
       })
       .join("");
@@ -226,8 +226,8 @@ export function setupExtendedAnalytics(
               selection.category && selection.category !== category ? 0.18 : 1;
             const detail =
               state.unit === "attribution"
-                ? `${titleCase(category)}: ${percent(Object.values(point.values).reduce((sum, row) => sum + row, 0) ? (value / Object.values(point.values).reduce((sum, row) => sum + row, 0)) * 100 : 0)}`
-                : `${titleCase(category)}: ${count(value)} ${state.unit}`;
+                ? `${titleCase(category)} : ${percent(Object.values(point.values).reduce((sum, row) => sum + row, 0) ? (value / Object.values(point.values).reduce((sum, row) => sum + row, 0)) * 100 : 0)}`
+                : `${titleCase(category)} : ${count(value)} ${state.unit}`;
             return `<rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" fill="${escape(color(categoryIndex))}" opacity="${categoryOpacity}"><title>${escape(`${point.date} - ${detail}`)}</title></rect>`;
           })
           .join("")}</g>`;
@@ -251,7 +251,7 @@ export function setupExtendedAnalytics(
             ? percent(legendTotal ? (value / legendTotal) * 100 : 0)
             : `${count(value)} ${state.unit}`;
         const opacity = selection.category && selection.category !== category ? 0.3 : 1;
-        return `<g opacity="${opacity}"><rect x="${x}" y="${y - 10}" width="9" height="13" fill="${escape(color(index))}"/><text x="${x + 17}" y="${y}" fill="${escape(theme.colors.text)}" font-size="12">${escape(`${titleCase(category)}: ${display}`)}</text></g>`;
+        return `<g opacity="${opacity}"><rect x="${x}" y="${y - 10}" width="9" height="13" fill="${escape(color(index))}"/><text x="${x + 17}" y="${y}" fill="${escape(theme.colors.text)}" font-size="12">${escape(`${titleCase(category)} : ${display}`)}</text></g>`;
       })
       .join("");
     return {
@@ -289,7 +289,7 @@ export function setupExtendedAnalytics(
 
   function renderLimits() {
     if (!limitSelect) return;
-    const history = dataset.analytics?.planLimitHistory;
+    const accounts = dataset.analytics?.accounts?.length ? dataset.analytics.accounts : dataset.analytics ? [dataset.analytics] : [];
     const dimension = (
       {
         feature: "thread_source",
@@ -300,43 +300,44 @@ export function setupExtendedAnalytics(
     )[limitSelect.value as "feature" | "model" | "surface" | "turn"];
     for (const minutes of [300, 10080]) {
       const target = byId(minutes === 300 ? "fiveHourLimits" : "weeklyLimits");
-      if (!history) {
+      if (!accounts.some((account) => account.planLimitHistory)) {
         target.innerHTML =
           '<p class="section-copy">Plan limit history unavailable from the account API</p>';
         continue;
       }
-      const periods = history.periods
-        .filter((period) => period.windowMinutes === minutes)
-        .sort((a, b) => b.startsAt.localeCompare(a.startsAt));
-      const shown = expandedLimits[String(minutes)] ? periods : periods.slice(0, 5);
-      const items = shown
-        .map((period, index) => {
-          const rows = period.breakdowns?.find((entry) => entry.dimension === dimension)?.rows;
-          const breakdown = rows
-            ? rows
-                .map(
-                  (row) =>
-                    `<div class="analytics-limit-row"><span>${escape(titleCase(row.key))}</span><strong>${escape(basisPercent(row.basisPoints))}</strong></div>`,
-                )
-                .join("")
-            : '<p class="section-copy">Breakdown unavailable.</p>';
-          const asOf =
-            history.dataAsOf && new Date(period.endsAt) > new Date(history.dataAsOf)
+      let hasMore = false;
+      const accountSections = accounts.map((account, accountIndex) => {
+        const label = account.accountLabel ?? `Account ${accountIndex + 1}`;
+        const heading = accounts.length > 1 ? `<h4>${escape(label)}</h4>` : "";
+        const history = account.planLimitHistory;
+        if (!history) return `${heading}<p class="section-copy">Plan limit history unavailable from the account API</p>`;
+        const periods = history.periods
+          .filter((period) => period.windowMinutes === minutes)
+          .sort((a, b) => b.startsAt.localeCompare(a.startsAt));
+        const shown = expandedLimits[String(minutes)] ? periods : periods.slice(0, 5);
+        hasMore ||= periods.length > 5;
+        const items = shown
+          .map((period, index) => {
+            const rows = period.breakdowns?.find((entry) => entry.dimension === dimension)?.rows;
+            const breakdown = rows
+              ? rows
+                  .map((row) => `<div class="analytics-limit-row"><span>${escape(titleCase(row.key))}</span><strong>${escape(basisPercent(row.basisPoints))}</strong></div>`)
+                  .join("")
+              : '<p class="section-copy">Breakdown unavailable</p>';
+            const asOf = history.dataAsOf && new Date(period.endsAt) > new Date(history.dataAsOf)
               ? `<p class="section-copy">Usage as of ${escape(utcDate(history.dataAsOf, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }))} UTC</p>`
               : "";
-          return `<details class="analytics-period"${index === 0 ? " open" : ""}><summary><span>${escape(periodLabel(period.startsAt, period.endsAt, minutes))} · ${escape(period.planType)}</span><strong>${escape(basisPercent(period.usedBasisPoints))}</strong></summary><div class="analytics-period-body">${asOf}${!period.accountingComplete ? '<p class="section-copy">Accounting is incomplete for this period</p>' : ""}${breakdown}</div></details>`;
-        })
-        .join("");
-      const caveats = [
-        history.approximate ? "Approximate usage" : "",
-        !history.coverageComplete ? "historical coverage is incomplete" : "",
-        dimension === "turn_trigger"
-          ? "turn start covers Tasks only, so rows may not add up to the period total"
-          : "",
-      ]
-        .filter(Boolean)
-        .join(", ");
-      target.innerHTML = `<h3>${minutes === 300 ? "5-hour limits" : "Weekly limits"}</h3>${caveats ? `<div class="section-copy">${escape(caveats)}</div>` : ""}${items || '<p class="section-copy">No periods available</p>'}${periods.length > 5 ? `<button type="button" class="analytics-show-more" data-minutes="${minutes}">${expandedLimits[String(minutes)] ? "Show less" : "Show more"}</button>` : ""}`;
+            return `<details class="analytics-period"${index === 0 ? " open" : ""}><summary><span>${escape(periodLabel(period.startsAt, period.endsAt, minutes))} · ${escape(period.planType)}</span><strong>${escape(basisPercent(period.usedBasisPoints))}</strong></summary><div class="analytics-period-body">${asOf}${!period.accountingComplete ? '<p class="section-copy">Accounting is incomplete for this period</p>' : ""}${breakdown}</div></details>`;
+          })
+          .join("");
+        const caveats = [
+          history.approximate ? "Approximate usage" : "",
+          !history.coverageComplete ? "historical coverage is incomplete" : "",
+          dimension === "turn_trigger" ? "turn start covers Tasks only, so rows may not add up to the period total" : "",
+        ].filter(Boolean).join(", ");
+        return `${heading}${caveats ? `<div class="section-copy">${escape(caveats)}</div>` : ""}${items || '<p class="section-copy">No periods available</p>'}`;
+      }).join("");
+      target.innerHTML = `<h3>${minutes === 300 ? "5-hour limits" : "Weekly limits"}</h3>${accountSections}${hasMore ? `<button type="button" class="analytics-show-more" data-minutes="${minutes}">${expandedLimits[String(minutes)] ? "Show less" : "Show more"}</button>` : ""}`;
       target.querySelector(".analytics-show-more")?.addEventListener("click", () => {
         expandedLimits[String(minutes)] = !expandedLimits[String(minutes)];
         renderLimits();
@@ -371,7 +372,7 @@ export function setupExtendedAnalytics(
       const title = chatTitle(chat.title);
       const special =
         title === "codex-auto-review" || title === "Untitled chat" || title === "Guardian review";
-      const key = special ? title : chat.threadId;
+      const key = JSON.stringify([chat.accountId ?? null, special ? title : chat.threadId]);
       const previous = grouped.get(key);
       if (!previous) {
         grouped.set(key, {
@@ -435,7 +436,9 @@ export function setupExtendedAnalytics(
           chat.title === "Guardian review"
             ? `${chat.title} (${chat.chatCount} ${chat.chatCount === 1 ? "chat" : "chats"})`
             : chat.title;
-        return `<details class="analytics-chat"><summary><span>${escape(displayTitle)}</span><strong>${escape(percent(chat.weeklyLimitPercent))}</strong><strong>${escape(credits(chat.balanceUsageCredits))}</strong></summary><div class="analytics-chat-details"><div><strong>Source</strong> ${escape(chat.sourceLabels.join(", "))}</div><div><strong>Model</strong> ${models || "Unavailable"}</div><div><strong>Effort</strong> ${efforts || "Unavailable"}</div><div><strong>Speed</strong> ${speeds || "Unavailable"}</div>${chat.dataStatus === "unavailable" ? "<p>Usage unavailable for this chat</p>" : ""}</div></details>`;
+        const accountIndex = dataset.analytics?.accounts?.findIndex((account) => account.accountId === chat.accountId) ?? -1;
+        const accountLabel = accountIndex >= 0 ? dataset.analytics?.accounts?.[accountIndex]?.accountLabel ?? `Account ${accountIndex + 1}` : undefined;
+        return `<details class="analytics-chat"><summary><span>${escape(displayTitle)}</span><strong>${escape(percent(chat.weeklyLimitPercent))}</strong><strong>${escape(credits(chat.balanceUsageCredits))}</strong></summary><div class="analytics-chat-details">${accountLabel ? `<div><strong>Account</strong> ${escape(accountLabel)}</div>` : ""}<div><strong>Source</strong> ${escape(chat.sourceLabels.join(", "))}</div><div><strong>Model</strong> ${models || "Unavailable"}</div><div><strong>Effort</strong> ${efforts || "Unavailable"}</div><div><strong>Speed</strong> ${speeds || "Unavailable"}</div>${chat.dataStatus === "unavailable" ? "<p>Usage unavailable for this chat</p>" : ""}</div></details>`;
       })
       .join(
         "",

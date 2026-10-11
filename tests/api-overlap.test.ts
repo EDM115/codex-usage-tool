@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-test("CLI overlaps payment history with profile, local collection, and WHAM and retains the request count", async () => {
+test("CLI overlaps payment history with profile, local collection and WHAM and retains the request count", async () => {
   const root = mkdtempSync(join(tmpdir(), "usage-api-overlap-"));
   const home = join(root, ".codex");
   mkdirSync(join(home, "sessions"), { recursive: true });

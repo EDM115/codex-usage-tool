@@ -34,7 +34,7 @@ export function parseSections(value: string): ReportSection[] {
 
   if (parts.some((part) => !part || part === "-all")) {
     throw new Error(
-      "--sections requires section names separated by commas; use all or all,-name for exclusions",
+      "--sections requires section names separated by commas, use all or all,-name for exclusions",
     );
   }
 
@@ -50,7 +50,7 @@ export function parseSections(value: string): ReportSection[] {
     const name = excluded ? part.slice(1) : part;
     if (!sectionNames.has(name)) {
       throw new Error(
-        `Unknown report section ${name}; valid sections: ${REPORT_SECTIONS.join(", ")}`,
+        `Unknown report section ${name}, valid sections : ${REPORT_SECTIONS.join(", ")}`,
       );
     }
 

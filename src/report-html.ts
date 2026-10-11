@@ -193,24 +193,27 @@ export function renderReportHtml(
   embedded.codexHomes = [];
   embedded.sources = [];
   embedded.profile = undefined;
-  if (embedded.analytics) {
-    embedded.analytics.tasks = undefined;
-    if (!enabled("chats")) embedded.analytics.topChats = undefined;
+  embedded.authentication = undefined;
+  const pruneAnalytics = (analytics: any) => {
+    analytics.accounts?.forEach(pruneAnalytics);
+    analytics.tasks = undefined;
+    if (!enabled("chats")) analytics.topChats = undefined;
     if (!attributionEnabled && !enabled("models") && !enabled("surfaces"))
-      embedded.analytics.dailyTokenUsageBreakdown = undefined;
+      analytics.dailyTokenUsageBreakdown = undefined;
     if (
       !enabled("messages-model") &&
       !enabled("messages-surface") &&
       !enabled("models") &&
       !enabled("surfaces")
     )
-      embedded.analytics.workspaceUsageCounts = undefined;
-    if (!limitsEnabled) embedded.analytics.planLimitHistory = undefined;
+      analytics.workspaceUsageCounts = undefined;
+    if (!limitsEnabled) analytics.planLimitHistory = undefined;
     if (!enabled("skills")) {
-      embedded.analytics.pluginUsage = undefined;
-      embedded.analytics.skillUsage = undefined;
+      analytics.pluginUsage = undefined;
+      analytics.skillUsage = undefined;
     }
-  }
+  };
+  if (embedded.analytics) pruneAnalytics(embedded.analytics);
   const dataJson = JSON.stringify(embedded).replaceAll("</", "<\\/");
   const modelRowsNeeded = ["models", "thinking", "mode", "cyber"].some((section) =>
     enabled(section as ReportSection),
@@ -548,7 +551,8 @@ export function renderReportHtml(
       <div class="section-head">
         <div class="section-title">
           <h2>Return on investment</h2>
-          <p class="section-copy">Selected-range subscription spend compared with API-equivalent usage value</p>
+          <p class="section-copy">Selected-range recorded ChatGPT payments compared with API-equivalent usage value</p>
+          ${dataset.authentication?.homes.some((home) => home.mode === "api-key") ? '<p class="section-copy">API-key usage is estimated from local history, API-platform payments are not included</p>' : ""}
         </div>
         <div class="section-actions">${downloadMenu("roi")}</div>
       </div>

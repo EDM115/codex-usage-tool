@@ -875,7 +875,7 @@ export function validateThemeChoice(value: string): ThemeChoice {
   }
 
   throw new Error(
-    `Unknown theme : ${value}. Use EDM115, config, or one of : ${Object.keys(BUILTIN_CODEX_THEMES).join(", ")}`,
+    `Unknown theme : ${value}. Use EDM115, config or one of : ${Object.keys(BUILTIN_CODEX_THEMES).join(", ")}`,
   );
 }
 

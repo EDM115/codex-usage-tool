@@ -135,7 +135,7 @@ function renderStackedChart(dataset: UsageDataset, chart: Chart): string {
           if (!value) return "";
           const barHeight = (value / maximum) * plotHeight;
           y -= barHeight;
-          return `<rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" fill="${escape(color(categoryIndex))}"><title>${escape(`${point.date} - ${category}: ${format(value)} ${chart.unit}`)}</title></rect>`;
+          return `<rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" fill="${escape(color(categoryIndex))}"><title>${escape(`${point.date} - ${category} : ${format(value)} ${chart.unit}`)}</title></rect>`;
         })
         .join("");
     })

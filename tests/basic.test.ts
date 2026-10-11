@@ -1574,7 +1574,7 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
     `<strong>Portable sources :</strong> ${dataset.sources.length} source : ${dataset.sources[0].label}, merge diagnostics`,
   );
   expect(notes).not.toContain(`[${dataset.sources[0].sourceId}`);
-  expect(notes).not.toContain("This is a pricing comparison, not subscription money returned.");
+  expect(notes).not.toContain("This is a pricing comparison, not subscription money returned");
   expect(html).toContain("function smoothPath");
   const roiIndex = html.indexOf("<h2>Return on investment</h2>");
   const breakdownIndex = html.indexOf("<h2>Usage breakdown</h2>");
@@ -1614,7 +1614,7 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(heatmapExportRuntime).toContain("Less");
   expect(heatmapExportRuntime).toContain("More");
   expect(heatmapExportRuntime).not.toContain(
-    "Less to more daily token intensity. Hover cells in the HTML report for details.",
+    "Less to more daily token intensity. Hover cells in the HTML report for details",
   );
   const dashboardExportRuntime = html.slice(
     html.indexOf("    function serializedDashboardSvg()"),
@@ -1637,7 +1637,7 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   );
   const partialDataset = structuredClone(dataset);
   partialDataset.payments.complete = false;
-  partialDataset.payments.error = "Payment API stopped after one page.";
+  partialDataset.payments.error = "Payment API stopped after one page";
   partialDataset.payments.sources = [
     { kind: "api", label: "transaction history", status: "partial" },
   ];

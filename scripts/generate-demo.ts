@@ -160,7 +160,7 @@ export async function writeDemoDataset(
     throw new Error("Demo report generation did not produce usage-report.html");
   }
   if (output.warnings.length > 0) {
-    throw new Error(`Demo report generation produced warnings: ${output.warnings.join("; ")}`);
+    throw new Error(`Demo report generation produced warnings : ${output.warnings.join(", ")}`);
   }
   return { dataset: reloaded, reportPath };
 }
@@ -906,6 +906,6 @@ function roundMoney(value: number): number {
 if (import.meta.main) {
   const { reportPath } = await writeDemoDataset({ report: process.argv.includes("--report") });
   console.log(
-    reportPath ? `Generated demo report: ${reportPath}` : `Generated demo dataset: ${DEMO_PATH}`,
+    reportPath ? `Generated demo report : ${reportPath}` : `Generated demo dataset : ${DEMO_PATH}`,
   );
 }

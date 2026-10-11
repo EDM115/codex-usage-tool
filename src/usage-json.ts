@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
 import { buildDataset } from "./aggregate";
+import { mergeProfileAccounts, type ProfileLoadResult } from "./profile-api";
 import { filterWhamAnalyticsRange, mergeWhamAnalyticsSnapshots } from "./analytics-api";
 import { primaryModelAt, resolveModelAt } from "./model-catalog";
 import { emptyPaymentHistory, isPaymentDay, mergePaymentHistories } from "./payments";
@@ -74,6 +75,7 @@ export function mergeUsageDatasets(
   if (datasets.length === 0) {
     throw new Error("At least one usage dataset is required");
   }
+  datasets = resolvePortableAccountScopes(datasets);
 
   if (
     (options.from || options.to) &&
@@ -107,17 +109,17 @@ export function mergeUsageDatasets(
     );
   }
 
+  const accountDatasets = datasets;
   const legacySelection = dedupeLegacyDatasets(datasets);
   datasets = legacySelection.datasets;
   overlap.legacyOverlaps += legacySelection.legacyOverlaps;
   const primary = datasets[0];
   const estimateModel = options.estimateModel ?? primary.pricing.estimateModel;
-  const daily = mergeDaily(datasets, options.from, options.to, options.pricing, estimateModel);
-  const profile =
-    datasets.find((dataset) => dataset.profile?.fetched)?.profile ??
-    datasets.find((dataset) => dataset.profile)?.profile;
+  const profileResult = mergedDatasetProfiles(accountDatasets);
+  const daily = mergeDaily(datasets, options.from, options.to, options.pricing, estimateModel, profileResult);
+  const profile = profileResult.profile ? { fetched: profileResult.fetched, endpoint: profileResult.endpoint, error: profileResult.error, accounts: profileResult.accounts, summary: profileResult.profile.summary } : undefined;
   const analytics = filterWhamAnalyticsRange(
-    mergeAnalyticsSnapshots(datasets),
+    mergeAnalyticsSnapshots(accountDatasets),
     options.from,
     options.to,
   );
@@ -142,6 +144,7 @@ export function mergeUsageDatasets(
       ? primary.dateRange
       : { from: null, to: null },
     codexHomes: uniqueHomes(datasets),
+    authentication: mergedAuthentication(accountDatasets),
     sources: uniqueSources(datasets),
     profile,
     local: {
@@ -176,7 +179,7 @@ export function mergeUsageDatasets(
     analytics,
     payments,
     summary: {
-      lifetimeTokens: profile?.summary.lifetimeTokens ?? lifetimeFromDaily,
+      lifetimeTokens: profile?.summary.lifetimeTokens == null ? lifetimeFromDaily : profile.summary.lifetimeTokens + daily.reduce((sum, day) => sum + Math.max(0, day.totalTokens - (day.backendTokens ?? day.totalTokens)), 0),
       peakDailyTokens: Math.max(0, ...daily.map((day) => day.localTokens.totalTokens)),
       currentStreakDays: profile?.summary.currentStreakDays ?? null,
       longestStreakDays: profile?.summary.longestStreakDays ?? null,
@@ -202,26 +205,7 @@ function mergeEventDatasets(
   payments: PaymentHistory,
 ): UsageDataset {
   const primary = datasets[0];
-  const profile =
-    datasets.find((dataset) => dataset.profile?.fetched)?.profile ??
-    datasets.find((dataset) => dataset.profile)?.profile;
-  const cloudDataset =
-    datasets.find((dataset) => dataset.profile === profile) ??
-    datasets.find((dataset) => dataset.daily.some((day) => day.backendTokens !== undefined));
-  const profileResult: Parameters<typeof buildDataset>[0]["profileResult"] = profile
-    ? {
-        fetched: profile.fetched,
-        endpoint: profile.endpoint,
-        error: profile.error,
-        profile: {
-          summary: profile.summary,
-          dailyUsageBuckets:
-            cloudDataset?.daily
-              .filter((day) => day.backendTokens !== undefined)
-              .map((day) => ({ startDate: day.date, tokens: day.backendTokens! })) ?? null,
-        },
-      }
-    : { fetched: false, error: "No backend profile in portable inputs" };
+  const profileResult = mergedDatasetProfiles(datasets);
   const eventMap = new Map<string, TokenEvent>();
 
   for (const event of datasets.flatMap((dataset) => dataset.local.events ?? [])) {
@@ -244,6 +228,7 @@ function mergeEventDatasets(
   );
   const merged = buildDataset({
     profileResult,
+    authentication: mergedAuthentication(datasets),
     events: [...eventMap.values()],
     capabilityEvents: [...capabilityEventMap.values()],
     codexHomes: uniqueHomes(datasets),
@@ -274,6 +259,76 @@ function mergeEventDatasets(
   merged.local.merge = overlap;
 
   return merged;
+}
+
+function mergedAuthentication(datasets: UsageDataset[]): UsageDataset["authentication"] {
+  const inputs = datasets.flatMap((dataset) => dataset.authentication ? [dataset.authentication] : []);
+  if (!inputs.length) return undefined;
+  return { homes: [...new Map(inputs.flatMap((input) => input.homes).map((home) => [home.homePath, home])).values()], diagnostics: [...new Set(inputs.flatMap((input) => input.diagnostics))] };
+}
+
+/** Associate old single-home reports only with a scope supported by recorded home ownership */
+export function resolvePortableAccountScopes(datasets: UsageDataset[], knownHomes: Array<{ homePath: string; accountId?: string }> = []): UsageDataset[] {
+  const ownership = new Map<string, Set<string>>();
+  const record = (home: string, accountId: string) => {
+    const scopes = ownership.get(home) ?? new Set<string>();
+    scopes.add(accountId);
+    ownership.set(home, scopes);
+  };
+  for (const home of knownHomes) if (home.accountId) record(home.homePath, home.accountId);
+  for (const dataset of datasets) {
+    for (const account of dataset.profile?.accounts ?? []) if (account.accountId)
+      for (const home of account.sourceHomes ?? []) record(home, account.accountId);
+    for (const home of dataset.authentication?.homes ?? []) {
+      const accountId = (home as typeof home & { accountId?: string }).accountId;
+      if (accountId) record(home.homePath, accountId);
+    }
+  }
+  const scopedSnapshots = datasets.some((dataset) => dataset.analytics?.accountId || dataset.analytics?.accounts?.some((account) => account.accountId) || dataset.payments.accountId || dataset.payments.accounts?.some((account) => account.accountId));
+  if (!ownership.size && !scopedSnapshots) return datasets;
+  return datasets.map((dataset) => {
+    const scopes = new Set(dataset.codexHomes.flatMap((home) => [...(ownership.get(home.path) ?? [])]));
+    const accountId = dataset.codexHomes.length && dataset.codexHomes.every((home) => ownership.get(home.path)?.size === 1) && scopes.size === 1 ? [...scopes][0] : undefined;
+    const legacyProfile = dataset.profile && !dataset.profile.accounts?.length;
+    const legacyAnalytics = dataset.analytics && !dataset.analytics.accountId && !dataset.analytics.accounts?.length;
+    const legacyPayments = !dataset.payments.accountId && !dataset.payments.accounts?.length && dataset.payments.fetched;
+    // A live home path cannot prove the historical payer after an account switch
+    const recordedScopes = new Set([...(dataset.profile?.accounts ?? []).flatMap((account) => account.accountId ? [account.accountId] : []), ...(dataset.authentication?.homes ?? []).flatMap((home) => home.accountId ? [home.accountId] : [])]);
+    const paymentAccountId = recordedScopes.size === 1 ? [...recordedScopes][0] : undefined;
+    if (!legacyProfile && !legacyAnalytics && !legacyPayments) return dataset;
+    const warning = "Legacy report account ownership is unresolved, overlapping account metrics use fallback coverage";
+    const warnings = [...(!accountId ? [warning] : []), ...(legacyPayments && !paymentAccountId ? ["Legacy payment history has no recorded account scope, invoice attribution remains unknown"] : [])];
+    const authentication = warnings.length ? { homes: dataset.authentication?.homes ?? [], diagnostics: [...new Set([...(dataset.authentication?.diagnostics ?? []), ...warnings])] } : dataset.authentication;
+    return {
+      ...dataset, authentication,
+      profile: legacyProfile ? { ...dataset.profile!, accounts: [{ ...dataset.profile!, accounts: undefined, accountId, sourceHomes: dataset.codexHomes.map((home) => home.path), dailyUsageBuckets: dataset.daily.filter((day) => day.backendTokens !== undefined).map((day) => ({ startDate: day.date, tokens: day.backendTokens! })) }] } : dataset.profile,
+      analytics: legacyAnalytics && accountId ? { ...dataset.analytics!, accountId } : dataset.analytics,
+      payments: legacyPayments && paymentAccountId ? { ...dataset.payments, accountId: paymentAccountId, transactions: dataset.payments.transactions.map((transaction) => ({ ...transaction, accountId: transaction.accountId ?? paymentAccountId })) } : dataset.payments,
+    };
+  });
+}
+
+function mergedDatasetProfiles(datasets: UsageDataset[]): ProfileLoadResult {
+  const accounts = datasets.flatMap((dataset) => dataset.profile?.accounts ?? []);
+  if (accounts.length) {
+    const scoped = accounts.filter((account) => account.accountId);
+    if (!scoped.length) return mergeProfileAccounts(accounts);
+    const merged = mergeProfileAccounts(scoped);
+    const dates = new Set(merged.profile?.dailyUsageBuckets?.map((bucket) => bucket.startDate));
+    const fallbackDays = new Map<string, number>();
+    for (const account of accounts.filter((account) => !account.accountId))
+      for (const bucket of account.dailyUsageBuckets ?? []) if (!dates.has(bucket.startDate) && !fallbackDays.has(bucket.startDate)) fallbackDays.set(bucket.startDate, bucket.tokens);
+    if (fallbackDays.size) {
+      const dailyUsageBuckets = [...fallbackDays].map(([startDate, tokens]) => ({ startDate, tokens }));
+      merged.profile ??= { summary: { lifetimeTokens: null, peakDailyTokens: null, longestRunningTurnSec: null, currentStreakDays: null, longestStreakDays: null }, dailyUsageBuckets: null };
+      merged.profile.dailyUsageBuckets = [...(merged.profile.dailyUsageBuckets ?? []), ...dailyUsageBuckets].sort((a, b) => a.startDate.localeCompare(b.startDate));
+      merged.accounts!.push({ fetched: false, summary: { lifetimeTokens: null, peakDailyTokens: null, longestRunningTurnSec: null, currentStreakDays: null, longestStreakDays: null }, sourceHomes: [...new Set(accounts.filter((account) => !account.accountId).flatMap((account) => account.sourceHomes ?? []))], dailyUsageBuckets });
+    }
+    return merged;
+  }
+  const profile = datasets.find((dataset) => dataset.profile?.fetched)?.profile ?? datasets.find((dataset) => dataset.profile)?.profile;
+  const cloudDataset = datasets.find((dataset) => dataset.profile === profile) ?? datasets.find((dataset) => dataset.daily.some((day) => day.backendTokens !== undefined));
+  return profile ? { fetched: profile.fetched, endpoint: profile.endpoint, error: profile.error, profile: { summary: profile.summary, dailyUsageBuckets: cloudDataset?.daily.filter((day) => day.backendTokens !== undefined).map((day) => ({ startDate: day.date, tokens: day.backendTokens! })) ?? null } } : { fetched: false, error: "No backend profile in portable inputs" };
 }
 
 function inspectOverlap(datasets: UsageDataset[]): MergeDiagnostics {
@@ -316,7 +371,10 @@ function dedupeLegacyDatasets(datasets: UsageDataset[]): {
 
     if (ids.some((id) => seenSources.has(id))) {
       legacyOverlaps += 1;
-
+      const overlapping = selected.filter((known) => known.sources.some((source) => ids.includes(source.sourceId)));
+      const coveredDates = new Set(overlapping.flatMap((known) => known.daily.map((day) => day.date)));
+      const daily = dataset.daily.filter((day) => !coveredDates.has(day.date));
+      if (daily.length) selected.push({ ...dataset, daily, local: { ...dataset.local, rolloutFiles: 0, tokenEvents: 0, sqliteDatabases: 0, sqliteThreads: 0, distinctSessions: 0, capabilityEvents: [], threads: [] } });
       continue;
     }
 
@@ -451,11 +509,13 @@ function mergeDaily(
   to: string | null,
   pricing?: PricingLoadResult,
   estimateModel = datasets[0]?.pricing.estimateModel,
+  profileResult = mergedDatasetProfiles(datasets),
 ): DailyUsage[] {
+  const accountBackend = new Map(profileResult.profile?.dailyUsageBuckets?.map((bucket) => [bucket.startDate, bucket.tokens]));
   const sourceDays = datasets.map(
     (dataset) => new Map(dataset.daily.map((day) => [day.date, day])),
   );
-  const knownDates = [...new Set(sourceDays.flatMap((days) => [...days.keys()]))].sort();
+  const knownDates = [...new Set([...sourceDays.flatMap((days) => [...days.keys()]), ...accountBackend.keys()])].sort();
 
   if (knownDates.length === 0) {
     return [];
@@ -469,8 +529,9 @@ function mergeDaily(
       .filter((day): day is DailyUsage => Boolean(day));
     const cloudDay = days.find((day) => day.backendTokens !== undefined);
     const localTokens = sumBreakdowns(days.map((day) => day.localTokens));
-    const backendTokens = cloudDay?.backendTokens;
-    const totalTokens = backendTokens ?? localTokens.totalTokens;
+    const backendTokens = accountBackend.get(date) ?? cloudDay?.backendTokens;
+    const uncoveredLocalTokens = days.reduce((sum, day) => sum + (day.backendTokens === undefined ? day.localTokens.totalTokens : Math.max(0, day.totalTokens - day.backendTokens)), 0);
+    const totalTokens = backendTokens === undefined ? localTokens.totalTokens : backendTokens + uncoveredLocalTokens;
     const unattributedTokens = Math.max(0, totalTokens - localTokens.totalTokens);
     const cloudRate =
       cloudDay && cloudDay.unattributedTokens > 0
@@ -880,6 +941,7 @@ function isUsageDataset(value: unknown): value is UsageDataset {
     isDateRange(value.dateRange) &&
     Array.isArray(value.codexHomes) &&
     value.codexHomes.every(isCodexHome) &&
+    (value.authentication === undefined || isAuthentication(value.authentication)) &&
     Array.isArray(value.sources) &&
     value.sources.every(isUsageSource) &&
     (value.profile === undefined || isProfile(value.profile)) &&
@@ -946,6 +1008,7 @@ function isUsageSource(value: unknown): boolean {
 }
 
 function isPaymentHistory(value: unknown): value is PaymentHistory {
+  if (isRecord(value) && (!isOptionalString(value.accountId) || (value.accounts !== undefined && (!Array.isArray(value.accounts) || !value.accounts.every((account) => isRecord(account) && account.accounts === undefined && isPaymentHistory(account)))))) return false;
   if (
     !isRecord(value) ||
     value.currency !== "USD" ||
@@ -965,7 +1028,7 @@ function isPaymentHistory(value: unknown): value is PaymentHistory {
   if (
     !Array.isArray(value.transactions) ||
     !value.transactions.every(isPaymentTransaction) ||
-    new Set(value.transactions.map((transaction) => transaction.fingerprint)).size !==
+    new Set(value.transactions.map((transaction) => JSON.stringify([transaction.accountId ?? value.accountId ?? null, transaction.fingerprint]))).size !==
       value.transactions.length
   ) {
     return false;
@@ -1002,6 +1065,7 @@ function isPaymentTransaction(value: unknown): value is PaymentHistory["transact
     isRecord(value) &&
     typeof value.fingerprint === "string" &&
     /^[0-9a-f]{64}$/.test(value.fingerprint) &&
+    isOptionalString(value.accountId) &&
     isPaymentMonth(value.month) &&
     isNumber(value.amountUsd) &&
     (value.paidAt === undefined ||
@@ -1049,7 +1113,12 @@ function isBreakdownRecord(value: unknown): value is Record<string, TokenBreakdo
   return isRecord(value) && Object.values(value).every(isTokenBreakdown);
 }
 
+function isAuthentication(value: unknown): boolean {
+  return isRecord(value) && Array.isArray(value.homes) && value.homes.every((home) => isRecord(home) && typeof home.homePath === "string" && typeof home.homeLabel === "string" && typeof home.mode === "string" && ["chatgpt", "api-key", "unavailable"].includes(home.mode) && isOptionalString(home.accountId)) && Array.isArray(value.diagnostics) && value.diagnostics.every((diagnostic) => typeof diagnostic === "string");
+}
+
 function isProfile(value: unknown): boolean {
+  if (isRecord(value) && value.accounts !== undefined && (!Array.isArray(value.accounts) || !value.accounts.every((account) => isRecord(account) && account.accounts === undefined && isOptionalString(account.accountId) && (account.sourceHomes === undefined || (Array.isArray(account.sourceHomes) && account.sourceHomes.every((home) => typeof home === "string"))) && (account.dailyUsageBuckets === undefined || account.dailyUsageBuckets === null || (Array.isArray(account.dailyUsageBuckets) && account.dailyUsageBuckets.every((bucket) => isRecord(bucket) && isDate(bucket.startDate) && isNumber(bucket.tokens)))) && isProfile(account)))) return false;
   return (
     isRecord(value) &&
     typeof value.fetched === "boolean" &&
@@ -1099,7 +1168,7 @@ function isLocalThreadSummary(value: unknown): boolean {
     (value.updatedAt === null || typeof value.updatedAt === "string") &&
     isOptionalString(value.parentThreadId) &&
     typeof value.archived === "boolean" &&
-    typeof value.homeLabel === "string"
+    typeof value.homeLabel === "string" && isOptionalString(value.homePath)
   );
 }
 
@@ -1337,6 +1406,7 @@ function isWeeklyUsage(value: unknown): boolean {
 }
 
 function isAnalytics(value: unknown): boolean {
+  if (isRecord(value) && (!isOptionalString(value.accountId) || !isOptionalString(value.accountLabel) || (value.accounts !== undefined && (!Array.isArray(value.accounts) || !value.accounts.every((account) => isRecord(account) && account.accounts === undefined && isAnalytics(account)))))) return false;
   return (
     isRecord(value) &&
     typeof value.fetched === "boolean" &&
