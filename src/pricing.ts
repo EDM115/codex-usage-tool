@@ -32,11 +32,12 @@ export type PricingLoadResult = {
 
 const OPENAI_PRICING_URL = "https://developers.openai.com/api/docs/pricing.md";
 const MODELS_DEV_URL = "https://models.dev/api.json";
-const BUNDLED_PRICING_DATE = "2026-10-01";
+const BUNDLED_PRICING_DATE = "2026-10-09";
 const LONG_CONTEXT_THRESHOLD = 272_000;
 const ROSALIND_BILLING_START = "2026-10-05";
 const BUNDLED_TIER_START_DATES: Record<string, Partial<Record<PricingTier, string>>> = {
   "gpt-6-astra": { ultrafast: "2026-09-29" },
+  "gpt-6.1-sol": { ultrafast: "2026-10-08" },
   "gpt-image-2.5-sunburst": { batch: "2026-09-29" },
   "gpt-image-2.5-flare": { batch: "2026-09-29" },
 };
