@@ -30,6 +30,7 @@ const MODEL_PROGRESS_COLORS: Record<string, ProgressColorPair> = {
   "gpt-image-2.5-sunburst": { dark: "#ffd166", light: "#946000" },
   "gpt-image-2.5-flare": { dark: "#ff956b", light: "#ad421c" },
   "gpt-rosalind-research": { dark: "#79d7b5", light: "#16734f" },
+  "gpt-rosalind-discovery": { dark: "#a4d77c", light: "#487323" },
   "gpt-live-1": { dark: "#80caff", light: "#246a9e" },
   "gpt-5.6-sol": { dark: "#f6c453", light: "#9a5b00" },
   "gpt-5.6-terra": { dark: "#50d890", light: "#087a46" },

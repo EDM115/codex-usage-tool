@@ -1733,6 +1733,7 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
     dark: "#79d7b5",
     light: "#16734f",
   });
+  expect(parsedColorCatalog["gpt-rosalind-discovery"]).toEqual({ dark: "#a4d77c", light: "#487323" });
   const modelRowsScript = html.match(
     /<script id="model-rows" type="application\/json">([\s\S]*?)<\/script>/,
   );

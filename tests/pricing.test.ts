@@ -967,6 +967,69 @@ test("Rosalind stays free until its billing date with bundled, live and offline 
   }
 });
 
+test("the October 17 snapshot keeps Rosalind models separate with only published Standard rates", async () => {
+  const offline = (async (_input: string | URL | Request): Promise<Response> => {
+    throw new Error("offline");
+  }) as typeof fetch;
+  const sources = [
+    await loadPricing({ source: "bundled" }),
+    await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-10-17"),
+    await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-10-16"),
+    await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-10-09"),
+    await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-10-10"),
+    await loadPricing({ source: "openai", fetcher: offline, effectiveDate: "2026-10-17" }),
+  ];
+
+  for (const pricing of sources) {
+    for (const model of ["gpt-rosalind-research", "gpt-rosalind-discovery"]) {
+      const row = pricingAt(pricing.catalog, model, "2026-10-17");
+      expect(row?.model).toBe(model);
+      expect(row?.inputPerMillion).toBe(5);
+      expect(row?.cachedInputPerMillion).toBe(0.5);
+      expect(row?.outputPerMillion).toBe(25);
+      expect(row?.cacheWritePerMillion).toBeUndefined();
+      expect(Object.keys(row?.tiers ?? {})).toEqual(["standard"]);
+      expect(row?.tiers?.standard?.long).toBeUndefined();
+      expect(pricing.table.get(model)?.aliasFor).toBeUndefined();
+      expect(pricing.catalog.models.find((entry) => entry.model === model)?.canBePrimary).toBe(false);
+      expect(estimate(pricing, model, undefined, ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-10-17")).toBeCloseTo(30);
+    }
+    expect(pricingAt(pricing.catalog, "gpt-rosalind-discovery", "2026-10-09")).toBeUndefined();
+    for (const date of ["2026-10-10", "2026-10-16", "2026-10-17"]) {
+      expect(pricingAt(pricing.catalog, "gpt-rosalind-discovery", date)?.effectiveFrom).toBe("2026-10-10");
+      expect(estimate(pricing, "gpt-rosalind-discovery", undefined, ONE_MILLION_INPUT_AND_OUTPUT, undefined, date)).toBeCloseTo(30);
+    }
+    expect(primaryModelAt(pricing.catalog, "2026-10-17")).toBe("gpt-6-astra");
+  }
+  expect(sources[0].table.get("gpt-rosalind-discovery")?.source).toContain("2026-10-17");
+});
+
+test("Life sciences grouped tables reset a preceding Fast or Ultrafast tier", async () => {
+  const header = "| Model | Input | Cached input | Output |\n| --- | --- | --- | --- |";
+  for (const tier of ["Fast", "Ultrafast"]) {
+    const markdown = `${tier}\n### Grouped Pricing Table data\n${header}\n| gpt-tier-probe | $10 | $1 | $50 |\n\nLife sciences models\n### Grouped Pricing Table data\n${header}\n| gpt-life-sciences-probe | $5 | $0.50 | $25 |`;
+    const pricing = await loadFixture(markdown, "2026-10-17");
+    expect(pricing.table.get("gpt-life-sciences-probe")?.inputPerMillion).toBe(5);
+    expect(Object.keys(pricing.table.get("gpt-life-sciences-probe")?.tiers ?? {})).toEqual(["standard"]);
+  }
+});
+
+test("Daybreak alias retirement preserves recorded usage mappings and underlying model prices", async () => {
+  const pricing = await loadPricing({ source: "bundled" });
+  for (const date of ["2026-10-27", "2026-10-28", "2026-10-29"]) {
+    for (const [alias, model] of [
+      ["gpt-daybreak-blue-latest", "gpt-5.6-sol"],
+      ["gpt-daybreak-red-latest", "gpt-5.6-cyber"],
+      ["daybreak-blue-latest", "gpt-5.6-sol"],
+      ["daybreak-red-latest", "gpt-5.6-cyber"],
+    ]) {
+      expect(resolveModelAt(pricing.catalog, alias, date)).toBe(model);
+      expect(pricingAt(pricing.catalog, alias, date)).toEqual(pricingAt(pricing.catalog, model, date));
+      expect(estimate(pricing, alias, undefined, ONE_MILLION_INPUT_AND_OUTPUT, undefined, date)).toBeCloseTo(estimate(pricing, model, undefined, ONE_MILLION_INPUT_AND_OUTPUT, undefined, date));
+    }
+  }
+});
+
 test("custom pricing preserves Rosalind's billing schedule unless it explicitly overrides Rosalind", async () => {
   const root = join(tmpdir(), `codex-pricing-billing-${crypto.randomUUID()}`);
   const path = join(root, "pricing.json");

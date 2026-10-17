@@ -34,6 +34,7 @@ const SOURCES = {
   gpt56Cyber: "https://developers.openai.com/api/docs/models/gpt-5.6-cyber",
   daybreakBlue: "https://developers.openai.com/api/docs/models/gpt-daybreak-blue-latest",
   daybreakRed: "https://developers.openai.com/api/docs/models/gpt-daybreak-red-latest",
+  rosalindDiscovery: "https://www.techflowpost.com/fr-FR/newsletter/139473",
   pricing: "https://developers.openai.com/api/docs/pricing",
   gpt55: "https://openai.com/index/introducing-gpt-5-5/",
   gpt54: "https://openai.com/index/introducing-gpt-5-4/",
@@ -145,6 +146,7 @@ export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
   model("gpt-image-2.5-sunburst", "2026-09-08", SOURCES.changelog),
   model("gpt-image-2.5-flare", "2026-09-08", SOURCES.changelog),
   model("gpt-rosalind-research", "2026-09-08", SOURCES.changelog),
+  model("gpt-rosalind-discovery", "2026-10-10", SOURCES.rosalindDiscovery),
   // Duration-priced sessions are catalogued, but have no per-token pricing row
   model("gpt-live-1", "2026-09-10", SOURCES.changelog),
   // First observed in the 2026-09-16 pricing cache, its release date is not established here
@@ -207,6 +209,7 @@ export const BUNDLED_MODEL_ALIASES: ModelAliasDefinition[] = [
     source: `user-supplied mapping, ${SOURCES.gpt56}`,
   },
   { alias: "gpt-5.6", target: "gpt-5.6-sol", effectiveFrom: "2026-07-09", source: SOURCES.gpt56 },
+  // Retain recorded-usage mappings after the 2026-10-28 API alias retirement from the maintainer-supplied notice
   {
     alias: "gpt-daybreak-blue-latest",
     target: "gpt-5.6-sol",

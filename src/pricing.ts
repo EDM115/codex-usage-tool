@@ -32,7 +32,7 @@ export type PricingLoadResult = {
 
 const OPENAI_PRICING_URL = "https://developers.openai.com/api/docs/pricing.md";
 const MODELS_DEV_URL = "https://models.dev/api.json";
-const BUNDLED_PRICING_DATE = "2026-10-09";
+const BUNDLED_PRICING_DATE = "2026-10-17";
 const LONG_CONTEXT_THRESHOLD = 272_000;
 const ROSALIND_BILLING_START = "2026-10-05";
 const BUNDLED_TIER_START_DATES: Record<string, Partial<Record<PricingTier, string>>> = {
@@ -687,7 +687,7 @@ function pricingTableFromOpenAiMarkdown(
     const tierLabel = /^(?:grouped )?pricing table/.test(heading)
       ? ([
           ...preceding.matchAll(
-            /^[\t ]*(standard|batch|flex|priority|(?:ultra)?fast(?: mode)?|cyber models)[\t ]*\r?$/gim,
+            /^[\t ]*(standard|batch|flex|priority|(?:ultra)?fast(?: mode)?|cyber models|life sciences models)[\t ]*\r?$/gim,
           ),
         ]
           .at(-1)?.[1]
