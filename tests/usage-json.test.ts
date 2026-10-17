@@ -467,6 +467,7 @@ test("generate rebuilds every report artifact from usage JSON without a Codex ho
       process.execPath,
       "src/cli.ts",
       "generate",
+      "--no-auto-discovery",
       "--usage-json",
       inputPath,
       "--payments-json",

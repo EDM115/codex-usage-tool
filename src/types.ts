@@ -512,6 +512,7 @@ export type CliOptions = {
   codexHomes: string[];
   codexRoots: string[];
   usageJsons: string[];
+  noAutoDiscovery: boolean;
   noHistory: boolean;
   refreshPayments?: boolean;
   outDir: string;

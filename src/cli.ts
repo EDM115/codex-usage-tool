@@ -30,13 +30,13 @@ async function main() {
   }
 
   const progress = new CliProgress({ silent: options.silent });
-  progress.setSteps(globalProgressSteps(options));
 
   const codexHomes = resolveCodexHomes(
     options.codexHomes,
     options.codexRoots,
-    options.usageJsons.length === 0,
+    !options.noAutoDiscovery,
   );
+  progress.setSteps(globalProgressSteps(options, codexHomes.length > 0));
   progress.step(
     `Resolved ${codexHomes.length} ${pluralize("Codex home", codexHomes.length)}`,
     codexHomes.length > 0 ? "success" : options.usageJsons.length > 0 ? "neutral" : "failure",
@@ -397,6 +397,7 @@ export function parseArgs(args: string[]): CliOptions {
     codexHomes: [],
     codexRoots: [],
     usageJsons: [],
+    noAutoDiscovery: false,
     noHistory: false,
     outDir: "outputs/codex-usage",
     from: null,
@@ -449,6 +450,10 @@ export function parseArgs(args: string[]): CliOptions {
         break;
       case "--usage-json":
         options.usageJsons.push(next());
+
+        break;
+      case "--no-auto-discovery":
+        options.noAutoDiscovery = true;
 
         break;
       case "--refresh-payments":
@@ -539,13 +544,9 @@ export function parseArgs(args: string[]): CliOptions {
   return options;
 }
 
-function globalProgressSteps(options: CliOptions): Array<{ weight: number }> {
+function globalProgressSteps(options: CliOptions, hasLocalHomes: boolean): Array<{ weight: number }> {
   // Weights are relative progress-bar budget, not measurements of elapsed time. A loop updates its own `completed / total` fraction within this budget, so expensive local work stays visible without making the bar jump backwards when the number of rollout files is discovered at runtime
-  if (
-    options.usageJsons.length > 0 &&
-    options.codexHomes.length === 0 &&
-    options.codexRoots.length === 0
-  ) {
+  if (!hasLocalHomes) {
     return [
       1, // Resolve the requested Codex homes (none for imported-only reports)
       1, // Read the usage JSON inputs
@@ -626,6 +627,7 @@ Data options :
   --codex-home <path>        Add a .codex directory, repeatable
   --codex-root <path>        Add a parent directory containing .codex, repeatable
   --usage-json <path>        Add a generated usage-data.json, repeatable
+  --no-auto-discovery        Skip automatic CODEX_HOME and current-user .codex discovery
   --refresh-payments         Refresh payment history even if its seven-day cache is fresh
   --no-history               Do not reuse usage-data.json already in --out
   --source <mode>            hybrid (default) | backend | local
@@ -657,7 +659,7 @@ Theme :
 Examples :
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --out outputs\\codex-usage
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --codex-home D:\\Laptop\\.codex --from 2026-01-01
-  bun usage generate --usage-json D:\\Shared\\usage-data.json --out outputs\\codex-usage
+  bun usage generate --usage-json D:\\Shared\\usage-data.json --no-auto-discovery --out outputs\\codex-usage
   bun usage generate --usage-json D:\\Shared\\usage-data.json --payments-json D:\\Shared\\payments.json --no-api
   bun usage generate --codex-home C:\\Users\\EDM115\\.codex --usage-json D:\\Laptop\\usage-data.json
 `;

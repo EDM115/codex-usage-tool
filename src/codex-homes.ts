@@ -1,6 +1,7 @@
 import type { CodexHome } from "./types";
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join, parse, resolve } from "node:path";
 
 import { dirExists } from "./util";
@@ -14,18 +15,14 @@ export function resolveCodexHomes(
   candidates.push(...homeInputs);
   candidates.push(...(rootInputs.map(resolveRootToCodexHome).filter(Boolean) as string[]));
 
-  if (candidates.length === 0 && autoDiscover) {
+  if (autoDiscover) {
     const envHome = process.env.CODEX_HOME;
 
     if (envHome) {
       candidates.push(envHome);
     }
 
-    const userProfile = process.env.USERPROFILE || process.env.HOME;
-
-    if (userProfile) {
-      candidates.push(join(userProfile, ".codex"));
-    }
+    candidates.push(join(homedir(), ".codex"));
   }
 
   const seen = new Set<string>();
@@ -34,9 +31,19 @@ export function resolveCodexHomes(
   for (const candidate of candidates) {
     const resolved = resolveRootToCodexHome(candidate) ?? candidate;
     const absolute = resolve(resolved);
-    const key = absolute.toLowerCase();
+    if (!dirExists(absolute)) {
+      continue;
+    }
 
-    if (seen.has(key) || !dirExists(absolute)) {
+    let canonical = absolute;
+    try {
+      canonical = realpathSync(absolute);
+    } catch {
+      // Keep the resolved path if canonicalization is unavailable
+    }
+    const key = process.platform === "win32" ? canonical.toLowerCase() : canonical;
+
+    if (seen.has(key)) {
       continue;
     }
 

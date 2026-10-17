@@ -68,13 +68,13 @@ bun install --frozen-lockfile
 Requirements :
 
 - Bun 1.3.3 or newer
-- A readable Codex home, usually `C:\Users\<you>\.codex` or at least one generated `usage-data.json`
+- A readable Codex home, usually `~/.codex` on macOS/Linux or `%USERPROFILE%\.codex` on Windows or at least one generated `usage-data.json`
 - Optional network access for Profile, WHAM dashboard, payment history, theme and pricing refreshes (make sure you're authenticated through the Codex CLI)
 
 ## Quick start
 
 ```pwsh
-bun usage generate --codex-home "C:\Users\EDM115\.codex" --out ./usage
+bun usage generate --out ./usage
 ```
 
 Then open `usage/usage-report.html` or serve it with Bun while iterating :
@@ -102,6 +102,7 @@ Pass multiple `.codex` folders to combine usage across desktops, laptops, WSL pr
 bun usage generate --codex-home "C:\Users\EDM115\.codex" --codex-home "D:\Backups\Laptop\.codex" --codex-root "E:\OldMachines\DesktopProfile" --from 2026-01-01 --to 2026-06-30 --out ./usage
 ```
 
+The tool automatically checks `.codex` directly inside the current user's home directory on Windows, macOS and Linux, and includes `CODEX_HOME` when set. Existing automatic homes are added alongside explicit homes, roots and JSON inputs, other user profiles and nested directories are not scanned. Equivalent paths and symlinks to the same directory are included once, with explicit inputs taking precedence. Use `--no-auto-discovery` to disable both automatic checks while keeping explicit inputs  
 `--codex-home` accepts a `.codex` directory. `--codex-root` accepts either a `.codex` directory or a parent directory that contains one  
 Each home resolves its own credentials. Profile, WHAM and payment APIs run once per distinct ChatGPT account, while multiple homes for the same account contribute local enrichment without duplicating backend totals. Requests keep their account headers and thread queries separate, and live progress includes the home name when several accounts are active. Generated JSON retains opaque account scopes so later merges sum different accounts and deduplicate snapshots from the same account. Plan-limit percentages remain separate for each account  
 Payment caches remain separate per account, keep their original fetch timestamps and use the existing seven-day freshness and subscription-renewal rules. Imported histories must record a matching account scope to establish cache freshness, an older unscoped JSON can contribute historical invoices but cannot replace a current API fetch merely because its home path matches. Monthly `--payments-json` overrides apply once to the combined report. Legacy profile and WHAM records can be associated with an account when their source homes map uniquely to one known account, that migration assumes the home's historical ownership remained stable. Unknown or conflicting ownership uses historical fallback coverage and reports a diagnostic
@@ -120,16 +121,16 @@ When several homes have credentials for the same account, the resolver prefers a
 Rebuild every JSON, CSV, SVG, PNG and HTML artifact from one shared dataset :
 
 ```pwsh
-bun usage generate --usage-json "D:\Shared\usage-data.json" --out ./usage
+bun usage generate --usage-json "D:\Shared\usage-data.json" --no-auto-discovery --out ./usage
 ```
 
 Combine several shared datasets with this machine's local Codex history :
 
 ```pwsh
-bun usage generate --codex-home "$env:USERPROFILE\.codex" --usage-json "D:\Laptop\usage-data.json" --usage-json "D:\Workstation\usage-data.json" --out ./usage
+bun usage generate --usage-json "D:\Laptop\usage-data.json" --usage-json "D:\Workstation\usage-data.json" --out ./usage
 ```
 
-Explicit `--usage-json` inputs without an explicit `--codex-home` or `--codex-root` disable home discovery, keeping the recipient's history out. Current portable files deduplicate local events and sources by event identity. WHAM daily buckets merge by UTC date, with the newest fetched snapshot winning overlaps, plan periods merge by period ID and top chats by thread ID. Aggregate totals are rebuilt from dated buckets to avoid counting the same account per machine  
+`--usage-json` keeps automatic home discovery enabled, add `--no-auto-discovery` to rebuild only the supplied JSON or explicit homes. Current portable files deduplicate local events and sources by event identity. WHAM daily buckets merge by UTC date, with the newest fetched snapshot winning overlaps, plan periods merge by period ID and top chats by thread ID. Aggregate totals are rebuilt from dated buckets to avoid counting the same account per machine  
 Legacy aggregate-only JSON is accepted and migrated in memory without rewriting the source. Exact event overlap cannot be recovered. If source manifests overlap, the later aggregate is skipped and `legacyOverlaps` appears in JSON, CLI warnings and HTML  
 Version-2 files upgrade in memory to version 4 with an unavailable payment block, sources are never rewritten. Since version 3, API payment facts contain only a SHA-256 transaction fingerprint, month, USD amount, payment day and subscription marker when available. The original payment-fetch timestamp is preserved across report regeneration. Fingerprints deduplicate invoices across inputs, distinct paid transactions in a month are summed. Imported monthly overrides use first-input precedence. Current `--payments-json` values override all imported values for that month, including an explicit zero  
 Portable JSON retains its timezone because daily buckets are already computed. All combined files and any explicit `--timezone` must match. Active pricing reprices each daily model/service-tier breakdown using that date's alias, default model and effective price before rebuilding multi-day totals. When every portable input has event-level data, `--from` and `--to` filter dated local events, daily WHAM buckets, tool activity, top chats with known update dates and overlapping plan periods in generated JSON. Aggregate-only legacy inputs cannot be reliably re-filtered  
@@ -173,6 +174,7 @@ help       Show CLI help (default)
 --codex-home <path>                        Add a .codex directory, repeatable
 --codex-root <path>                        Add a parent directory containing .codex, repeatable
 --usage-json <path>                        Add a generated usage-data.json, repeatable
+--no-auto-discovery                        Skip automatic CODEX_HOME and current-user .codex discovery
 --no-history                               Ignore an existing --out/usage-data.json instead of merging its history
 --out <path>                               Output directory (default : outputs/codex-usage)
 --from YYYY-MM-DD                          Inclusive date filter, unavailable with --usage-json

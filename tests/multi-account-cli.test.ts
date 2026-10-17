@@ -24,7 +24,7 @@ function home(root: string, name: string, auth: unknown, tokens: number) {
 
 async function collect(root: string, homes: string[], baseUrl: string, extra: string[] = []) {
   const out = join(root, "output");
-  const child = Bun.spawn([process.execPath, resolve("src/cli.ts"), "collect", ...homes.flatMap((path) => ["--codex-home", path]), "--base-url", baseUrl, "--pricing-source", "bundled", "--sections", "skills,chats", "--from", "2026-10-01", "--to", "2026-10-02", "--no-history", "--out", out, ...extra], { cwd: root, stdout: "pipe", stderr: "pipe", env: { ...process.env, CODEX_API_KEY: "", OPENAI_API_KEY: "" } });
+  const child = Bun.spawn([process.execPath, resolve("src/cli.ts"), "collect", "--no-auto-discovery", ...homes.flatMap((path) => ["--codex-home", path]), "--base-url", baseUrl, "--pricing-source", "bundled", "--sections", "skills,chats", "--from", "2026-10-01", "--to", "2026-10-02", "--no-history", "--out", out, ...extra], { cwd: root, stdout: "pipe", stderr: "pipe", env: { ...process.env, CODEX_API_KEY: "", OPENAI_API_KEY: "" } });
   const [exit, stderr, stdout] = await Promise.all([child.exited, new Response(child.stderr).text(), new Response(child.stdout).text()]);
   expect(exit, stderr).toBe(0);
   return { dataset: loadUsageDatasets([join(out, "usage-data.json")])[0], stderr, stdout, text: readFileSync(join(out, "usage-data.json"), "utf8") };
