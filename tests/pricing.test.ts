@@ -967,7 +967,7 @@ test("Rosalind stays free until its billing date with bundled, live and offline 
   }
 });
 
-test("the October 17 snapshot keeps Rosalind models separate with only published Standard rates", async () => {
+test("the refreshed snapshot preserves earlier Rosalind models with only published Standard rates", async () => {
   const offline = (async (_input: string | URL | Request): Promise<Response> => {
     throw new Error("offline");
   }) as typeof fetch;
@@ -1001,7 +1001,7 @@ test("the October 17 snapshot keeps Rosalind models separate with only published
     }
     expect(primaryModelAt(pricing.catalog, "2026-10-17")).toBe("gpt-6-astra");
   }
-  expect(sources[0].table.get("gpt-rosalind-discovery")?.source).toContain("2026-10-17");
+  expect(sources[0].table.get("gpt-rosalind-discovery")?.source).toContain("2026-11-01");
 });
 
 test("Life sciences grouped tables reset a preceding Fast or Ultrafast tier", async () => {
@@ -1063,4 +1063,117 @@ test("CLI pricing defaults to the authoritative OpenAI catalog", () => {
 test("--estimate-model is an explicit override instead of a timeless default", () => {
   expect(parseArgs(["generate"]).estimateModel).toBeUndefined();
   expect(parseArgs(["generate", "--estimate-model", "gpt-5.4"]).estimateModel).toBe("gpt-5.4");
+});
+
+test("split pricing tables retain official legacy rows and nested Batch and Flex tiers", async () => {
+  const pricing = await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-11-01");
+  for (const [model, input, cached, output] of [
+    ["gpt-5.1", 1.25, 0.125, 10],
+    ["gpt-5.4-mini", 0.75, 0.075, 4.5],
+    ["o3", 2, 0.5, 8],
+  ] as const) {
+    expect(pricing.table.get(model)?.source).toBe("developers.openai.com/api/docs/pricing.md");
+    expect(pricing.table.get(model)?.tiers?.standard?.short).toMatchObject({ inputPerMillion: input, cachedInputPerMillion: cached, outputPerMillion: output });
+  }
+  expect(pricing.table.get("gpt-5.4-mini")?.tiers?.batch?.short.outputPerMillion).toBe(2.25);
+  expect(pricing.table.get("gpt-5.4-mini")?.tiers?.flex?.short.outputPerMillion).toBe(2.25);
+  expect(pricing.table.get("gpt-5.4-mini")?.tiers?.priority?.short.outputPerMillion).toBe(9);
+  expect(pricing.table.get("o3")?.tiers?.batch?.short.cachedInputPerMillion).toBeUndefined();
+  expect(pricing.table.get("o3")?.tiers?.flex?.short.cachedInputPerMillion).toBe(0.25);
+  expect(pricing.table.get("gpt-5.2-pro")?.tiers).not.toHaveProperty("flex");
+  expect(pricing.table.get("gpt-6.1-sol")?.tiers?.flex?.long?.outputPerMillion).toBe(7.5);
+  expect(pricing.table.get("gpt-6-astra-law")?.tiers?.standard?.short).toMatchObject({ inputPerMillion: 10, cachedInputPerMillion: 1, outputPerMillion: 50 });
+  expect(Object.keys(pricing.table.get("gpt-6-astra-law")?.tiers ?? {})).toEqual(["standard"]);
+  expect(pricing.table.get("gpt-6-astra-law")?.tiers?.standard?.long).toBeUndefined();
+  for (const model of ["gpt-live-1", "sora-2", "gpt-4.1-2025-04-14", "o4-mini-2025-04-16"]) expect(pricing.table.has(model)).toBe(false);
+});
+
+test("Terra, Rosalind and Astra Law pricing starts on each release across bundled, live and offline sources", async () => {
+  const offline = (async (_input: string | URL | Request): Promise<Response> => { throw new Error("offline"); }) as typeof fetch;
+  const sources = [await loadPricing({ source: "bundled" }), await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-09-16"), await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-11-01"), await loadPricing({ source: "openai", fetcher: offline })];
+  for (const pricing of sources) {
+    for (const [model, before, released, cost] of [
+      ["gpt-6.1-terra", "2026-10-25", "2026-10-26", 6],
+      ["gpt-6-rosalind", "2026-10-29", "2026-10-30", 90],
+      ["gpt-6-astra-law", "2026-09-16", "2026-09-17", 60],
+    ] as const) {
+      expect(pricingAt(pricing.catalog, model, before)).toBeUndefined();
+      expect(pricingAt(pricing.catalog, model, released)?.effectiveFrom).toBe(released);
+      expect(estimate(pricing, model, undefined, ONE_MILLION_INPUT_AND_OUTPUT, undefined, released)).toBe(cost);
+      expect(pricing.table.get(model)?.aliasFor).toBeUndefined();
+      expect(pricing.catalog.models.find((entry) => entry.model === model)?.canBePrimary).toBe(false);
+      expect(primaryModelAt(pricing.catalog, released)).toBe("gpt-6-astra");
+    }
+    expect(Object.keys(pricing.table.get("gpt-6.1-terra")?.tiers ?? {}).sort()).toEqual(["batch", "flex", "priority", "standard"]);
+    const request = { ...ONE_MILLION_INPUT_AND_OUTPUT, totalTokens: 400_000, inputTokens: 300_000, cachedInputTokens: 100_000, outputTokens: 100_000 };
+    expect(estimate(pricing, "gpt-6.1-terra", "standard", request, 1_050_000)).toBeCloseTo(1.16);
+    expect(estimate(pricing, "gpt-6.1-terra", "batch", request, 1_050_000)).toBeCloseTo(0.58);
+    expect(estimate(pricing, "gpt-6.1-terra", "fast", request, 1_050_000)).toBeCloseTo(2.32);
+    expect(estimate(pricing, "gpt-6-rosalind", "standard", request, 1_050_000)).toBeCloseTo(17.55);
+    expect(Object.keys(pricing.table.get("gpt-6-rosalind")?.tiers ?? {})).toEqual(["standard"]);
+  }
+});
+
+test("30-minute write prices remain compatible and 12-hour write prices start October 20", async () => {
+  const sources = [await loadPricing({ source: "bundled" }), await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-10-19"), await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-10-20")];
+  for (const pricing of sources) {
+    for (const model of ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-cyber"]) {
+      const before = pricingAt(pricing.catalog, model, "2026-10-19");
+      const after = pricingAt(pricing.catalog, model, "2026-10-20");
+      expect(before?.cacheWritePerMillion).toBeGreaterThan(0);
+      expect(before?.cacheWrite12hPerMillion).toBeUndefined();
+      expect(after?.effectiveFrom).toBe("2026-10-20");
+      expect(after?.cacheWrite12hPerMillion).toBe((after?.cacheWritePerMillion ?? 0) * 2);
+      for (const context of Object.values(before?.tiers ?? {})) {
+        expect(context?.short.cacheWrite12hPerMillion).toBeUndefined();
+        expect(context?.long?.cacheWrite12hPerMillion).toBeUndefined();
+      }
+    }
+    const sol = pricingAt(pricing.catalog, "gpt-6.1-sol", "2026-10-20");
+    expect(sol?.tiers?.standard?.short.cacheWritePerMillion).toBe(2.5);
+    expect(sol?.tiers?.standard?.long?.cacheWrite12hPerMillion).toBe(10);
+    expect(sol?.tiers?.flex?.short.cacheWrite12hPerMillion).toBe(2.5);
+    expect(sol?.tiers?.ultrafast?.long?.cacheWrite12hPerMillion).toBe(60);
+    for (const model of ["gpt-rosalind-research", "gpt-rosalind-discovery", "gpt-6-astra-law"]) expect(pricingAt(pricing.catalog, model, "2026-11-01")?.cacheWrite12hPerMillion).toBeUndefined();
+    expect(pricingAt(pricing.catalog, "gpt-6.1-terra", "2026-10-26")?.cacheWrite12hPerMillion).toBe(2.5);
+    expect(pricingAt(pricing.catalog, "gpt-6-rosalind", "2026-10-30")?.tiers?.standard?.long?.cacheWrite12hPerMillion).toBe(75);
+  }
+});
+
+test("removed official rows retain recorded prices and published tiers for historical reports", async () => {
+  for (const pricing of [await loadPricing({ source: "bundled" }), await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-11-01")]) {
+    for (const [model, standard, batch, batchInput] of [["gpt-3.5-turbo-1106", 3, 3, 1], ["gpt-3.5-turbo-instruct", 3.5, undefined, undefined], ["davinci-002", 4, 2, 1], ["babbage-002", 0.8, 0.4, 0.2], ["gpt-image-1", 45, 22.5, 2.5]] as const) {
+      expect(estimate(pricing, model, "standard", ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-10-17")).toBe(standard);
+      expect(pricingAt(pricing.catalog, model, "2026-10-17")?.tiers?.batch?.short.inputPerMillion).toBe(batchInput);
+      if (batch !== undefined) expect(estimate(pricing, model, "batch", ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-10-17")).toBe(batch);
+      expect(pricing.table.get(model)?.tiers).not.toHaveProperty("priority");
+      expect(pricing.table.get(model)?.source).toContain("2026-10-17");
+    }
+  }
+});
+
+test("legal grouped tables reset the preceding Fast tier", async () => {
+  const markdown = `Fast\n### Grouped Pricing Table data\n| Model | Input | Output | Cached input |\n| --- | --- | --- | --- |\n| gpt-probe | $8 | $40 | $0.8 |\n\nLegal model configurations\n### Grouped Pricing Table data\n| Model configuration | Input | Output | Cached input |\n| --- | --- | --- | --- |\n| gpt-law-probe | $10 | $50 | $1 |`;
+  const pricing = await loadFixture(markdown, "2026-11-01");
+  expect(Object.keys(pricing.table.get("gpt-law-probe")?.tiers ?? {})).toEqual(["standard"]);
+  expect(pricing.table.get("gpt-law-probe")?.outputPerMillion).toBe(50);
+});
+
+test("custom 12-hour write rates override published history and are validated", async () => {
+  const directory = join(tmpdir(), `codex-write-pricing-${crypto.randomUUID()}`);
+  mkdirSync(directory, { recursive: true });
+  const path = join(directory, "pricing.json");
+  const custom = { model: "gpt-6.1-sol", inputPerMillion: 2, cachedInputPerMillion: 0.1, cacheWritePerMillion: 2.5, cacheWrite12hPerMillion: 7, outputPerMillion: 10 };
+  writeFileSync(path, JSON.stringify([custom]));
+  const flat = await loadPricing({ source: "bundled", pricingJson: path, effectiveDate: "2026-10-18" });
+  expect(pricingAt(flat.catalog, custom.model, "2026-10-18")?.cacheWrite12hPerMillion).toBe(7);
+  writeFileSync(path, JSON.stringify([{ ...custom, effectiveFrom: "2026-10-18" }]));
+  const dated = await loadPricing({ source: "bundled", pricingJson: path });
+  expect(pricingAt(dated.catalog, custom.model, "2026-10-18")?.cacheWrite12hPerMillion).toBe(7);
+  for (const invalid of [-1, NaN, Infinity]) {
+    expect(() => createModelCatalog([{ ...custom, cacheWrite12hPerMillion: invalid, effectiveFrom: "2026-10-20", source: "test" }])).toThrow("Invalid pricing rate");
+  }
+  const changed = await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE.replace("| $2.00 | $10.00 | $0.10 | $2.50 | $5.00 |", "| $2.00 | $10.00 | $0.10 | $2.50 | $7.00 |"), "2026-11-02");
+  expect(pricingAt(changed.catalog, custom.model, "2026-11-01")?.cacheWrite12hPerMillion).toBe(5);
+  expect(pricingAt(changed.catalog, custom.model, "2026-11-02")?.cacheWrite12hPerMillion).toBe(7);
 });

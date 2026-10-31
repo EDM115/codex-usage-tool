@@ -298,7 +298,8 @@ export type PricingTier = "standard" | "priority" | "ultrafast" | "batch" | "fle
 export type PricingRates = {
   inputPerMillion: number;
   cachedInputPerMillion?: number;
-  cacheWritePerMillion?: number;
+  cacheWritePerMillion?: number; // Default write rate, 30 minutes for models with explicit cache lifetimes
+  cacheWrite12hPerMillion?: number;
   outputPerMillion: number;
 };
 
