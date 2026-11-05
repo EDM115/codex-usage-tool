@@ -1729,6 +1729,8 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
     light: "#946000",
   });
   expect(parsedColorCatalog["gpt-image-2.5-flare"]).toEqual({ dark: "#ff956b", light: "#ad421c" });
+  expect(parsedColorCatalog["gpt-image-2.6-sunburst"]).toEqual({ dark: "#ffe08a", light: "#896100" });
+  expect(parsedColorCatalog["gpt-image-2.6-flare"]).toEqual({ dark: "#ffad85", light: "#a7461e" });
   expect(parsedColorCatalog["gpt-rosalind-research"]).toEqual({
     dark: "#79d7b5",
     light: "#16734f",

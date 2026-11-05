@@ -12,7 +12,7 @@ import {
 } from "../src/model-catalog";
 import { estimateBreakdownCost, estimateCacheSavingsUsd, loadPricing } from "../src/pricing";
 import { OPENAI_PRICING_MARKDOWN_CACHE } from "../src/openai-pricing-cache";
-import type { TokenBreakdown } from "../src/types";
+import type { PricingTier, TokenBreakdown } from "../src/types";
 
 const OPENAI_PRICING_FIXTURE = `
 <TextTokenPricingTables
@@ -1001,7 +1001,7 @@ test("the refreshed snapshot preserves earlier Rosalind models with only publish
     }
     expect(primaryModelAt(pricing.catalog, "2026-10-17")).toBe("gpt-6-astra");
   }
-  expect(sources[0].table.get("gpt-rosalind-discovery")?.source).toContain("2026-11-01");
+  expect(sources[0].table.get("gpt-rosalind-discovery")?.source).toContain("2026-11-05");
 });
 
 test("Life sciences grouped tables reset a preceding Fast or Ultrafast tier", async () => {
@@ -1150,6 +1150,75 @@ test("removed official rows retain recorded prices and published tiers for histo
       expect(pricing.table.get(model)?.source).toContain("2026-10-17");
     }
   }
+});
+
+test("November image models start November 4 with only their published Standard estimate", async () => {
+  const offline = (async (_input: string | URL | Request): Promise<Response> => { throw new Error("offline"); }) as typeof fetch;
+  const sources = [await loadPricing({ source: "bundled" }), await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-11-03"), await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-11-04"), await loadPricing({ source: "openai", fetcher: offline })];
+  for (const pricing of sources) {
+    for (const model of ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare"]) {
+      expect(pricingAt(pricing.catalog, model, "2026-11-03")).toBeUndefined();
+      const released = pricingAt(pricing.catalog, model, "2026-11-04");
+      expect(released?.effectiveFrom).toBe("2026-11-04");
+      expect(released).toMatchObject({ inputPerMillion: 5, cachedInputPerMillion: 1.25, outputPerMillion: 30 });
+      expect(Object.keys(released?.tiers ?? {})).toEqual(["standard"]);
+      expect(released?.tiers?.standard?.long).toBeUndefined();
+      expect(released?.cacheWritePerMillion).toBeUndefined();
+      expect(released?.cacheWrite12hPerMillion).toBeUndefined();
+      expect(pricing.table.get(model)?.aliasFor).toBeUndefined();
+      expect(pricing.catalog.models.find((entry) => entry.model === model)?.canBePrimary).toBe(false);
+      expect(estimate(pricing, model, "standard", ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-11-04")).toBe(35);
+      expect(estimate(pricing, model, "standard", { ...ONE_MILLION_INPUT_AND_OUTPUT, cachedInputTokens: 1_000_000 }, undefined, "2026-11-04")).toBe(31.25);
+    }
+    expect(primaryModelAt(pricing.catalog, "2026-11-04")).toBe("gpt-6-astra");
+  }
+});
+
+test("November removals preserve the last published rates and supported tiers across retirement", async () => {
+  const retired: { model: string; tiers: Partial<Record<PricingTier, [number, number | undefined, number]>> }[] = [
+    { model: "gpt-4.1-nano", tiers: { standard: [0.1, 0.025, 0.4], batch: [0.05, undefined, 0.2], priority: [0.2, 0.05, 0.8] } },
+    { model: "gpt-4o-2024-05-13", tiers: { standard: [5, undefined, 15], batch: [2.5, undefined, 7.5], priority: [8.75, undefined, 26.25] } },
+    { model: "o1", tiers: { standard: [15, 7.5, 60], batch: [7.5, undefined, 30] } },
+    { model: "o1-pro", tiers: { standard: [150, undefined, 600], batch: [75, undefined, 300] } },
+    { model: "o4-mini", tiers: { standard: [1.1, 0.275, 4.4], batch: [0.55, undefined, 2.2], flex: [0.55, 0.138, 2.2], priority: [2, 0.5, 8] } },
+    { model: "o3-mini", tiers: { standard: [1.1, 0.55, 4.4], batch: [0.55, undefined, 2.2] } },
+    { model: "gpt-4-turbo-2024-04-09", tiers: { standard: [10, undefined, 30], batch: [5, undefined, 15] } },
+    { model: "gpt-4-0613", tiers: { standard: [30, undefined, 60], batch: [15, undefined, 30] } },
+    { model: "gpt-3.5-turbo", tiers: { standard: [0.5, undefined, 1.5] } },
+    { model: "gpt-3.5-turbo-0125", tiers: { standard: [0.5, undefined, 1.5], batch: [0.25, undefined, 0.75] } },
+  ];
+  const offline = (async (_input: string | URL | Request): Promise<Response> => { throw new Error("offline"); }) as typeof fetch;
+  for (const pricing of [await loadPricing({ source: "bundled" }), await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, "2026-11-05"), await loadPricing({ source: "openai", fetcher: offline })]) {
+    for (const { model, tiers } of retired) {
+      for (const date of ["2026-11-03", "2026-11-04", "2026-11-05"]) {
+        const period = pricingAt(pricing.catalog, model, date);
+        expect(Object.keys(period?.tiers ?? {}).sort()).toEqual(Object.keys(tiers).sort());
+        for (const [tier, rates] of Object.entries(tiers)) {
+          const [input, cached, output] = rates;
+          const actual = period?.tiers?.[tier as PricingTier]?.short;
+          expect(actual).toMatchObject({ inputPerMillion: input, cachedInputPerMillion: cached, outputPerMillion: output });
+          expect(estimate(pricing, model, tier, ONE_MILLION_INPUT_AND_OUTPUT, undefined, date)).toBeCloseTo(input + output);
+        }
+      }
+      expect(pricing.table.get(model)?.source).toBe("historical OpenAI pricing cache 2026-11-01");
+    }
+  }
+});
+
+test("both fine-tuning category spellings exclude training rows from token pricing", async () => {
+  for (const category of ["Finetuning", "Fine-tuning"]) {
+    const pricing = await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE.replace("Fine-tuning", category), "2026-11-05");
+    for (const model of ["gpt-4.1-2025-04-14", "gpt-4.1-mini-2025-04-14", "gpt-4o-mini-2024-07-18"]) expect(pricing.table.has(model)).toBe(false);
+    expect(pricing.table.get("gpt-4o-2024-08-06")).toMatchObject({ inputPerMillion: 2.5, cachedInputPerMillion: 1.25, outputPerMillion: 10 });
+    expect(pricing.table.get("gpt-4.1")?.outputPerMillion).toBe(8);
+  }
+});
+
+test("an official row that reappears overrides the retired snapshot", async () => {
+  const pricing = await loadFixture("### Standard pricing data\n| Model | Input | Output | Cached input |\n| --- | --- | --- | --- |\n| gpt-4.1-nano | $0.30 | $0.90 | $0.075 |", "2026-11-05");
+  expect(pricing.table.get("gpt-4.1-nano")?.source).toBe("developers.openai.com/api/docs/pricing.md");
+  expect(estimate(pricing, "gpt-4.1-nano", "standard", ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-11-04")).toBeCloseTo(0.5);
+  expect(estimate(pricing, "gpt-4.1-nano", "standard", ONE_MILLION_INPUT_AND_OUTPUT, undefined, "2026-11-05")).toBeCloseTo(1.2);
 });
 
 test("legal grouped tables reset the preceding Fast tier", async () => {

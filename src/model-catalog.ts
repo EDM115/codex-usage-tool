@@ -149,6 +149,8 @@ export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
   model("gpt-image-1.5", "2025-12-16", SOURCES.changelog),
   model("gpt-image-2.5-sunburst", "2026-09-08", SOURCES.changelog),
   model("gpt-image-2.5-flare", "2026-09-08", SOURCES.changelog),
+  model("gpt-image-2.6-sunburst", "2026-11-04", SOURCES.changelog),
+  model("gpt-image-2.6-flare", "2026-11-04", SOURCES.changelog),
   model("gpt-rosalind-research", "2026-09-08", SOURCES.changelog),
   model("gpt-rosalind-discovery", "2026-10-10", SOURCES.rosalindDiscovery),
   // Duration-priced sessions are catalogued, but have no per-token pricing row

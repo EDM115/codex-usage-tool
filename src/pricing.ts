@@ -32,7 +32,7 @@ export type PricingLoadResult = {
 
 const OPENAI_PRICING_URL = "https://developers.openai.com/api/docs/pricing.md";
 const MODELS_DEV_URL = "https://models.dev/api.json";
-const BUNDLED_PRICING_DATE = "2026-11-01";
+const BUNDLED_PRICING_DATE = "2026-11-05";
 const LONG_CONTEXT_THRESHOLD = 272_000;
 const ROSALIND_BILLING_START = "2026-10-05";
 // https://developers.openai.com/api/docs/changelog, October 20 cache lifetime announcement
@@ -60,8 +60,9 @@ const LONG_CONTEXT_MODELS = new Set([
   "gpt-5.4-pro",
 ]);
 
-// Removed from the current page, retained for recorded usage with the last published tiers
-const RETIRED_OPENAI_PRICING_MARKDOWN = `
+// Removed from the current page, grouped by the last cached snapshot and retained for recorded usage
+const RETIRED_OPENAI_PRICING_MARKDOWN = {
+  "2026-10-17": `
 ### Standard pricing data
 | Model | Input | Output | Cached input |
 | --- | --- | --- | --- |
@@ -77,7 +78,46 @@ const RETIRED_OPENAI_PRICING_MARKDOWN = `
 | davinci-002 | $1.00 | $1.00 | - |
 | babbage-002 | $0.20 | $0.20 | - |
 | gpt-image-1 | $2.50 | $20.00 | $0.63 |
-`;
+`,
+  // November 4 removal assumed by the maintainer, original release and pricing dates remain intact
+  "2026-11-01": `
+### Standard pricing data
+| Model | Input | Output | Cached input |
+| --- | --- | --- | --- |
+| gpt-4.1-nano | $0.10 | $0.40 | $0.025 |
+| gpt-4o-2024-05-13 | $5.00 | $15.00 | - |
+| o1 | $15.00 | $60.00 | $7.50 |
+| o1-pro | $150.00 | $600.00 | - |
+| o4-mini | $1.10 | $4.40 | $0.275 |
+| o3-mini | $1.10 | $4.40 | $0.55 |
+| gpt-4-turbo-2024-04-09 | $10.00 | $30.00 | - |
+| gpt-4-0613 | $30.00 | $60.00 | - |
+| gpt-3.5-turbo | $0.50 | $1.50 | - |
+| gpt-3.5-turbo-0125 | $0.50 | $1.50 | - |
+### Batch pricing data
+| Model | Input | Output | Cached input |
+| --- | --- | --- | --- |
+| gpt-4.1-nano | $0.05 | $0.20 | - |
+| gpt-4o-2024-05-13 | $2.50 | $7.50 | - |
+| o1 | $7.50 | $30.00 | - |
+| o1-pro | $75.00 | $300.00 | - |
+| o4-mini | $0.55 | $2.20 | - |
+| o3-mini | $0.55 | $2.20 | - |
+| gpt-4-turbo-2024-04-09 | $5.00 | $15.00 | - |
+| gpt-4-0613 | $15.00 | $30.00 | - |
+| gpt-3.5-turbo-0125 | $0.25 | $0.75 | - |
+### Flex pricing data
+| Model | Input | Output | Cached input |
+| --- | --- | --- | --- |
+| o4-mini | $0.55 | $2.20 | $0.138 |
+### Fast pricing data
+| Model | Input | Output | Cached input |
+| --- | --- | --- | --- |
+| gpt-4.1-nano | $0.20 | $0.80 | $0.05 |
+| gpt-4o-2024-05-13 | $8.75 | $26.25 | - |
+| o4-mini | $2.00 | $8.00 | $0.50 |
+`,
+};
 
 const BUNDLED: ModelPricing[] = [
   // OpenAI docs fallback, present in OpenAI pricing, not currently in models.dev OpenAI table
@@ -1412,8 +1452,10 @@ function pricingFingerprint(row: ModelPricing) {
 }
 
 function addBundledFallbackRows(table: Map<string, ModelPricing>): void {
-  for (const [key, row] of pricingTableFromOpenAiMarkdown(RETIRED_OPENAI_PRICING_MARKDOWN, "historical OpenAI pricing cache 2026-10-17")) {
-    if (!table.has(key)) table.set(key, row);
+  for (const [date, markdown] of Object.entries(RETIRED_OPENAI_PRICING_MARKDOWN)) {
+    for (const [key, row] of pricingTableFromOpenAiMarkdown(markdown, `historical OpenAI pricing cache ${date}`)) {
+      if (!table.has(key)) table.set(key, row);
+    }
   }
   for (const bundledRow of BUNDLED) {
     const key = bundledRow.model.toLowerCase();

@@ -1,4 +1,4 @@
-// Checked-in fallback for https://developers.openai.com/api/docs/pricing.md, refreshed 2026-11-01
+// Checked-in fallback for https://developers.openai.com/api/docs/pricing.md, refreshed 2026-11-05
 // Runtime loading parses the same TextTokenPricingTables components from the live Markdown first
 export const OPENAI_PRICING_MARKDOWN_CACHE = String.raw`
 # Pricing
@@ -61,20 +61,10 @@ Standard
 | gpt-5-pro | $15.00 | $120.00 | - |
 | gpt-4.1 | $2.00 | $8.00 | $0.50 |
 | gpt-4.1-mini | $0.40 | $1.60 | $0.10 |
-| gpt-4.1-nano | $0.10 | $0.40 | $0.025 |
 | gpt-4o | $2.50 | $10.00 | $1.25 |
-| gpt-4o-2024-05-13 | $5.00 | $15.00 | - |
 | gpt-4o-mini | $0.15 | $0.60 | $0.075 |
-| o1 | $15.00 | $60.00 | $7.50 |
-| o1-pro | $150.00 | $600.00 | - |
 | o3-pro | $20.00 | $80.00 | - |
 | o3 | $2.00 | $8.00 | $0.50 |
-| o4-mini | $1.10 | $4.40 | $0.275 |
-| o3-mini | $1.10 | $4.40 | $0.55 |
-| gpt-4-turbo-2024-04-09 | $10.00 | $30.00 | - |
-| gpt-4-0613 | $30.00 | $60.00 | - |
-| gpt-3.5-turbo | $0.50 | $1.50 | - |
-| gpt-3.5-turbo-0125 | $0.50 | $1.50 | - |
 
     
 
@@ -117,19 +107,10 @@ Batch
 | gpt-5-pro | $7.50 | $60.00 | - |
 | gpt-4.1 | $1.00 | $4.00 | - |
 | gpt-4.1-mini | $0.20 | $0.80 | - |
-| gpt-4.1-nano | $0.05 | $0.20 | - |
 | gpt-4o | $1.25 | $5.00 | - |
-| gpt-4o-2024-05-13 | $2.50 | $7.50 | - |
 | gpt-4o-mini | $0.075 | $0.30 | - |
-| o1 | $7.50 | $30.00 | - |
-| o1-pro | $75.00 | $300.00 | - |
 | o3-pro | $10.00 | $40.00 | - |
 | o3 | $1.00 | $4.00 | - |
-| o4-mini | $0.55 | $2.20 | - |
-| o3-mini | $0.55 | $2.20 | - |
-| gpt-4-turbo-2024-04-09 | $5.00 | $15.00 | - |
-| gpt-4-0613 | $15.00 | $30.00 | - |
-| gpt-3.5-turbo-0125 | $0.25 | $0.75 | - |
 
 #### Flex
 
@@ -158,7 +139,6 @@ Batch
 | gpt-5-mini | $0.125 | $1.00 | $0.0125 |
 | gpt-5-nano | $0.025 | $0.20 | $0.0025 |
 | o3 | $1.00 | $4.00 | $0.25 |
-| o4-mini | $0.55 | $2.20 | $0.138 |
 
     
 
@@ -193,12 +173,9 @@ Fast
 | gpt-5-mini | $0.45 | $3.60 | $0.045 |
 | gpt-4.1 | $3.50 | $14.00 | $0.875 |
 | gpt-4.1-mini | $0.70 | $2.80 | $0.175 |
-| gpt-4.1-nano | $0.20 | $0.80 | $0.05 |
 | gpt-4o | $4.25 | $17.00 | $2.125 |
-| gpt-4o-2024-05-13 | $8.75 | $26.25 | - |
 | gpt-4o-mini | $0.25 | $1.00 | $0.125 |
 | o3 | $3.50 | $14.00 | $0.875 |
-| o4-mini | $2.00 | $8.00 | $0.50 |
 
     
 
@@ -221,7 +198,7 @@ Short context: ≤272K input tokens. Long context: >272K input tokens.
   
 
 
-Regional processing (data residency) endpoints are charged a 10% uplift for models released on or after March 5, 2026. Starting Nov 1, 2026, FedRAMP endpoints are also charged a 10% uplift. Priority processing was renamed Fast mode on July 30, 2026. GPT-5.6 Sol’s promotional pricing is available at least through November 21, 2026.
+Regional processing (data residency) endpoints are charged a 10% uplift for models released on or after March 5, 2026. FedRAMP endpoints are also charged a 10% uplift. Priority processing was renamed Fast mode on July 30, 2026. GPT-5.6 Sol’s promotional pricing is available until November 30, 2026.
 
   
 
@@ -408,6 +385,10 @@ Standard
 
 | Model | Modality | Input | Output | Cached input |
 | --- | --- | --- | --- | --- |
+| gpt-image-2.6-sunburst | Image | $8.00 | $30.00 | $2.00 |
+| gpt-image-2.6-sunburst | Text | $5.00 | - | $1.25 |
+| gpt-image-2.6-flare | Image | $8.00 | $30.00 | $2.00 |
+| gpt-image-2.6-flare | Text | $5.00 | - | $1.25 |
 | gpt-image-2.5-sunburst | Image | $8.00 | $30.00 | $2.00 |
 | gpt-image-2.5-sunburst | Text | $5.00 | - | $1.25 |
 | gpt-image-2.5-flare | Image | $8.00 | $30.00 | $2.00 |
@@ -574,7 +555,7 @@ Regional processing (data residency) endpoints are charged a 10% uplift for mode
 
     
 
-Finetuning
+Fine-tuning
 
 
     
@@ -605,16 +586,10 @@ Standard
 
 | Model | Training | Input | Output | Cached input |
 | --- | --- | --- | --- | --- |
-| o4-mini-2025-04-16 | $100.00 / hour | $4.00 | $16.00 | $1.00 |
-| o4-mini-2025-04-16 (data sharing) | $100.00 / hour | $2.00 | $8.00 | $0.50 |
 | gpt-4.1-2025-04-14 | $25.00 | $3.00 | $12.00 | $0.75 |
 | gpt-4.1-mini-2025-04-14 | $5.00 | $0.80 | $3.20 | $0.20 |
-| gpt-4.1-nano-2025-04-14 | $1.50 | $0.20 | $0.80 | $0.05 |
 | gpt-4o-2024-08-06 | $25.00 | $3.75 | $15.00 | $1.875 |
 | gpt-4o-mini-2024-07-18 | $3.00 | $0.30 | $1.20 | $0.15 |
-| gpt-3.5-turbo (legacy) | $8.00 | $3.00 | $6.00 | - |
-| davinci-002 (legacy) | $6.00 | $12.00 | $12.00 | - |
-| babbage-002 (legacy) | $0.40 | $1.60 | $1.60 | - |
 
     
 
@@ -629,16 +604,10 @@ Batch
 
 | Model | Training | Input | Output | Cached input |
 | --- | --- | --- | --- | --- |
-| o4-mini-2025-04-16 | $100.00 / hour | $2.00 | $8.00 | $0.50 |
-| o4-mini-2025-04-16 (data sharing) | $100.00 / hour | $1.00 | $4.00 | $0.25 |
 | gpt-4.1-2025-04-14 | $25.00 | $1.50 | $6.00 | $0.50 |
 | gpt-4.1-mini-2025-04-14 | $5.00 | $0.40 | $1.60 | $0.10 |
-| gpt-4.1-nano-2025-04-14 | $1.50 | $0.10 | $0.40 | $0.025 |
 | gpt-4o-2024-08-06 | $25.00 | $2.225 | $12.50 | $0.90 |
 | gpt-4o-mini-2024-07-18 | $3.00 | $0.15 | $0.60 | $0.075 |
-| gpt-3.5-turbo (legacy) | $8.00 | $1.50 | $3.00 | - |
-| davinci-002 (legacy) | $6.00 | $6.00 | $6.00 | - |
-| babbage-002 (legacy) | $0.40 | $0.80 | $0.90 | - |
 
 
 

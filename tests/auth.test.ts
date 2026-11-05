@@ -31,7 +31,7 @@ test("resolves file credentials independently for all homes and distinguishes AP
   ]);
 });
 
-test("uses the exact canonical home keyring identity and never falls back in explicit keyring mode", async () => {
+test.skipIf(process.platform !== "darwin")("uses the exact canonical home keyring identity and never falls back in explicit keyring mode", async () => {
   const original = home('cli_auth_credentials_store = "keyring"');
   const alias = join(original.path, "alias");
   symlinkSync(original.path, alias);
@@ -41,7 +41,7 @@ test("uses the exact canonical home keyring identity and never falls back in exp
   expect(result.credentials).toEqual([]);
 });
 
-test("auto prefers keyring and falls back after missing, invalid or unavailable keyring data", async () => {
+test.skipIf(process.platform !== "darwin")("auto prefers keyring and falls back after missing, invalid or unavailable keyring data", async () => {
   const target = home('cli_auth_credentials_store = "auto"');
   const secure = await resolveAuth([target], { readKeyring: async () => JSON.stringify({ OPENAI_API_KEY: "secure-synthetic" }) });
   expect(secure.credentials[0]).toMatchObject({ apiKey: "secure-synthetic" });
@@ -171,7 +171,7 @@ test("auto falls back when keyring JSON is syntactically valid but not a Codex a
   expect(result.credentials[0]).toMatchObject({ kind: "chatgpt", accessToken: "synthetic-chatgpt" });
 });
 
-test("system requirements override user storage and restrict env API-key login", async () => {
+test.skipIf(process.platform !== "darwin")("system requirements override user storage and restrict env API-key login", async () => {
   const target = home();
   const system = home();
   writeFileSync(join(system.path, "requirements.toml"), 'cli_auth_credentials_store = "keyring"\nallowed_login_methods = ["chatgpt"]');
