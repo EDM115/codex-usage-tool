@@ -30,6 +30,8 @@ const SOURCES = {
   gpt6Sol: "https://developers.openai.com/api/docs/models/gpt-6-sol",
   gpt61Sol: "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
   astraLaw: "https://openai.com/index/astra-for-law/",
+  astra62Law: "https://openai.com/index/astra-law-6-2/",
+  codex62Models: "https://github.com/openai/codex/commit/6c0cee502d215e5df2dd9a303cf2e252229c9e12",
   gpt6Luna: "https://developers.openai.com/api/docs/models/gpt-6-luna",
   gpt56: "https://openai.com/index/gpt-5-6/",
   gpt56Cyber: "https://developers.openai.com/api/docs/models/gpt-5.6-cyber",
@@ -71,11 +73,15 @@ function model(
 }
 
 export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
+  model("gpt-6.2-sol", "2026-11-17", SOURCES.codex62Models, true),
+  model("gpt-6.2-astra", "2026-11-17", SOURCES.changelog),
+  model("gpt-6.2-astra-law", "2026-11-17", SOURCES.astra62Law),
   model("gpt-6-astra", "2026-09-03", SOURCES.gpt6Astra, true),
   model("gpt-6-astra-law", "2026-09-17", SOURCES.astraLaw),
   model("gpt-6.1-sol", "2026-09-29", SOURCES.gpt61Sol),
   model("gpt-6.1-terra", "2026-10-26", SOURCES.changelog),
   model("gpt-6-rosalind", "2026-10-30", SOURCES.changelog),
+  model("gpt-6-cyber", "2026-11-05", SOURCES.changelog),
   model("gpt-6-sol", "2026-09-22", SOURCES.gpt6Sol),
   model("gpt-6-luna", "2026-09-22", SOURCES.gpt6Luna),
   model("gpt-5.6-sol", "2026-07-09", SOURCES.gpt56, true),
@@ -83,6 +89,8 @@ export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
   model("gpt-5.6-luna", "2026-07-09", SOURCES.gpt56),
   model("gpt-5.6-cyber", "2026-08-21", SOURCES.gpt56Cyber),
   model("gpt-5.5-cyber", "2026-07-30", SOURCES.pricing),
+  // Exact API identifier documented by this date, which is not a confirmed release date
+  model("gpt-5.5-cyber-preview", "2026-11-05", "https://developers.openai.com/api/docs/deprecations"),
   model("gpt-5.4-cyber", "2026-07-30", SOURCES.pricing),
   model("gpt-5.5", "2026-04-23", SOURCES.gpt55, true),
   model("gpt-5.5-pro", "2026-04-23", SOURCES.gpt55),

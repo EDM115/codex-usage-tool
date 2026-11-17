@@ -1,0 +1,64 @@
+name: "OpenAI pricing cache"
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pricing-cache:
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v7
+
+      - name: "Compare live pricing with the cache"
+        shell: bash
+        run: |
+          pricing_dir=$(mktemp -d)
+          trap 'rm -rf "$pricing_dir"' EXIT
+          pricing_url=https://developers.openai.com/api/docs/pricing.md
+
+          if ! content_type=$(curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 30 --output "$pricing_dir/live.md" --write-out '%{content_type}' "$pricing_url") || [[ "$content_type" != text/markdown* || ! -s "$pricing_dir/live.md" ]]; then
+            echo "::warning::Could not fetch pricing Markdown from OpenAI"
+            printf '%s\n' 'Pricing check inconclusive, OpenAI did not return the pricing Markdown' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node --input-type=module - "$pricing_dir" <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { OPENAI_PRICING_MARKDOWN_CACHE } from "./src/openai-pricing-cache.ts";
+
+          const directory = process.argv[2];
+          const normalizeNewlines = (markdown) => markdown.replace(/\r\n/g, "\n").replace(/\n?$/, "\n");
+          const cached = OPENAI_PRICING_MARKDOWN_CACHE
+            .replace(/^\n/, "")
+            .replace(/\\(?=`|\$\{)/g, "")
+            .replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+
+          writeFileSync(directory + "/cached.md", normalizeNewlines(cached));
+          const live = readFileSync(directory + "/live.md", "utf8");
+          writeFileSync(directory + "/live.md", normalizeNewlines(live));
+          NODE
+
+          if diff -u -L 'Cached pricing.md' -L 'Live pricing.md' "$pricing_dir/cached.md" "$pricing_dir/live.md" > "$pricing_dir/pricing.diff"; then
+            printf '%s\n' 'OpenAI pricing Markdown matches the bundled cache' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          else
+            diff_status=$?
+          fi
+
+          if [[ "$diff_status" -ne 1 ]]; then
+            printf '%s\n' 'Could not compare the live pricing Markdown with the cache' >> "$GITHUB_STEP_SUMMARY"
+            exit "$diff_status"
+          fi
+
+          {
+            printf '%s\n\n' 'OpenAI pricing Markdown differs from the bundled cache'
+            sed 's/^/    /' "$pricing_dir/pricing.diff"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
