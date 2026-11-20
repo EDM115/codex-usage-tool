@@ -204,6 +204,22 @@ test("batch heatmap and trend exports align partial weeks and retain compact axi
   expect(chart).toContain(">2026-07-01</text>");
   expect(chart).not.toContain(">2026-07-25</text>");
   expect(chart).toContain(">2026-07-26</text>");
+
+  const comparison = renderChartSvg({
+    ...dataset,
+    daily: [
+      { ...dataset.daily[0], totalTokens: 1_000_000, estimatedCostUsd: 2 },
+      { ...dataset.daily[1], totalTokens: 1_000_000, estimatedCostUsd: 6 },
+    ],
+  }, "daily", "bar");
+  const bars = [...comparison.matchAll(/<rect class="bar" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)"/g)];
+  const costDots = [...comparison.matchAll(/<circle class="trend-cost-dot" cx="([\d.]+)" cy="([\d.]+)"/g)];
+  expect(bars).toHaveLength(2);
+  expect(costDots).toHaveLength(2);
+  expect(Number(costDots[0][1])).toBeCloseTo(Number(bars[0][1]) + Number(bars[0][3]) / 2);
+  expect(bars[0][2]).toBe(bars[1][2]);
+  expect(Number(costDots[0][2])).toBeGreaterThan(Number(bars[0][2]));
+  expect(Number(costDots[1][2])).toBeLessThan(Number(bars[1][2]));
 });
 
 test("batch ROI export includes payment-only months and its own legend", async () => {

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { buildDemoDataset, serializeDemoDataset } from "../scripts/generate-demo";
-import { paymentMonthTotals } from "../src/payments";
+import { paymentDateTotals, paymentMonthTotals } from "../src/payments";
 import { renderReportHtml } from "../src/report-html";
 import { buildRoiMetrics } from "../src/report-runtime";
 import { loadUsageDatasets } from "../src/usage-json";
@@ -226,7 +226,7 @@ test("demo fixture is fresh, portable, complete, coherent and safe to share", as
   });
   expect(dataset.payments.sources.map((source) => source.kind)).toEqual(["api", "json"]);
   expect(Object.keys(dataset.payments.overrides)).toContain("2026-06");
-  const roi = buildRoiMetrics(dataset.daily, payments, "2025-12-01", "2026-09-23");
+  const roi = buildRoiMetrics(dataset.daily, paymentDateTotals(dataset.payments), "2025-12-01", "2026-09-23");
   expect(
     roi.monthly
       .filter((month) => month.month >= "2026-01")

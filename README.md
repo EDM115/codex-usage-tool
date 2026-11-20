@@ -16,7 +16,7 @@ Combine usage across machines and surfaces, reconciling authoritative backend to
 
 ## What it produces
 
-- Interactive `usage-report.html` with Codex-anchored 7d/30d/90d ranges, payment-aware all-time coverage, token heatmaps, smooth trend charts, token-composition drilldowns, subscription ROI, WHAM dashboard breakdowns, daily usage attribution by feature/model/surface/turn start, 5-hour and weekly plan-limit history, top chats, tool activity, messages by model/surface, local-session and prompt-cache metrics, coverage and attribution diagnostics, hover details and per-chart SVG/PNG downloads
+- Interactive `usage-report.html` with Codex-anchored 7d/30d/90d ranges, payment-aware all-time coverage, token heatmaps, token and estimated-cost trends with cost per million tokens, token-composition drilldowns, subscription ROI, WHAM dashboard breakdowns, daily usage attribution by feature/model/surface/turn start, 5-hour and weekly plan-limit history, top chats, tool activity, messages by model/surface, local-session and prompt-cache metrics, coverage and attribution diagnostics, hover details and per-chart SVG/PNG downloads
 - Static SVG/PNG heatmaps and charts for daily, weekly and cumulative views, plus the available attribution, tool activity and message charts
 - Version-4 `usage-data.json` with the normalized dataset, event identities, source manifests, local chat metadata, new account analytics, privacy-filtered payment facts, distinct session counts, attribution completeness/certainty, local coverage, parse-cache statistics and merge diagnostics used by the report
 - `cost-estimate.csv` for daily token and cost analysis
@@ -151,7 +151,7 @@ Usage Breakdown shows Token composition (local input, local output, unknown), In
 
 ### Return on investment
 
-ROI compares selected-range subscription spend with estimated API-equivalent usage value. Partial months allocate `monthly amount / calendar days in month` per selected day
+ROI compares the full payments recorded inside the selected date range with estimated API-equivalent usage value for those dates. Month-only payments use the first day of the month. Monthly overrides retain recorded dates when they match the existing total or replace payments on a single recorded day. A replacement total without a single date uses the first day of the month
 
 - `Value coverage = estimated API value / amount paid * 100`
 - `ROI = (estimated API value - amount paid) / amount paid * 100`
@@ -204,7 +204,7 @@ usage-report.html                              Interactive offline report
 usage-data.json                                Normalized report dataset
 cost-estimate.csv                              Daily token and estimated-cost table
 heatmap-{daily,weekly,cumulative}.{svg,png}    Daily/weekly/cumulative token intensity heatmap
-{area,bar}-{daily,weekly,cumulative}.{svg,png} Daily/weekly/cumulative token trend chart
+{area,bar}-{daily,weekly,cumulative}.{svg,png} Daily/weekly/cumulative token and estimated API cost trend chart
 usage-{feature,models,surfaces,turn}.{svg,png} Daily attributed usage charts when account data is available
 {plugin,skill}-activity.{svg,png}              Daily account tool activity charts when available
 messages-{model,surface}.{svg,png}             Daily account message charts when available

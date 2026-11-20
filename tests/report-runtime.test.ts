@@ -93,11 +93,11 @@ test("summarizeTokenComposition clamps malformed subset counters and reports the
   expect(summary.reasoningCounterExcess).toBe(5);
 });
 
-test("buildRoiMetrics prorates partial months and exposes both percentages", () => {
+test("buildRoiMetrics counts full payments on inclusive dates and exposes both percentages", () => {
   const daily = [reportDayWithCost("2026-06-30", 2), reportDayWithCost("2026-07-01", 6)];
   const metrics = buildRoiMetrics(
     daily,
-    { "2026-06": 30, "2026-07": 31 },
+    { "2026-06-29": 49, "2026-06-30": 1, "2026-07-01": 1, "2026-07-02": 75 },
     "2026-06-30",
     "2026-07-01",
   );
@@ -130,18 +130,17 @@ test("buildRoiMetrics prorates partial months and exposes both percentages", () 
   ]);
 });
 
-test("buildRoiMetrics handles leap February, zero spend, negative value and cent equality", () => {
-  const leap = buildRoiMetrics(
-    [reportDayWithCost("2028-02-29", 1)],
-    { "2028-02": 29 },
-    "2028-02-28",
-    "2028-02-29",
-  );
-  expect(leap.amountPaid).toBe(2);
+test("a single subscription is counted in full by the 20th only if the 4th is in range", () => {
+  const payments = { "2026-11-04": 240 };
+  expect(buildRoiMetrics([], payments, "2026-11-01", "2026-11-20").amountPaid).toBe(240);
+  expect(buildRoiMetrics([], payments, "2026-11-01", "2026-11-03").amountPaid).toBe(0);
+  expect(buildRoiMetrics([], payments, "2026-11-05", "2026-11-20").amountPaid).toBe(0);
+});
 
+test("buildRoiMetrics handles zero spend, negative value and cent equality", () => {
   const zero = buildRoiMetrics(
     [reportDayWithCost("2026-07-01", 3)],
-    { "2026-07": 0 },
+    { "2026-07-01": 0 },
     "2026-07-01",
     "2026-07-01",
   );
@@ -151,7 +150,7 @@ test("buildRoiMetrics handles leap February, zero spend, negative value and cent
 
   const negative = buildRoiMetrics(
     [reportDayWithCost("2026-07-01", 0.1)],
-    { "2026-07": 31 },
+    { "2026-07-01": 1 },
     "2026-07-01",
     "2026-07-01",
   );
@@ -161,7 +160,7 @@ test("buildRoiMetrics handles leap February, zero spend, negative value and cent
 
   const equal = buildRoiMetrics(
     [reportDayWithCost("2026-07-01", 1.003)],
-    { "2026-07": 31.124 },
+    { "2026-07-01": 1.004 },
     "2026-07-01",
     "2026-07-01",
   );
@@ -172,7 +171,7 @@ test("buildRoiMetrics handles leap February, zero spend, negative value and cent
 test("buildRoiMetrics includes payment-only months before the first Codex entry", () => {
   const metrics = buildRoiMetrics(
     [reportDayWithCost("2026-07-01", 20)],
-    { "2026-05": 31, "2026-07": 31 },
+    { "2026-05-15": 31, "2026-07-05": 31 },
     "2026-05-01",
     "2026-07-31",
   );
@@ -197,7 +196,7 @@ test("roiCurveSegments keeps payment-only ROI points and leaves gaps where spend
       reportDayWithCost("2026-06-01", 4),
       reportDayWithCost("2026-07-01", 8),
     ],
-    { "2026-05": 31, "2026-07": 31 },
+    { "2026-05-15": 31, "2026-07-05": 31 },
     "2026-05-01",
     "2026-07-31",
   );
@@ -276,20 +275,38 @@ test("reportRuntimeSource evaluates the exact exported helpers", () => {
     rangeForPreset(dates, "30d", ["2026-01"]),
   );
   expect(runtime.summarizeTokenComposition(days)).toEqual(summarizeTokenComposition(days));
-  expect(runtime.buildRoiMetrics(costDays, { "2026-07": 31 }, "2026-07-31", "2026-07-31")).toEqual(
-    buildRoiMetrics(costDays, { "2026-07": 31 }, "2026-07-31", "2026-07-31"),
+  expect(runtime.buildRoiMetrics(costDays, { "2026-07-31": 31 }, "2026-07-31", "2026-07-31")).toEqual(
+    buildRoiMetrics(costDays, { "2026-07-31": 31 }, "2026-07-31", "2026-07-31"),
   );
   expect(
     runtime.roiCurveSegments(
-      buildRoiMetrics(costDays, { "2026-07": 31 }, "2026-07-31", "2026-07-31").monthly,
+      buildRoiMetrics(costDays, { "2026-07-31": 31 }, "2026-07-31", "2026-07-31").monthly,
     ),
   ).toEqual(
     roiCurveSegments(
-      buildRoiMetrics(costDays, { "2026-07": 31 }, "2026-07-31", "2026-07-31").monthly,
+      buildRoiMetrics(costDays, { "2026-07-31": 31 }, "2026-07-31", "2026-07-31").monthly,
     ),
   );
   const surfaceRows = [surfaceRow("Unknown Default", { turns: 2 }), surfaceRow("Unknown")];
   expect(runtime.mergeSurfaceRows(surfaceRows)).toEqual(mergeSurfaceRows(surfaceRows));
+});
+
+test("the report trend totals tokens and estimated cost over the same periods", () => {
+  const buildUsageTrend = new Function(`${reportRuntimeSource()}\nreturn buildUsageTrend;`)();
+  const days = [
+    { ...reportDayWithCost("2026-06-26", 2), totalTokens: 1_000_000 },
+    { ...reportDayWithCost("2026-06-28", 2), totalTokens: 1_000_000 },
+    { ...reportDayWithCost("2026-06-29", 16), totalTokens: 2_000_000 },
+  ];
+
+  expect(buildUsageTrend(days, "weekly")).toMatchObject([
+    { label: "2026-06-22", tokens: 2_000_000, cost: 4 },
+    { label: "2026-06-29", tokens: 2_000_000, cost: 16 },
+  ]);
+  expect(buildUsageTrend(days.slice(1), "cumulative")).toMatchObject([
+    { label: "2026-06-28", tokens: 1_000_000, cost: 2 },
+    { label: "2026-06-29", tokens: 3_000_000, cost: 18 },
+  ]);
 });
 
 function surfaceRow(

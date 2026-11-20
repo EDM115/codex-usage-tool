@@ -1601,12 +1601,6 @@ return { exact, compact, money, percent: typeof percent === "function" ? percent
   expect(roiExportRuntime).toContain("Amount paid");
   expect(roiExportRuntime).toContain("Estimated API value");
   expect(roiExportRuntime).toContain("Conventional ROI");
-  const usageChartRuntime = html.slice(
-    html.indexOf("    function renderChart()"),
-    html.indexOf("    function renderRoi()"),
-  );
-  expect(usageChartRuntime).toContain("dateLabelIndexes");
-  expect(usageChartRuntime).toContain("day.date");
   const heatmapExportRuntime = html.slice(
     html.indexOf("    function serializedHeatmapSvg()"),
     html.indexOf("    function serializedDashboardSvg()"),

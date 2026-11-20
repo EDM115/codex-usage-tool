@@ -9,7 +9,7 @@ import type {
 
 import { readFileSync } from "node:fs";
 
-import { paymentMonthTotals } from "./payments";
+import { paymentDateTotals } from "./payments";
 import { rangeForPreset, reportRuntimeSource } from "./report-runtime";
 import { REPORT_SECTIONS, type ReportSection } from "./sections";
 import { extendedAnalyticsRuntimeSource } from "./report-extended";
@@ -233,9 +233,9 @@ export function renderReportHtml(
   const modelRowsJson = JSON.stringify(
     modelRowsNeeded ? buildReportModelRows(dataset) : [],
   ).replaceAll("</", "<\\/");
-  const paymentMonths = paymentMonthTotals(dataset.payments);
-  const paymentMonthsJson = JSON.stringify(paymentMonths).replaceAll("</", "<\\/");
-  const paymentEntryMonths = Object.keys(paymentMonths).sort();
+  const paymentsByDate = paymentDateTotals(dataset.payments);
+  const paymentsByDateJson = JSON.stringify(paymentsByDate).replaceAll("</", "<\\/");
+  const paymentEntryMonths = [...new Set(Object.keys(paymentsByDate).map((date) => date.slice(0, 7)))].sort();
   const reportDates = dataset.daily.map((day) => day.date).sort();
   const reportRange = rangeForPreset(reportDates, "30d", paymentEntryMonths);
   const reportFrom = reportRange.from;
@@ -380,11 +380,12 @@ export function renderReportHtml(
     svg.chart { display: block; width: 100%; min-width: 720px; height: 330px; }
     .grid { stroke: var(--line); }
     .axis { fill: var(--muted); font-size: 11px; }
-    .bar { fill: var(--accent); }
-    .line { stroke: var(--accent); fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-    .area { fill: var(--accent); opacity: 0.22; }
     .hit { fill: transparent; pointer-events: all; }
-    .chart-dot { fill: var(--accent); }
+    .trend-data > summary { width: fit-content; }
+    .trend-data table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
+    .trend-data th, .trend-data td { padding: 7px 12px; border-bottom: 1px solid var(--line); text-align: right; }
+    .trend-data th:first-child { text-align: left; }
+    .trend-data tbody th { font-weight: normal; }
     .roi-stats { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 1px; margin-bottom: 14px; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: var(--line); }
     .roi-stat { min-width: 0; padding: 12px; background: var(--bg); }
     .roi-stat strong { display: block; margin-bottom: 3px; font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -552,18 +553,25 @@ export function renderReportHtml(
       <div class="section-head">
         <div class="section-title">
           <h2>Usage trend</h2>
-          <p class="section-copy">Switch between daily, weekly and cumulative views, hover bars or points for token and cost detail</p>
+          <p id="trendHint" class="section-copy">Hover a period or open the data table for its estimated cost per million tokens</p>
         </div>
         <div class="section-actions">${downloadMenu("chart")}</div>
       </div>
-      <svg id="chart" class="chart" role="img" aria-label="Codex token usage chart"></svg>
+      <svg id="chart" class="chart" role="img" aria-label="Token usage and estimated API cost" aria-describedby="trendHint"></svg>
+      <details id="trendData" class="trend-data">
+        <summary>View trend data</summary>
+        <table aria-label="Token usage and estimated API cost by period">
+          <thead><tr><th scope="col">Date</th><th scope="col">Tokens</th><th scope="col">Estimated cost (USD)</th><th scope="col">Cost per 1M tokens</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </details>
     </section>
 
     <section class="section"${enabled("roi") ? "" : " hidden"}>
       <div class="section-head">
         <div class="section-title">
           <h2>Return on investment</h2>
-          <p class="section-copy">Selected-range recorded ChatGPT payments compared with API-equivalent usage value</p>
+          <p class="section-copy">ChatGPT payments count in full on their payment date, month-only amounts use the first of the month</p>
           ${dataset.authentication?.homes.some((home) => home.mode === "api-key") ? '<p class="section-copy">API-key usage is estimated from local history, API-platform payments are not included</p>' : ""}
         </div>
         <div class="section-actions">${downloadMenu("roi")}</div>
@@ -626,15 +634,16 @@ export function renderReportHtml(
   <div id="tooltip" class="tooltip"></div>
   <script id="usage-data" type="application/json">${dataJson}</script>
   <script id="model-rows" type="application/json">${modelRowsJson}</script>
-  <script id="payment-months" type="application/json">${paymentMonthsJson}</script>
+  <script id="payments-by-date" type="application/json">${paymentsByDateJson}</script>
   <script>
     ${reportRuntimeSource()}
     const dataset = JSON.parse(document.getElementById('usage-data').textContent);
     const reportSections = new Set(${sectionsJson});
     const reportModels = JSON.parse(document.getElementById('model-rows').textContent);
-    const paymentMonths = JSON.parse(document.getElementById('payment-months').textContent);
+    const paymentsByDate = JSON.parse(document.getElementById('payments-by-date').textContent);
+    const paymentDates = Object.keys(paymentsByDate);
     const reportDates = dataset.daily.map(function (day) { return day.date; });
-    const paymentEntryMonths = Object.keys(paymentMonths).sort();
+    const paymentEntryMonths = [...new Set(paymentDates.map(function (date) { return date.slice(0, 7); }))].sort();
     const modeEl = document.getElementById('mode');
     const chartStyleEl = document.getElementById('chartStyle');
     const rangePresetEl = document.getElementById('rangePreset');
@@ -648,6 +657,7 @@ export function renderReportHtml(
     const tooltip = document.getElementById('tooltip');
     const heatmap = document.getElementById('heatmap');
     const chart = document.getElementById('chart');
+    const trendData = document.getElementById('trendData');
     const roiContent = document.getElementById('roiContent');
     const roiUnavailable = document.getElementById('roiUnavailable');
     const roiPartial = document.getElementById('roiPartial');
@@ -1154,56 +1164,27 @@ export function renderReportHtml(
     }
 
     function renderChart() {
-      const days = values();
-      const width = 920, height = 330, left = 70, right = 28, top = 30, bottom = 42;
-      const chartW = width - left - right, chartH = height - top - bottom;
-      const max = Math.max(1, ...days.map(function (day) { return day.displayValue; }));
-      chart.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
-      chart.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      chart.innerHTML = '';
-
-      for (const frac of [0, .25, .5, .75, 1]) {
-        const y = top + chartH - frac * chartH;
-        chart.insertAdjacentHTML('beforeend', '<line x1="'+left+'" x2="'+(width-right)+'" y1="'+y+'" y2="'+y+'" class="grid"/><text x="'+(left-10)+'" y="'+(y+4)+'" text-anchor="end" class="axis">'+compact(max*frac)+'</text>');
-      }
-
-      const style = chartStyleEl.value === 'auto' ? (modeEl.value === 'daily' ? 'bar' : 'area') : chartStyleEl.value;
-      const dateLabelIndexes = new Set(sampleLabelIndexes(days.length, 8));
-
-      if (style === 'bar') {
-        const step = chartW / Math.max(1, days.length);
-        days.forEach(function (day, i) {
-          const h = day.displayValue / max * chartH;
-          const x = left + i * step;
-          const y = top + chartH - h;
-          chart.insertAdjacentHTML('beforeend', '<rect class="bar" x="'+x+'" y="'+y+'" width="'+Math.max(2, step-2)+'" height="'+h+'"></rect><rect class="hit" x="'+x+'" y="'+top+'" width="'+Math.max(3, step-1)+'" height="'+chartH+'" data-tip="'+escapeText(tipFor(day))+'"></rect>');
-        });
-      } else {
-        const pts = days.map(function (day, i) {
-          const x = left + (days.length <= 1 ? 0 : i / (days.length - 1) * chartW);
-          const y = top + chartH - day.displayValue / max * chartH;
-          return {x:x,y:y,day:day};
-        });
-
-        if (pts.length) {
-          const smooth = smoothPath(pts);
-          const area = 'M ' + pts[0].x + ' ' + (top+chartH) + ' L ' + pts[0].x + ' ' + pts[0].y + smooth.commands + ' L ' + pts[pts.length-1].x + ' ' + (top+chartH) + ' Z';
-          chart.insertAdjacentHTML('beforeend', '<path class="area" d="'+area+'"/><path class="line" d="'+smooth.line+'"/>');
-          pts.forEach(function (p) { chart.insertAdjacentHTML('beforeend', '<circle class="chart-dot" cx="'+p.x+'" cy="'+p.y+'" r="3"></circle><circle class="hit" cx="'+p.x+'" cy="'+p.y+'" r="10" data-tip="'+escapeText(tipFor(p.day))+'"></circle>'); });
-        }
-      }
-
-      days.forEach(function (day, index) {
-        if (!dateLabelIndexes.has(index)) return;
-        const x = days.length <= 1 ? left + chartW / 2 : left + index / (days.length - 1) * chartW;
-        chart.insertAdjacentHTML('beforeend', '<text x="'+x+'" y="'+(height-14)+'" text-anchor="middle" class="axis">'+escapeText(day.date)+'</text>');
-      });
-
+      const mode = modeEl.value;
+      const style = chartStyleEl.value === 'auto' ? (mode === 'daily' ? 'bar' : 'area') : chartStyleEl.value;
+      const trend = buildUsageTrend(filteredDaily(), mode);
+      chart.setAttribute('viewBox', '0 0 ' + USAGE_TREND_SIZE.width + ' ' + USAGE_TREND_SIZE.height);
+      chart.innerHTML = renderUsageTrend(trend, mode, style, theme, { tokens: compact, money: money, escape: escapeText }, true);
       chart.querySelectorAll('.hit').forEach(bindTip);
+      if (trendData.open) renderTrendData(trend);
+    }
+
+    function renderTrendData(trend = buildUsageTrend(filteredDaily(), modeEl.value)) {
+      const dateHeading = trendData.querySelector('thead th');
+      dateHeading.textContent = modeEl.value === 'weekly' ? 'Week of' : 'Date';
+      const rows = trend.map(function (point) {
+        const rate = point.costPerMillion === null ? '—' : formatTrendCost(point.costPerMillion, money);
+        return '<tr><th scope="row">' + escapeText(point.label) + '</th><td>' + escapeText(exact(point.tokens, 0)) + '</td><td>' + escapeText(formatTrendCost(point.cost, money)) + '</td><td>' + escapeText(rate) + '</td></tr>';
+      });
+      trendData.querySelector('tbody').innerHTML = rows.join('') || '<tr><td colspan="4">No usage in this date range</td></tr>';
     }
 
     function renderRoi() {
-      const hasPaymentEvidence = (dataset.payments.sources || []).length > 0 || Object.keys(paymentMonths).length > 0;
+      const hasPaymentEvidence = (dataset.payments.sources || []).length > 0 || paymentDates.length > 0;
       const partial = !dataset.payments.complete || Boolean(dataset.payments.error);
       roiPartial.hidden = !hasPaymentEvidence || !partial;
 
@@ -1224,7 +1205,7 @@ export function renderReportHtml(
 
       roiUnavailable.hidden = true;
       roiContent.hidden = false;
-      const metrics = buildRoiMetrics(filteredDaily(), paymentMonths, fromDateValue, toDateValue);
+      const metrics = buildRoiMetrics(filteredDaily(), paymentsByDate, fromDateValue, toDateValue);
       roiPaid.textContent = money(metrics.amountPaid);
       roiValue.textContent = money(metrics.estimatedApiValue);
       roiCoverage.textContent = metrics.valueCoveragePercent == null ? 'N/A' : percent(metrics.valueCoveragePercent);
@@ -1240,7 +1221,9 @@ export function renderReportHtml(
     function renderRoiChart(metrics) {
       const months = metrics.monthly;
       const monthsWithEvidence = new Set(filteredDaily().map(function (day) { return day.date.slice(0, 7); }));
-      Object.keys(paymentMonths).forEach(function (month) { monthsWithEvidence.add(month); });
+      paymentDates.forEach(function (date) {
+        if (date >= fromDateValue && date <= toDateValue) monthsWithEvidence.add(date.slice(0, 7));
+      });
       const width = 920, height = 330, left = 78, right = 78, top = 30, bottom = 48;
       const chartW = width - left - right, chartH = height - top - bottom;
       const maximum = Math.max(1, ...months.flatMap(function (month) { return [month.amountPaid, month.estimatedApiValue]; }));
@@ -1902,10 +1885,6 @@ export function renderReportHtml(
       renderExtendedAnalytics();
     }
 
-    function chartCss() {
-      return '.grid{stroke:'+theme.colors.line+'}.axis{fill:'+theme.colors.muted+';font-size:11px}.bar{fill:'+theme.colors.accent+'}.line{stroke:'+theme.colors.accent+';fill:none;stroke-width:3}.area{fill:'+theme.colors.accent+';opacity:.22}.chart-dot{fill:'+theme.colors.accent+'}text{font-family:'+theme.fonts.ui+'}svg{background:'+theme.colors.bg+';color:'+theme.colors.text+'}';
-    }
-
     function heatmapCss() {
       return 'text{font-family:'+theme.fonts.ui+';fill:'+theme.colors.muted+'}.label{font-size:11px}.cell{stroke:'+theme.colors.bg+';stroke-width:2}svg{background:'+theme.colors.bg+'}';
     }
@@ -1913,12 +1892,14 @@ export function renderReportHtml(
     function serializedChartSvg() {
       const clone = chart.cloneNode(true);
       clone.querySelectorAll('.hit').forEach(function (el) { el.remove(); });
-      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      clone.setAttribute('width', '920');
-      clone.setAttribute('height', '330');
-      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-      style.textContent = chartCss();
-      clone.insertBefore(style, clone.firstChild);
+      clone.removeAttribute('aria-describedby');
+      clone.setAttribute('width', USAGE_TREND_SIZE.width);
+      clone.setAttribute('height', USAGE_TREND_SIZE.height);
+      const background = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      background.setAttribute('width', '100%');
+      background.setAttribute('height', '100%');
+      background.setAttribute('fill', theme.colors.bg);
+      clone.querySelector('g').before(background);
 
       return '<?xml version="1.0" encoding="UTF-8"?>\\n' + new XMLSerializer().serializeToString(clone);
     }
@@ -2354,6 +2335,7 @@ export function renderReportHtml(
 
     modeEl.addEventListener('change', render);
     chartStyleEl.addEventListener('change', render);
+    trendData.addEventListener('toggle', function () { if (trendData.open) renderTrendData(); });
     rangePresetEl.addEventListener('change', function () { applyPreset(rangePresetEl.value); });
     fromDateButton.addEventListener('click', function () { openCalendar(fromPickerEl); });
     toDateButton.addEventListener('click', function () { openCalendar(toPickerEl); });

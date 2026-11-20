@@ -375,13 +375,7 @@ function mergePaymentAccountSnapshots(
 
 export function paymentMonthTotals(history: PaymentHistory): Record<string, number> {
   const totals: Record<string, number> = {};
-  const fingerprints = new Set<string>();
-  for (const transaction of history.transactions) {
-    const key = transactionKey(transaction, history.accountId);
-    if (fingerprints.has(key)) {
-      continue;
-    }
-    fingerprints.add(key);
+  for (const transaction of uniquePaymentTransactions(history)) {
     totals[transaction.month] = roundCurrency(
       (totals[transaction.month] ?? 0) + transaction.amountUsd,
     );
@@ -394,31 +388,35 @@ export function paymentMonthTotals(history: PaymentHistory): Record<string, numb
   );
 }
 
-export function proratedPaymentAmount(
-  monthly: Record<string, number>,
-  from: string,
-  to: string,
-): number {
-  const start = parseIsoDay(from);
-  const end = parseIsoDay(to);
-  if (start.getTime() > end.getTime()) {
-    throw new Error(`Payment range start ${from} is after end ${to}`);
+export function paymentDateTotals(history: PaymentHistory): Record<string, number> {
+  const byMonth = new Map<string, Map<string, number>>();
+  for (const { month, paidAt, amountUsd } of uniquePaymentTransactions(history)) {
+    const date = paidAt ?? `${month}-01`;
+    const dates = byMonth.get(month) ?? new Map<string, number>();
+    dates.set(date, roundCurrency((dates.get(date) ?? 0) + amountUsd));
+    byMonth.set(month, dates);
   }
 
-  let amount = 0;
-  for (let cursor = start.getTime(); cursor <= end.getTime(); cursor += 86_400_000) {
-    const day = new Date(cursor);
-    const month = day.toISOString().slice(0, 7);
-    const monthlyAmount = monthly[month];
-    if (monthlyAmount === undefined) {
-      continue;
-    }
-    const daysInMonth = new Date(
-      Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 0),
-    ).getUTCDate();
-    amount += monthlyAmount / daysInMonth;
+  for (const [month, amount] of Object.entries(history.overrides)) {
+    const entries = [...(byMonth.get(month) ?? [])];
+    const recordedTotal = roundCurrency(entries.reduce((sum, [, value]) => sum + value, 0));
+    // An unchanged override can keep each payment on its recorded date
+    if (entries.length && amount === recordedTotal) continue;
+    const date = entries.length === 1 ? entries[0][0] : `${month}-01`;
+    byMonth.set(month, new Map([[date, amount]]));
   }
-  return amount;
+
+  return Object.fromEntries([...byMonth.values()].flatMap((dates) => [...dates]).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function* uniquePaymentTransactions(history: PaymentHistory): Generator<PaymentTransactionFact> {
+  const fingerprints = new Set<string>();
+  for (const transaction of history.transactions) {
+    const key = transactionKey(transaction, history.accountId);
+    if (fingerprints.has(key)) continue;
+    fingerprints.add(key);
+    yield transaction;
+  }
 }
 
 function readPaymentOverrides(path: string): Record<string, number> {

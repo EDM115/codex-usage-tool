@@ -7,8 +7,8 @@ import {
   emptyPaymentHistory,
   loadPayments,
   mergePaymentHistories,
+  paymentDateTotals,
   paymentMonthTotals,
-  proratedPaymentAmount,
 } from "../src/payments";
 
 function paymentFile(value: unknown): string {
@@ -316,10 +316,25 @@ test("mergePaymentHistories lets a current complete API snapshot supersede older
   ]);
 });
 
-test("proratedPaymentAmount uses inclusive UTC calendar days", () => {
-  expect(proratedPaymentAmount({ "2026-06": 30, "2026-07": 31 }, "2026-06-30", "2026-07-01")).toBe(
-    2,
-  );
-  expect(proratedPaymentAmount({ "2028-02": 29 }, "2028-02-28", "2028-02-29")).toBe(2);
-  expect(() => proratedPaymentAmount({}, "2026-07-02", "2026-07-01")).toThrow();
+test("dated spend preserves invoice dates and applies monthly overrides once", () => {
+  const history = emptyPaymentHistory();
+  const renewal = { month: "2026-11", paidAt: "2026-11-04", amountUsd: 240, fingerprint: "a".repeat(64) };
+  history.transactions = [
+    renewal,
+    renewal,
+    { month: "2026-11", paidAt: "2026-11-12", amountUsd: 20, fingerprint: "b".repeat(64) },
+    { month: "2026-10", amountUsd: 80, fingerprint: "c".repeat(64) },
+    { month: "2026-09", paidAt: "2026-09-04", amountUsd: 24, fingerprint: "d".repeat(64) },
+  ];
+  history.overrides = { "2026-09": 120, "2026-11": 260, "2026-12": 200 };
+  expect(paymentDateTotals(history)).toEqual({
+    "2026-09-04": 120,
+    "2026-10-01": 80,
+    "2026-11-04": 240,
+    "2026-11-12": 20,
+    "2026-12-01": 200,
+  });
+
+  history.overrides["2026-11"] = 0;
+  expect(Object.entries(paymentDateTotals(history)).filter(([date]) => date.startsWith("2026-11"))).toEqual([["2026-11-01", 0]]);
 });

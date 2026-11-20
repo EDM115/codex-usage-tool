@@ -1,11 +1,17 @@
 import type { DailyUsage, UsageDataset, UsageTheme } from "./types";
 
-import { paymentMonthTotals } from "./payments";
+import { paymentDateTotals } from "./payments";
 import {
   buildRoiMetrics,
+  buildUsageTrend,
+  rangeForPreset,
+  renderUsageTrend,
   roiCurveSegments,
   sampleLabelIndexes,
+  smoothCurveCommands,
+  USAGE_TREND_SIZE,
   type RoiMonthMetrics,
+  type UsageTrendMode,
 } from "./report-runtime";
 import { compactNumber, escapeHtml, money } from "./util";
 
@@ -186,98 +192,20 @@ export function renderHeatmapSvg(
 
 export function renderChartSvg(
   dataset: UsageDataset,
-  mode: "daily" | "weekly" | "cumulative",
+  mode: UsageTrendMode,
   style: "bar" | "area" = mode === "daily" ? "bar" : "area",
 ): string {
-  const theme = dataset.theme;
-  const series =
-    mode === "weekly"
-      ? dataset.weekly.map((week) => ({
-          label: week.weekStart,
-          value: week.totalTokens,
-          cost: week.estimatedCostUsd,
-        }))
-      : dataset.daily.map((day) => ({
-          label: day.date,
-          value: day.totalTokens,
-          cost: day.estimatedCostUsd,
-        }));
-
-  if (mode === "cumulative") {
-    let total = 0;
-
-    for (const point of series) {
-      total += point.value;
-      point.value = total;
-    }
-  }
-
-  const width = 920;
-  const height = 360;
-  const pad = { left: 72, right: 28, top: 42, bottom: 54 };
-  const chartW = width - pad.left - pad.right;
-  const chartH = height - pad.top - pad.bottom;
-  const max = Math.max(1, ...series.map((point) => point.value));
-  const points = series.map((point, index) => {
-    const x = pad.left + (series.length <= 1 ? 0 : (index / (series.length - 1)) * chartW);
-    const y = pad.top + chartH - (point.value / max) * chartH;
-    return { ...point, x, y };
-  });
-  const yTicks = [0, 0.25, 0.5, 0.75, 1]
-    .map((fraction) => {
-      const y = pad.top + chartH - fraction * chartH;
-
-      return `<line x1="${pad.left}" x2="${width - pad.right}" y1="${y}" y2="${y}" class="grid"/><text x="${pad.left - 10}" y="${y + 4}" text-anchor="end" class="axis">${compactNumber(max * fraction)}</text>`;
-    })
-    .join("\n");
-
-  const body =
-    style === "bar"
-      ? points
-          .map((point, index) => {
-            const barW = Math.max(2, chartW / Math.max(1, points.length) - 2);
-            const x = pad.left + index * (chartW / Math.max(1, points.length));
-            const h = pad.top + chartH - point.y;
-
-            return `<rect x="${x}" y="${point.y}" width="${barW}" height="${h}" fill="${theme.colors.accent}"><title>${escapeHtml(`${point.label} : ${compactNumber(point.value)} tokens, ${money(point.cost)}`)}</title></rect>`;
-          })
-          .join("\n")
-      : renderArea(points, pad.top + chartH, theme);
-  const xLabelIndexes = new Set(sampleLabelIndexes(points.length, 8));
-  const xTicks = points
-    .filter((_, index) => xLabelIndexes.has(index))
-    .map(
-      (point) =>
-        `<text x="${point.x}" y="${height - 18}" text-anchor="middle" class="axis">${escapeHtml(point.label)}</text>`,
-    )
-    .join("\n");
-
-  return svgWrap(
-    width,
-    height,
-    theme,
-    `
-    <text x="${pad.left}" y="24" class="title">Token activity - ${mode}</text>
-    ${yTicks}
-    ${body}
-    <line x1="${pad.left}" x2="${width - pad.right}" y1="${pad.top + chartH}" y2="${pad.top + chartH}" class="axis-line"/>
-    ${xTicks}
-  `,
-  );
+  const { width, height } = USAGE_TREND_SIZE;
+  const trend = renderUsageTrend(buildUsageTrend(dataset.daily, mode), mode, style, dataset.theme, { tokens: compactNumber, money, escape: escapeHtml });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img">${trend}</svg>`;
 }
 
 export function renderRoiSvg(dataset: UsageDataset): string {
   const theme = dataset.theme;
-  const payments = paymentMonthTotals(dataset.payments);
-  const usageDates = dataset.daily.map((day) => day.date).sort();
-  const paymentMonths = Object.keys(payments).sort();
-  const from = [usageDates[0], paymentMonths[0] ? `${paymentMonths[0]}-01` : undefined]
-    .filter((value): value is string => Boolean(value))
-    .sort()[0];
-  const to = [usageDates.at(-1), paymentMonths.at(-1) ? monthEnd(paymentMonths.at(-1)!) : undefined]
-    .filter((value): value is string => Boolean(value))
-    .sort()
-    .at(-1);
+  const payments = paymentDateTotals(dataset.payments);
+  const usageDates = dataset.daily.map((day) => day.date);
+  const paymentMonths = Object.keys(payments).map((date) => date.slice(0, 7));
+  const { from, to } = rangeForPreset(usageDates, "all", paymentMonths);
   const width = 920;
   const height = 390;
 
@@ -419,50 +347,6 @@ export function renderRoiSvg(dataset: UsageDataset): string {
   );
 }
 
-function renderArea(
-  points: Array<{ x: number; y: number; value: number; label: string; cost: number }>,
-  baseline: number,
-  theme: UsageTheme,
-): string {
-  if (points.length === 0) {
-    return "";
-  }
-
-  const curve = smoothCurveCommands(points);
-  const line = `M ${points[0].x} ${points[0].y}${curve}`;
-  const area = `M ${points[0].x} ${baseline} L ${points[0].x} ${points[0].y}${curve} L ${points.at(-1)!.x} ${baseline} Z`;
-  const circles = points
-    .map(
-      (point) =>
-        `<circle cx="${point.x}" cy="${point.y}" r="3" fill="${theme.colors.accent}"><title>${escapeHtml(`${point.label} : ${compactNumber(point.value)} tokens, ${money(point.cost)}`)}</title></circle>`,
-    )
-    .join("\n");
-
-  return `<path class="area" d="${area}" fill="${theme.colors.accent}" opacity="0.22"/><path class="line" d="${line}" fill="none" stroke="${theme.colors.accent}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${circles}`;
-}
-
-function smoothCurveCommands(points: Array<{ x: number; y: number }>): string {
-  let path = "";
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const previous = points[index - 1] ?? points[index];
-    const current = points[index];
-    const next = points[index + 1];
-    const following = points[index + 2] ?? next;
-    if (Math.abs(next.y - current.y) <= 0.5) {
-      path += ` L ${next.x} ${next.y}`;
-      continue;
-    }
-    const control1X = current.x + (next.x - previous.x) / 6;
-    const control1Y = current.y + (next.y - previous.y) / 6;
-    const control2X = next.x - (following.x - current.x) / 6;
-    const control2Y = next.y - (following.y - current.y) / 6;
-    path += ` C ${control1X.toFixed(3)} ${control1Y.toFixed(3)} ${control2X.toFixed(3)} ${control2Y.toFixed(3)} ${next.x} ${next.y}`;
-  }
-
-  return path;
-}
-
 function valueMap(
   daily: DailyUsage[],
   mode: "daily" | "weekly" | "cumulative",
@@ -538,11 +422,6 @@ function roiLegend(x: number, y: number): string {
       return item;
     })
     .join("\n");
-}
-
-function monthEnd(month: string): string {
-  const [year, monthNumber] = month.split("-").map(Number);
-  return new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
 }
 
 function signedPercent(value: number): string {
