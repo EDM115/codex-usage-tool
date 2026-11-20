@@ -163,6 +163,7 @@ export const BUNDLED_MODEL_DEFINITIONS: ModelDefinition[] = [
   model("gpt-rosalind-discovery", "2026-10-10", SOURCES.rosalindDiscovery),
   // Duration-priced sessions are catalogued, but have no per-token pricing row
   model("gpt-live-1", "2026-09-10", SOURCES.changelog),
+  model("gpt-live-1.1", "2026-11-19", SOURCES.changelog),
   // First observed in the 2026-09-16 pricing cache, its release date is not established here
   model("gpt-5-search-api", "2026-09-16", SOURCES.pricing),
   model("text-embedding-3-large", "2024-01-25", SOURCES.embeddings),

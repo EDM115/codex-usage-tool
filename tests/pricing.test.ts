@@ -1003,7 +1003,7 @@ test("the refreshed snapshot preserves earlier Rosalind models with only publish
     }
     expect(primaryModelAt(pricing.catalog, "2026-10-17")).toBe("gpt-6-astra");
   }
-  expect(sources[0].table.get("gpt-rosalind-discovery")?.source).toContain("2026-11-17");
+  expect(sources[0].table.get("gpt-rosalind-discovery")?.source).toContain("2026-11-20");
 });
 
 test("Life sciences grouped tables reset a preceding Fast or Ultrafast tier", async () => {
@@ -1134,6 +1134,22 @@ test("split pricing tables retain official legacy rows and separate Batch and Fl
   expect(Object.keys(pricing.table.get("gpt-6-astra-law")?.tiers ?? {})).toEqual(["standard"]);
   expect(pricing.table.get("gpt-6-astra-law")?.tiers?.standard?.long?.outputPerMillion).toBe(75);
   for (const model of ["gpt-live-1", "sora-2", "gpt-4.1-2025-04-14", "o4-mini-2025-04-16"]) expect(pricing.table.has(model)).toBe(false);
+});
+
+test("GPT-Live-1.1 is catalogued from release without per-token pricing", async () => {
+  const date = "2026-11-19";
+  const sources = [await loadPricing({ source: "bundled" }), await loadFixture(OPENAI_PRICING_MARKDOWN_CACHE, date)];
+
+  for (const pricing of sources) {
+    expect(pricing.catalog.models.find((model) => model.model === "gpt-live-1.1")).toMatchObject({
+      releasedOn: date,
+      canBePrimary: false,
+    });
+    for (const model of ["gpt-live-1", "gpt-live-1.1"]) {
+      expect(pricing.table.has(model)).toBe(false);
+      expect(pricingAt(pricing.catalog, model, date)).toBeUndefined();
+    }
+  }
 });
 
 test("Terra, Rosalind and Astra Law pricing starts on each release across bundled, live and offline sources", async () => {

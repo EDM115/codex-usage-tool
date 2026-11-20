@@ -1,4 +1,4 @@
-// Checked-in fallback for https://developers.openai.com/api/docs/pricing.md, refreshed 2026-11-17
+// Checked-in fallback for https://developers.openai.com/api/docs/pricing.md, refreshed 2026-11-20
 // Runtime loading parses the same TextTokenPricingTables components from the live Markdown first
 export const OPENAI_PRICING_MARKDOWN_CACHE = String.raw`
 # Pricing
@@ -150,6 +150,13 @@ Flex
 | gpt-5-mini | $0.125 | $1.00 | $0.0125 |
 | gpt-5-nano | $0.025 | $0.20 | $0.0025 |
 | o3 | $1.00 | $4.00 | $0.25 |
+
+      
+
+
+\* Flex remains available on the models listed here as we wind down the beta. We won’t be adding Flex to new models. We’ll publish the retirement date in the [Flex processing guide](https://developers.openai.com/api/docs/guides/flex-processing) once confirmed.
+
+      
 
     
 
@@ -359,16 +366,15 @@ GPT-Live
 
 ### Pricing Table data
 
-| Model | Price per minute |
-| --- | --- |
-| gpt-live-1 | $0.05 |
+| Model | Active rate | Standby rate |
+| --- | --- | --- |
+| gpt-live-1.1 | $0.05 / minute | $0.02 / minute |
+| gpt-live-1 | $0.05 / minute | $0.02 / minute |
 
 
 
 
-[GPT-Live-1](https://developers.openai.com/api/docs/models/gpt-live-1) voice sessions are billed per second,
-without rounding up to a whole minute. Backend model and tool usage is charged
-separately.
+GPT-Live bills voice sessions per second.
 
 
 

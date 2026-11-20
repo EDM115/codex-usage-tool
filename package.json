@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-tool",
-  "version": "3.4.2",
+  "version": "3.4.3",
   "private": true,
   "description": "Generate self-contained Codex usage reports from local .codex files and dashboard APIs",
   "homepage": "https://github.com/EDM115/codex-usage-tool#readme",
@@ -45,7 +45,7 @@
     "@resvg/resvg-js": "^2.6.2"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.4",
+    "@types/bun": "^1.4.5",
     "playwright-core": "^1.65.1",
     "typescript": "^7.0.2"
   }

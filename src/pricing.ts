@@ -32,7 +32,7 @@ export type PricingLoadResult = {
 
 const OPENAI_PRICING_URL = "https://developers.openai.com/api/docs/pricing.md";
 const MODELS_DEV_URL = "https://models.dev/api.json";
-const BUNDLED_PRICING_DATE = "2026-11-17";
+const BUNDLED_PRICING_DATE = "2026-11-20";
 const HISTORICAL_PRICING_SOURCE = "historical OpenAI pricing cache";
 // https://developers.openai.com/api/docs/pricing, published Pacific calendar date
 const ULTRAFAST_LIST_START = "2027-03-01";

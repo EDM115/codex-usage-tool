@@ -42,6 +42,7 @@ const MODEL_PROGRESS_COLORS: Record<string, ProgressColorPair> = {
   "gpt-rosalind-research": { dark: "#79d7b5", light: "#16734f" },
   "gpt-rosalind-discovery": { dark: "#a4d77c", light: "#487323" },
   "gpt-live-1": { dark: "#80caff", light: "#246a9e" },
+  "gpt-live-1.1": { dark: "#73d5e1", light: "#18727e" },
   "gpt-5.6-sol": { dark: "#f6c453", light: "#9a5b00" },
   "gpt-5.6-terra": { dark: "#50d890", light: "#087a46" },
   "gpt-5.6-luna": { dark: "#afa8ff", light: "#5c45b8" },

@@ -59,6 +59,8 @@ jobs:
 
           {
             printf '%s\n\n' 'OpenAI pricing Markdown differs from the bundled cache'
-            sed 's/^/    /' "$pricing_dir/pricing.diff"
+            echo '```diff'
+            cat "$pricing_dir/pricing.diff"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit 1
